@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <contextName>${APP_NAME}</contextName>
+
+    <!-- 从Spring配置中读取属性 -->
+    <springProperty name="APP_NAME" scope="context" source="spring.application.name"/>
+    <springProperty name="LOG_FILE" scope="context" source="logging.file.name" defaultValue="./logs/${APP_NAME}"/>
+    <springProperty name="LOG_MAXFILESIZE" scope="context" source="logging.logback.rollingpolicy.max-file-size" defaultValue="10MB"/>
+    <springProperty name="LOG_FILEMAXDAY" scope="context" source="logging.logback.rollingpolicy.max-history" defaultValue="30"/>
+    <springProperty name="ServerIP" scope="context" source="spring.cloud.client.ip-address" defaultValue="0.0.0.0"/>
+    <springProperty name="ServerPort" scope="context" source="server.port" defaultValue="5300"/>
+    <springProperty name="LOG_LEVEL" scope="context" source="logging.level.root" defaultValue="INFO"/>
+
+    <!-- 环境特定配置 -->
+    <springProfile name="dev">
+        <property name="LOG_LEVEL" value="DEBUG"/>
+    </springProfile>
+
+    <springProfile name="local">
+        <property name="LOG_LEVEL" value="DEBUG"/>
+    </springProfile>
+
+    <springProfile name="test">
+        <property name="LOG_LEVEL" value="INFO"/>
+    </springProfile>
+
+    <springProfile name="prod">
+        <property name="LOG_LEVEL" value="WARN"/>
+    </springProfile>
+
+    <!-- 彩色日志 -->
+    <conversionRule conversionWord="clr" converterClass="org.springframework.boot.logging.logback.ColorConverter"/>
+    <conversionRule conversionWord="wex"
+                    converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter"/>
+    <conversionRule conversionWord="wEx"
+                    converterClass="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter"/>
+
+    <!-- 彩色日志格式 -->
+    <property name="CONSOLE_LOG_PATTERN"
+              value="[${APP_NAME}:${ServerIP}:${ServerPort}] %clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%level){blue} %clr(${PID}){magenta} %clr([%thread]){orange} %clr(%logger){cyan} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"/>
+
+    <property name="FILE_LOG_PATTERN"
+              value="[${APP_NAME}:${ServerIP}:${ServerPort}] %d{yyyy-MM-dd HH:mm:ss.SSS} %level ${PID} [%thread] %logger %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"/>
+
+    <!-- 开发环境：控制台日志 -->
+    <springProfile name="dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <withJansi>true</withJansi>
+            <encoder>
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+    </springProfile>
+
+    <!-- 生产环境：生产环境日志格式 -->
+    <springProfile name="prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${FILE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+    </springProfile>
+
+    <!-- 通用控制台日志配置（测试和其他环境） -->
+    <springProfile name="!dev,!prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <!-- 添加全局阈值过滤器，过滤掉过多的低级日志 -->
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>INFO</level>
+            </filter>
+        </appender>
+    </springProfile>
+
+    <!-- 本地环境控制台配置 -->
+    <springProfile name="local">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <withJansi>true</withJansi>
+            <encoder>
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <!-- 使用更智能的过滤器组合 -->
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>INFO</level> <!-- 基本阈值，可以被后续规则覆盖 -->
+            </filter>
+        </appender>
+        
+        <!-- 为应用自身日志添加特定的控制台输出 -->
+        <appender name="APP_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <withJansi>true</withJansi>
+            <encoder>
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>DEBUG</level>
+            </filter>
+        </appender>
+    </springProfile>
+
+    <!-- 异步控制台日志 -->
+    <appender name="ASYNC_CONSOLE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="CONSOLE"/>
+        <queueSize>2048</queueSize>
+        <discardingThreshold>80</discardingThreshold>
+        <maxFlushTime>1000</maxFlushTime>
+        <!-- 追加到队列的阻塞时间，单位毫秒，默认是0，代表无限等待 -->
+        <neverBlock>false</neverBlock>
+    </appender>
+
+    <!-- 错误日志文件 -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}/${APP_NAME}-error.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}/${APP_NAME}-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>${LOG_MAXFILESIZE}</maxFileSize>
+            <maxHistory>${LOG_FILEMAXDAY}</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- 异步错误日志 -->
+    <appender name="ASYNC_ERROR_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="ERROR_FILE"/>
+        <queueSize>1024</queueSize>
+        <discardingThreshold>0</discardingThreshold> <!-- 不丢弃错误日志 -->
+    </appender>
+
+    <!-- 信息日志文件 -->
+    <appender name="INFO_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}/${APP_NAME}-info.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}/${APP_NAME}-info.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>${LOG_MAXFILESIZE}</maxFileSize>
+            <maxHistory>${LOG_FILEMAXDAY}</maxHistory>
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>INFO</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- 异步信息日志 -->
+    <appender name="ASYNC_INFO_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="INFO_FILE"/>
+        <queueSize>1024</queueSize>
+        <discardingThreshold>20</discardingThreshold> <!-- 队列剩余20%时丢弃INFO级别日志 -->
+    </appender>
+
+    <!-- 调试日志文件（仅开发环境使用） -->
+    <springProfile name="dev">
+        <appender name="DEBUG_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_FILE}/${APP_NAME}-debug.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_FILE}/${APP_NAME}-debug.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+                <maxFileSize>${LOG_MAXFILESIZE}</maxFileSize>
+                <maxHistory>5</maxHistory> <!-- 调试日志保留天数较少 -->
+                <totalSizeCap>2GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder>
+                <pattern>${FILE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <filter class="ch.qos.logback.classic.filter.LevelFilter">
+                <level>DEBUG</level>
+                <onMatch>ACCEPT</onMatch>
+                <onMismatch>DENY</onMismatch>
+            </filter>
+        </appender>
+
+        <!-- 异步调试日志 -->
+        <appender name="ASYNC_DEBUG_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="DEBUG_FILE"/>
+            <queueSize>1024</queueSize>
+            <discardingThreshold>50</discardingThreshold> <!-- 队列剩余50%时丢弃DEBUG级别日志 -->
+        </appender>
+    </springProfile>
+    
+    <!-- WebFlux 和 R2DBC 日志（单独配置）-->
+    <appender name="REACTIVE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}/${APP_NAME}-reactive.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}/${APP_NAME}-reactive.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>${LOG_MAXFILESIZE}</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+    
+    <!-- 异步响应式日志 -->
+    <appender name="ASYNC_REACTIVE_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="REACTIVE_FILE"/>
+        <queueSize>1024</queueSize>
+        <discardingThreshold>20</discardingThreshold>
+    </appender>
+
+    <!-- 自定义响应式日志记录器 -->
+    <logger name="reactor.netty" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_REACTIVE_FILE"/>
+        <appender-ref ref="ASYNC_ERROR_FILE"/>
+    </logger>
+    
+    <logger name="org.springframework.web.reactive" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_REACTIVE_FILE"/>
+        <appender-ref ref="ASYNC_ERROR_FILE"/>
+    </logger>
+
+    <!-- 第三方库日志级别配置 -->
+    <!-- 注意：这些配置可能会被application-{profile}.yaml中的设置覆盖 -->
+    <!-- 基础框架 -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="org.apache" level="WARN"/>
+    <logger name="org.mybatis" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="io.lettuce" level="WARN"/>
+    <logger name="reactor" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="org.redisson" level="WARN"/>
+    
+    <!-- R2DBC 相关日志配置 -->
+    <logger name="org.springframework.r2dbc" level="INFO"/>
+    <logger name="io.r2dbc.pool" level="INFO"/>
+    <logger name="io.r2dbc.mysql" level="WARN"/>
+    
+    <!-- Sa-Token 日志 -->
+    <springProfile name="dev,local">
+        <logger name="cn.dev33.satoken" level="DEBUG"/>
+    </springProfile>
+    <springProfile name="test,prod">
+        <logger name="cn.dev33.satoken" level="WARN"/>
+    </springProfile>
+    
+    <!-- RMI相关日志配置 -->
+    <logger name="javax.management.remote.rmi" level="ERROR"/>
+    <logger name="sun.rmi" level="ERROR"/>
+    <logger name="sun.rmi.transport" level="ERROR"/>
+    <logger name="sun.rmi.loader" level="ERROR"/>
+    <logger name="javax.management" level="WARN"/>
+    
+    <!-- 其他常见低级日志 -->
+    <logger name="org.apache.http" level="WARN"/>
+    <logger name="org.apache.catalina" level="WARN"/>
+    <logger name="org.apache.tomcat" level="WARN"/>
+    <logger name="org.springframework.web" level="WARN"/>
+    <logger name="org.springframework.scheduling" level="WARN"/>
+    <logger name="com.netflix" level="WARN"/>
+    <logger name="io.undertow" level="WARN"/>
+    <logger name="com.alibaba.nacos" level="WARN"/>
+    <logger name="com.zaxxer" level="WARN"/>
+    <logger name="org.quartz" level="WARN"/>
+    
+    <!-- 本地环境日志配置 -->
+    <springProfile name="local">
+        <!-- 为应用代码定义特殊logger，保留DEBUG日志 -->
+        <logger name="com.ryu" level="DEBUG" additivity="false">
+            <appender-ref ref="APP_CONSOLE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="ASYNC_INFO_FILE"/>
+            <appender-ref ref="ASYNC_DEBUG_FILE"/>
+        </logger>
+        
+        <root level="${LOG_LEVEL}">
+            <appender-ref ref="ASYNC_CONSOLE"/> <!-- 其他日志通过常规控制台输出 -->
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="ASYNC_INFO_FILE"/>
+        </root>
+    </springProfile>
+    
+    <!-- 生产环境日志配置 -->
+    <springProfile name="prod">
+        <root level="WARN">
+            <appender-ref ref="ASYNC_CONSOLE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+        </root>
+    </springProfile>
+    
+    <!-- 测试环境日志配置 -->
+    <springProfile name="test">
+        <root level="INFO">
+            <appender-ref ref="ASYNC_CONSOLE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="ASYNC_INFO_FILE"/>
+        </root>
+    </springProfile>
+    
+    <!-- 开发环境日志配置 -->
+    <springProfile name="dev">
+        <root level="${LOG_LEVEL}">
+            <appender-ref ref="ASYNC_CONSOLE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="ASYNC_INFO_FILE"/>
+            <appender-ref ref="ASYNC_DEBUG_FILE"/>
+        </root>
+    </springProfile>
+    
+    <!-- 默认日志配置 -->
+    <springProfile name="!dev,!prod,!test,!local">
+        <root level="INFO">
+            <appender-ref ref="ASYNC_CONSOLE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="ASYNC_INFO_FILE"/>
+        </root>
+    </springProfile>
+</configuration> 
