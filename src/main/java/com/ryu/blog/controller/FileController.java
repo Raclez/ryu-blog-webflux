@@ -2,10 +2,11 @@ package com.ryu.blog.controller;
 
 import com.ryu.blog.dto.FileSearchDTO;
 import com.ryu.blog.dto.FilesDTO;
-import com.ryu.blog.dto.GroupFileQueryDTO;
+import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.UploadOptionsDTO;
+import com.ryu.blog.entity.File;
 import com.ryu.blog.service.FileService;
-import com.ryu.blog.utils.FileUtils;
+import com.ryu.blog.service.ResourceGroupService;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
@@ -13,10 +14,11 @@ import com.ryu.blog.vo.FileVersionVO;
 import com.ryu.blog.vo.PageResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +43,7 @@ import java.util.Map;
 public class FileController {
 
     private final FileService fileService;
+    private final ResourceGroupService resourceGroupService;
 
     /**
      * 上传文件
@@ -356,7 +359,23 @@ public class FileController {
                     return Mono.just(Result.error(e.getMessage()));
                 });
     }
-    
+    /**
+     * 获取资源组中的文件
+     *
+     * @param queryDTO 查询参数
+     * @return 文件列表分页结果
+     */
+    @GetMapping("/group")
+    @Operation(summary = "获取资源组文件列表", description = "分页获取资源组中的文件ID列表")
+    public Mono<Result<PageResult<File>>> getGroupFiles( @ParameterObject @Valid ResourceGroupQueryDTO queryDTO) {
+        return fileService.getGroupFiles(queryDTO)
+                .map(Result::success)
+                .onErrorResume(e -> {
+                    log.error("获取资源组文件列表失败", e);
+                    return Mono.just(Result.error(e.getMessage()));
+                });
+    }
+
     /**
      * 搜索文件
      * @param searchDTO 搜索参数
@@ -392,22 +411,5 @@ public class FileController {
                     return Mono.just(Result.error(e.getMessage()));
                 });
     }
-    
-    /**
-     * 获取分组文件
-     * @param queryDTO 查询参数
-     * @return 分页结果
-     */
-    @GetMapping("/group")
-    @Operation(summary = "获取文件分组", description = "根据分组查询文件")
-    public Mono<Result<Map<String, Object>>> getGroupFiles(GroupFileQueryDTO queryDTO) {
-        log.info("查询分组文件: {}", queryDTO);
-        
-        return fileService.getGroupFiles(queryDTO)
-                .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取分组文件失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
-    }
+
 } 

@@ -159,6 +159,7 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
     public Mono<String> completeMultipartUpload(String uploadId, List<String> partETags) {
         Map<String, Object> uploadContext = multipartUploadCache.get(uploadId);
         if (uploadContext == null) {
+            log.warn("[{}] 无效的上传ID: uploadId={}", getStrategyKey(), uploadId);
             return Mono.error(new RuntimeException("无效的上传ID: " + uploadId));
         }
         
@@ -189,9 +190,10 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
             // 清理上传信息
             multipartUploadCache.remove(uploadId);
             
-            // 上传完整文件
-            String contentType = getContentType(objectName);
-            return uploadBytes(completeData, objectName, contentType);
+            // 上传完整文件 - 直接返回objectName不添加前缀
+            log.info("[{}] 分片上传完成: uploadId={}, objectName={}, size={}", 
+                    getStrategyKey(), uploadId, objectName, completeData.length);
+            return Mono.just(objectName);
         } catch (Exception e) {
             log.error("[{}] 合并分片失败: {}", getStrategyKey(), e.getMessage(), e);
             return Mono.error(new RuntimeException("合并分片失败: " + e.getMessage(), e));
@@ -213,7 +215,8 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
         // 简化实现，直接返回对象名
         log.info("[{}] 上传文件: objectName={}, contentType={}, size={}",
                 getStrategyKey(), objectName, contentType, bytes.length);
-        return buildAccessUrlAsync(objectName);
+        // 直接返回objectName，不添加前缀
+        return Mono.just(objectName);
     }
 
     /**
@@ -225,8 +228,8 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
         String uniqueFileName = generateUniqueFileName(fileName);
         String fileType = FileUtils.getFileType(fileName);
         
-        return getPrefixAsync()
-            .map(prefix -> normalizePath(prefix + "/" + fileType + "/" + uniqueFileName));
+        // 不再添加前缀，直接按文件类型分组
+        return Mono.just(normalizePath(fileType + "/" + uniqueFileName));
     }
     
     /**

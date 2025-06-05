@@ -17,7 +17,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,39 +88,9 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
      * @param defaultValue 默认值
      * @return 属性值的Mono
      */
+    @Override
     public Mono<String> getConfigPropertyAsync(String key, String defaultValue) {
         return configManager.getConfigPropertyAsync(getStrategyKey(), key, defaultValue);
-    }
-    
-    /**
-     * 获取配置属性（同步方法，仅供非响应式上下文使用）
-     * @param key 属性键
-     * @param defaultValue 默认值
-     * @return 属性值
-     * @deprecated 请在响应式上下文中使用 getConfigPropertyAsync 方法
-     */
-    @Override
-    @Deprecated
-    public String getConfigProperty(String key, String defaultValue) {
-        return configManager.getConfigProperty(getStrategyKey(), key, defaultValue);
-    }
-    
-    /**
-     * 获取前缀路径
-     * @return 前缀路径的Mono
-     */
-    protected Mono<String> getPrefixAsync() {
-        return getConfigPropertyAsync("prefix", "");
-    }
-    
-    /**
-     * 获取前缀路径（同步方法，仅供非响应式上下文使用）
-     * @return 前缀路径
-     * @deprecated 请在响应式上下文中使用 getPrefixAsync 方法
-     */
-    @Deprecated
-    protected String getPrefix() {
-        return getConfigProperty("prefix", "");
     }
     
     /**
@@ -151,86 +120,40 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
     }
     
     /**
-     * 生成按日期分组的存储路径
-     * @param fileName 文件名
-     * @return 按日期分组的存储路径的Mono
-     */
-    protected Mono<String> generateDateBasedPathAsync(String fileName) {
-        LocalDateTime now = LocalDateTime.now();
-        String yearMonth = now.format(DateTimeFormatter.ofPattern("yyyy/MM"));
-        String day = now.format(DateTimeFormatter.ofPattern("dd"));
-        
-        return getPrefixAsync().map(prefix -> {
-            String path = prefix.isEmpty() ? yearMonth + "/" + day : prefix + "/" + yearMonth + "/" + day;
-            return normalizePath(path);
-        });
-    }
-    
-    /**
-     * 生成按日期分组的存储路径（同步方法，仅供非响应式上下文使用）
-     * @param fileName 文件名
-     * @return 按日期分组的存储路径
-     * @deprecated 请在响应式上下文中使用 generateDateBasedPathAsync 方法
-     */
-    @Deprecated
-    protected String generateDateBasedPath(String fileName) {
-        LocalDateTime now = LocalDateTime.now();
-        String yearMonth = now.format(DateTimeFormatter.ofPattern("yyyy/MM"));
-        String day = now.format(DateTimeFormatter.ofPattern("dd"));
-        
-        String prefix = getPrefix();
-        String path = prefix.isEmpty() ? yearMonth + "/" + day : prefix + "/" + yearMonth + "/" + day;
-        
-        return normalizePath(path);
-    }
-    
-    /**
      * 构建对象存储路径
+     * 采用统一的按内容类型和日期分层的路径结构：
+     * {prefix}/{content-type}/{year}/{month}/{day}/{uuid}.{extension}
+     * 
      * @param fileName 文件名
      * @return 完整的存储路径的Mono
      */
     protected Mono<String> buildObjectNameAsync(String fileName) {
+        // 获取文件类型分组（images, documents, videos等）
+        String extension = getFileExtension(fileName);
+        String contentTypeGroup = getFileTypeGroup(extension);
+        
+        // 生成UUID作为文件名（保留原始扩展名）
         String uniqueFileName = generateUniqueFileName(fileName);
-        return getPrefixAsync().map(prefix -> 
-            normalizePath(prefix + "/" + uniqueFileName)
-        );
-    }
-    
-    /**
-     * 构建对象存储路径（同步方法，仅供非响应式上下文使用）
-     * @param fileName 文件名
-     * @return 完整的存储路径
-     * @deprecated 请在响应式上下文中使用 buildObjectNameAsync 方法
-     */
-    @Deprecated
-    protected String buildObjectName(String fileName) {
-        String prefix = getPrefix();
-        String uniqueFileName = generateUniqueFileName(fileName);
-        return normalizePath(prefix + "/" + uniqueFileName);
-    }
-    
-    /**
-     * 构建按日期分组的对象存储路径
-     * @param fileName 文件名
-     * @return 完整的存储路径（按日期分组）的Mono
-     */
-    protected Mono<String> buildDateBasedObjectNameAsync(String fileName) {
-        String uniqueFileName = generateUniqueFileName(fileName);
-        return generateDateBasedPathAsync(fileName)
-            .map(path -> joinPath(path, uniqueFileName));
-    }
-    
-    /**
-     * 构建按日期分组的对象存储路径（同步方法，仅供非响应式上下文使用）
-     * @param fileName 文件名
-     * @return 完整的存储路径（按日期分组）
-     * @deprecated 请在响应式上下文中使用 buildDateBasedObjectNameAsync 方法
-     */
-    @Deprecated
-    protected String buildDateBasedObjectName(String fileName) {
-        String path = generateDateBasedPath(fileName);
-        String uniqueFileName = generateUniqueFileName(fileName);
-        return joinPath(path, uniqueFileName);
+        
+        // 生成日期路径
+        LocalDateTime now = LocalDateTime.now();
+        String year = String.valueOf(now.getYear());
+        String month = String.format("%02d", now.getMonthValue());
+        String day = String.format("%02d", now.getDayOfMonth());
+        
+        // 构建基本路径：{content-type}/{year}/{month}/{day}/{uuid}.{extension}
+        String basePath = joinPath(contentTypeGroup, year, month, day, uniqueFileName);
+        String normalizedBasePath = normalizePath(basePath);
+        
+        // 获取前缀并添加到路径
+        return getConfigPropertyAsync("prefix", "")
+            .map(prefix -> {
+                if (prefix.isEmpty()) {
+                    return normalizedBasePath;
+                } else {
+                    return normalizePath(joinPath(prefix, normalizedBasePath));
+                }
+            });
     }
     
     /**
@@ -243,27 +166,8 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
         String fileType = getFileTypeGroup(extension);
         String uniqueFileName = generateUniqueFileName(fileName);
         
-        return getPrefixAsync().map(prefix -> {
-            String path = prefix.isEmpty() ? fileType : prefix + "/" + fileType;
-            return joinPath(path, uniqueFileName);
-        });
-    }
-    
-    /**
-     * 构建按文件类型分组的对象存储路径（同步方法，仅供非响应式上下文使用）
-     * @param fileName 文件名
-     * @return 完整的存储路径（按文件类型分组）
-     * @deprecated 请在响应式上下文中使用 buildTypeBasedObjectNameAsync 方法
-     */
-    @Deprecated
-    protected String buildTypeBasedObjectName(String fileName) {
-        String extension = FileUtils.getFileExtension(fileName);
-        String fileType = getFileTypeGroup(extension);
-        String prefix = getPrefix();
-        String path = prefix.isEmpty() ? fileType : prefix + "/" + fileType;
-        String uniqueFileName = generateUniqueFileName(fileName);
-        
-        return joinPath(path, uniqueFileName);
+        // 按文件类型分组
+        return Mono.just(joinPath(fileType, uniqueFileName));
     }
     
     /**
@@ -319,77 +223,6 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
                 }
                 return accessUrl + (accessUrl.endsWith("/") ? "" : "/") + objectName;
             });
-
-    }
-    
-    /**
-     * 构建访问URL（同步方法，仅供非响应式上下文使用）
-     * @param objectName 对象名称
-     * @return 完整的访问URL
-     * @deprecated 请在响应式上下文中使用 buildAccessUrlAsync 方法
-     */
-    @Deprecated
-    protected String buildAccessUrl(String objectName) {
-        String accessUrl = configManager.getAccessUrl(getStrategyKey());
-        if (!StringUtils.hasText(accessUrl)) {
-            return objectName;
-        }
-        return accessUrl + (accessUrl.endsWith("/") ? "" : "/") + objectName;
-    }
-    
-    /**
-     * 构建下载URL
-     * @param objectName 对象名称
-     * @param filename 下载时显示的文件名
-     * @param expireSeconds 过期时间（秒）
-     * @return 下载URL的Mono
-     */
-    protected Mono<String> buildDownloadUrlAsync(String objectName, String filename, long expireSeconds) {
-        return buildAccessUrlAsync(objectName)
-            .map(accessUrl -> {
-                // 添加下载参数
-                if (accessUrl.contains("?")) {
-                    accessUrl += "&";
-                } else {
-                    accessUrl += "?";
-                }
-                
-                accessUrl += "download=true";
-                
-                if (StringUtils.hasText(filename)) {
-                    accessUrl += "&filename=" + filename;
-                }
-                
-                return accessUrl;
-            });
-    }
-    
-    /**
-     * 构建下载URL（同步方法，仅供非响应式上下文使用）
-     * @param objectName 对象名称
-     * @param filename 下载时显示的文件名
-     * @param expireSeconds 过期时间（秒）
-     * @return 下载URL
-     * @deprecated 请在响应式上下文中使用 buildDownloadUrlAsync 方法
-     */
-    @Deprecated
-    protected String buildDownloadUrl(String objectName, String filename, long expireSeconds) {
-        String accessUrl = buildAccessUrl(objectName);
-        
-        // 添加下载参数
-        if (accessUrl.contains("?")) {
-            accessUrl += "&";
-        } else {
-            accessUrl += "?";
-        }
-        
-        accessUrl += "download=true";
-        
-        if (StringUtils.hasText(filename)) {
-            accessUrl += "&filename=" + filename;
-        }
-        
-        return accessUrl;
     }
     
     /**
@@ -485,17 +318,34 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
     
     @Override
     public Mono<String> generatePreviewUrl(String path, long expireSeconds) {
-        // 默认实现：直接返回访问URL
+        // 默认实现：直接使用公共URL
         log.debug("[{}] 生成文件预览URL: path={}, expireSeconds={}", getStrategyKey(), path, expireSeconds);
-        return buildAccessUrlAsync(path);
+        return getPublicUrl(path);
     }
     
     @Override
     public Mono<String> generateDownloadUrl(String path, long expireSeconds) {
-        // 默认实现：构建带下载参数的URL
+        // 默认实现：使用公共URL，添加下载参数
         log.debug("[{}] 生成文件下载URL: path={}, expireSeconds={}", getStrategyKey(), path, expireSeconds);
         String filename = extractFileName(path);
-        return buildDownloadUrlAsync(path, filename, expireSeconds);
+        
+        return getPublicUrl(path)
+            .map(url -> {
+                // 添加下载参数
+                if (url.contains("?")) {
+                    url += "&";
+                } else {
+                    url += "?";
+                }
+                
+                url += "download=true";
+                
+                if (StringUtils.hasText(filename)) {
+                    url += "&filename=" + filename;
+                }
+                
+                return url;
+            });
     }
     
     @Override
@@ -603,4 +453,65 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
     protected String getContentType(String fileName) {
         return FileUtils.getContentType(fileName);
     }
+
+    /**
+     * 获取文件的公共永久URL（不需要身份验证，适用于博客图片等公开内容）
+     * 默认实现使用基本的访问URL构建，子类可以根据需要覆盖此方法
+     * 
+     * @param path 文件路径
+     * @return 公共永久URL
+     */
+    @Override
+    public Mono<String> getPublicUrl(String path) {
+        return getAccessUrlAsync()
+            .map(accessUrl -> {
+
+                // 处理路径和URL拼接
+                String normalizedPath = normalizePath(path);
+                if (accessUrl.endsWith("/")) {
+                    accessUrl = accessUrl.substring(0, accessUrl.length() - 1);
+                }
+                if (normalizedPath.startsWith("/")) {
+                    normalizedPath = normalizedPath.substring(1);
+                }
+                return accessUrl + "/" + normalizedPath;
+            })
+            .defaultIfEmpty("/api/files/public/" + path); // 如果没有配置访问URL，使用默认API路径
+    }
+
+    /**
+     * 获取前缀路径
+     * @return 前缀路径的Mono
+     */
+    protected Mono<String> getPrefixAsync() {
+        return getConfigPropertyAsync("prefix", "");
+    }
+
+    /**
+     * 构建下载URL
+     * @param objectName 对象名称
+     * @param filename 下载时显示的文件名
+     * @param expireSeconds 过期时间（秒）
+     * @return 下载URL的Mono
+     */
+    protected Mono<String> buildDownloadUrlAsync(String objectName, String filename, long expireSeconds) {
+        return buildAccessUrlAsync(objectName)
+            .map(accessUrl -> {
+                // 添加下载参数
+                if (accessUrl.contains("?")) {
+                    accessUrl += "&";
+                } else {
+                    accessUrl += "?";
+                }
+                
+                accessUrl += "download=true";
+                
+                if (StringUtils.hasText(filename)) {
+                    accessUrl += "&filename=" + filename;
+                }
+                
+                return accessUrl;
+            });
+    }
+
 } 

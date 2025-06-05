@@ -1,6 +1,8 @@
 package com.ryu.blog.entity;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,8 +58,10 @@ public class StorageConfig implements Serializable {
 
     /**
      * 配置项，JSON格式存储 - 对应数据库字段 config
+     * 在JSON序列化时被忽略，通过getConfigMap()提供反序列化后的Map
      */
     @Column("config")
+    @JsonIgnore
     private String config;
 
     /**
@@ -124,9 +128,12 @@ public class StorageConfig implements Serializable {
 
     /**
      * 获取配置属性Map
+     * 在JSON序列化时重命名为"config"
+     * 
      * @return 配置属性Map
      */
     @Transient
+    @JsonProperty("config")
     public Map<String, String> getConfigMap() {
         if (config == null || config.isEmpty()) {
             return new HashMap<>();

@@ -37,6 +37,14 @@ app:
   upload:
     # 上传路径
     path: D:/data/upload
+  # 跨域配置
+  cors:
+    allowed-origins: "*"
+    allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+    exposed-headers: "Content-Disposition,Content-Length,Content-Type,Authorization"
 
 # 开发环境下启用Swagger
 springdoc:

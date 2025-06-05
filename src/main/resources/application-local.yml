@@ -16,4 +16,15 @@ logging:
     root: debug
     com.ryu: debug
     org.springframework.r2dbc: debug
-    io.r2dbc.mysql: debug 
+    io.r2dbc.mysql: debug
+
+# 应用自定义配置
+app:
+  # 跨域配置
+  cors:
+    allowed-origins: "http://localhost:3000,http://localhost:8000,http://localhost:8080,http://127.0.0.1:3000"
+    allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+    exposed-headers: "Content-Disposition,Content-Length,Content-Type,Authorization" 

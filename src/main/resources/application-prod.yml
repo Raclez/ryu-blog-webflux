@@ -11,7 +11,7 @@ spring:
       database: 0
 
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:5300}
 
 logging:
   level:
@@ -66,4 +66,9 @@ logging:
 app:
   # 跨域配置
   cors:
-    allowed-origins: https://www.example.com 
+    allowed-origins: "*"
+    allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+    allowed-headers: "Origin,X-Requested-With,Content-Type,Accept,Authorization"
+    allow-credentials: true
+    max-age: 3600
+    exposed-headers: "Content-Disposition,Content-Length,Content-Type,Authorization" 

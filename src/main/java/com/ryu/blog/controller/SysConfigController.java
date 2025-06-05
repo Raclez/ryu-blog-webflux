@@ -35,11 +35,10 @@ public class SysConfigController {
     @Operation(summary = "分页获取系统配置信息")
     public Mono<Result<Map<String, Object>>> getSysConfig(
             @RequestParam(required = false) String configKey,
-            @RequestParam(required = false) String configGroup,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size) {
-        log.info("请求分页获取系统配置信息，查询条件：key={}, group={}", configKey, configGroup);
-        return sysConfigService.getSysConfigPage(configKey, configGroup, page, size)
+            @RequestParam(defaultValue = "1") int currentPage,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        log.info("请求分页获取系统配置信息，查询条件：key={}", configKey);
+        return sysConfigService.getSysConfigPage(configKey, currentPage, pageSize)
                 .map(Result::success);
     }
 

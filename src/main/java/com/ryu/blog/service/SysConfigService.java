@@ -77,12 +77,11 @@ public interface SysConfigService {
      * 分页获取系统配置
      *
      * @param configKey 配置键（可选）
-     * @param configGroup 配置分组（可选）
      * @param page 页码
      * @param size 每页大小
      * @return 系统配置分页结果
      */
-    Mono<Map<String, Object>> getSysConfigPage(String configKey, String configGroup, int page, int size);
+    Mono<Map<String, Object>> getSysConfigPage(String configKey, int page, int size);
 
     /**
      * 搜索配置

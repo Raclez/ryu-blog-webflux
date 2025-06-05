@@ -43,7 +43,7 @@ public class LocalStorageStrategy extends AbstractFileStorageStrategy {
         log.debug("[local] 开始上传文件: fileName={}, size={}", fileName, size);
         
         // 使用日期分组的存储路径
-        return buildDateBasedObjectNameAsync(fileName)
+        return buildObjectNameAsync(fileName)
             .flatMap(objectName -> {
                 String relativePath = extractPath(objectName);
                 String uniqueFileName = extractFileName(objectName);
@@ -352,7 +352,8 @@ public class LocalStorageStrategy extends AbstractFileStorageStrategy {
                         throw new RuntimeException("合并分片失败: " + e.getMessage(), e);
                     }
                 }))
-                .flatMap(path -> buildAccessUrlAsync(path))
+                // 直接返回objectName，不添加前缀
+                .thenReturn(objectName)
             );
     }
 
@@ -403,30 +404,6 @@ public class LocalStorageStrategy extends AbstractFileStorageStrategy {
             .doOnNext(basePath -> log.debug("[local] 获取基础路径: basePath={}", basePath));
     }
 
-    /**
-     * 构建对象存储路径（异步方法）
-     * @param fileName 文件名
-     * @return 完整的存储路径的Mono
-     */
-    protected Mono<String> buildObjectNameAsync(String fileName) {
-        String uniqueFileName = generateUniqueFileName(fileName);
-        return getPrefixAsync()
-            .map(prefix -> normalizePath(prefix + "/" + uniqueFileName));
-    }
-    
-    /**
-     * 构建基于日期的对象存储路径（异步方法）
-     * @param fileName 文件名
-     * @return 完整的存储路径的Mono
-     */
-    protected Mono<String> buildDateBasedObjectNameAsync(String fileName) {
-        String uniqueFileName = generateUniqueFileName(fileName);
-        String datePath = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-        
-        return getPrefixAsync()
-            .map(prefix -> normalizePath(prefix + "/" + datePath + "/" + uniqueFileName));
-    }
-    
     /**
      * 构建访问URL（异步方法）
      * @param path 文件路径

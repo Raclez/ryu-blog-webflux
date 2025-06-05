@@ -36,7 +36,7 @@ public class ResourceGroup implements Serializable {
     /**
      * 资源组名称
      */
-    private String name;
+    private String groupName;
 
     /**
      * 资源组描述
@@ -48,27 +48,6 @@ public class ResourceGroup implements Serializable {
      */
     @Column("creator_id")
     private Long creatorId;
-
-    /**
-     * 父资源组ID，顶级资源组为NULL
-     */
-    @Column("parent_id")
-    private Long parentId;
-
-    /**
-     * 资源组类型（如：project, gallery, folder等）
-     */
-    private String type;
-
-    /**
-     * 资源组路径，类似于文件系统路径
-     */
-    private String path;
-
-    /**
-     * 资源组状态（1-正常，0-已删除）
-     */
-    private Integer status;
 
     /**
      * 排序号
@@ -90,4 +69,10 @@ public class ResourceGroup implements Serializable {
     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updateTime;
+
+    /**
+     * 资源组状态（1-正常，0-已删除）
+     */
+    @Column("is_deleted")
+    private Integer isDeleted;
 } 

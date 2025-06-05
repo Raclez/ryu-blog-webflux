@@ -1,5 +1,7 @@
 package com.ryu.blog.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.constant.MessageConstants;
 import com.ryu.blog.dto.CategoryCreateDTO;
@@ -16,8 +18,6 @@ import com.ryu.blog.vo.CategoryVO;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -28,6 +28,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 分类服务实现类
@@ -40,8 +41,9 @@ public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final PostCategoryRepository postCategoryRepository;
-    private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
+    private final ReactiveRedisTemplate<String, String> reactiveRedisTemplate;
     private final CategoryMapper categoryMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     @Transactional
@@ -113,15 +115,14 @@ public class CategoryServiceImpl implements CategoryService {
         String cacheKey = CacheConstants.CATEGORY_CACHE_PREFIX + "id:" + id;
         
         return reactiveRedisTemplate.opsForValue().get(cacheKey)
-                .cast(CategoryVO.class)
+                .flatMap(this::deserializeCategoryVO)
                 .switchIfEmpty(
                     categoryRepository.findById(id)
                         .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.CATEGORY_NOT_FOUND)))
                         .map(categoryMapper::toVO)
                         .flatMap(categoryVO -> 
                             // 存入缓存
-                            reactiveRedisTemplate.opsForValue()
-                                .set(cacheKey, categoryVO, Duration.ofMinutes(30))
+                            serializeAndCache(cacheKey, categoryVO, Duration.ofMinutes(30))
                                 .thenReturn(categoryVO)
                         )
                 );
@@ -160,18 +161,16 @@ public class CategoryServiceImpl implements CategoryService {
     public Flux<CategoryVO> getAllCategories() {
         // 先尝试从缓存中获取
         return reactiveRedisTemplate.opsForValue().get(CacheConstants.CATEGORY_ALL_KEY)
-                .cast(CategoryVO[].class)
-                .flatMapMany(categories -> Flux.fromArray(categories))
+                .flatMapMany(jsonString -> deserializeCategoryVOList(jsonString))
                 .switchIfEmpty(
                         categoryRepository.findAllCategories()
                                 .map(categoryMapper::toVO)
                                 .collectList()
-                                .flatMap(categories -> {
+                                .flatMap(categories -> 
                                     // 更新缓存
-                                    return reactiveRedisTemplate.opsForValue()
-                                            .set(CacheConstants.CATEGORY_ALL_KEY, categories.toArray(), Duration.ofHours(1))
-                                            .thenReturn(categories);
-                                })
+                                    serializeAndCache(CacheConstants.CATEGORY_ALL_KEY, categories, Duration.ofHours(1))
+                                        .thenReturn(categories)
+                                )
                                 .flatMapMany(Flux::fromIterable)
                 );
     }
@@ -180,8 +179,7 @@ public class CategoryServiceImpl implements CategoryService {
     public Flux<CategoryStatsVO> getAllCategoriesWithArticleCount() {
         // 先尝试从缓存中获取
         return reactiveRedisTemplate.opsForValue().get(CacheConstants.CATEGORY_CACHE_PREFIX + "all:stats")
-                .cast(CategoryStatsVO[].class)
-                .flatMapMany(categories -> Flux.fromArray(categories))
+                .flatMapMany(jsonString -> deserializeCategoryStatsVOList(jsonString))
                 .switchIfEmpty(
                         categoryRepository.findAllCategories()
                                 .flatMap(category -> {
@@ -193,13 +191,15 @@ public class CategoryServiceImpl implements CategoryService {
                                 })
                                 .map(categoryMapper::toStatsVO)
                                 .collectList()
-                                .flatMap(categories -> {
+                                .flatMap(categories -> 
                                     // 更新缓存
-                                    return reactiveRedisTemplate.opsForValue()
-                                            .set(CacheConstants.CATEGORY_CACHE_PREFIX + "all:stats", 
-                                                 categories.toArray(), Duration.ofHours(1))
-                                            .thenReturn(categories);
-                                })
+                                    serializeAndCache(
+                                            CacheConstants.CATEGORY_CACHE_PREFIX + "all:stats", 
+                                            categories, 
+                                            Duration.ofHours(1)
+                                    )
+                                    .thenReturn(categories)
+                                )
                                 .flatMapMany(Flux::fromIterable)
                 );
     }
@@ -255,8 +255,7 @@ public class CategoryServiceImpl implements CategoryService {
         String cacheKey = CacheConstants.CATEGORY_CACHE_PREFIX + "article:" + articleId;
         
         return reactiveRedisTemplate.opsForValue().get(cacheKey)
-                .cast(CategoryVO[].class)
-                .flatMapMany(categories -> Flux.fromArray(categories))
+                .flatMapMany(jsonString -> deserializeCategoryVOList(jsonString))
                 .switchIfEmpty(
                         // 从数据库中获取
                         postCategoryRepository.findByPostId(articleId)
@@ -264,12 +263,11 @@ public class CategoryServiceImpl implements CategoryService {
                                 .flatMap(categoryRepository::findById)
                                 .map(categoryMapper::toVO)
                                 .collectList()
-                                .flatMap(categories -> {
+                                .flatMap(categories -> 
                                     // 更新缓存
-                                    return reactiveRedisTemplate.opsForValue()
-                                            .set(cacheKey, categories.toArray(), Duration.ofHours(1))
-                                            .thenReturn(categories);
-                                })
+                                    serializeAndCache(cacheKey, categories, Duration.ofHours(1))
+                                        .thenReturn(categories)
+                                )
                                 .flatMapMany(Flux::fromIterable)
                 );
     }
@@ -327,6 +325,49 @@ public class CategoryServiceImpl implements CategoryService {
                     // 清除文章分类缓存
                     clearArticleCategoriesCache(articleId);
                 });
+    }
+    
+    // JSON序列化和缓存工具方法
+    
+    private <T> Mono<Boolean> serializeAndCache(String key, T value, Duration ttl) {
+        try {
+            String jsonString = objectMapper.writeValueAsString(value);
+            return reactiveRedisTemplate.opsForValue().set(key, jsonString, ttl);
+        } catch (Exception e) {
+            log.error("序列化对象失败: {}", e.getMessage());
+            return Mono.just(false);
+        }
+    }
+    
+    private Mono<CategoryVO> deserializeCategoryVO(String json) {
+        try {
+            return Mono.just(objectMapper.readValue(json, CategoryVO.class));
+        } catch (Exception e) {
+            log.error("反序列化CategoryVO失败: {}", e.getMessage());
+            return Mono.empty();
+        }
+    }
+    
+    private Flux<CategoryVO> deserializeCategoryVOList(String json) {
+        try {
+            List<CategoryVO> list = objectMapper.readValue(json, 
+                    new TypeReference<List<CategoryVO>>() {});
+            return Flux.fromIterable(list);
+        } catch (Exception e) {
+            log.error("反序列化CategoryVO列表失败: {}", e.getMessage());
+            return Flux.empty();
+        }
+    }
+    
+    private Flux<CategoryStatsVO> deserializeCategoryStatsVOList(String json) {
+        try {
+            List<CategoryStatsVO> list = objectMapper.readValue(json, 
+                    new TypeReference<List<CategoryStatsVO>>() {});
+            return Flux.fromIterable(list);
+        } catch (Exception e) {
+            log.error("反序列化CategoryStatsVO列表失败: {}", e.getMessage());
+            return Flux.empty();
+        }
     }
     
     private void clearArticleCategoriesCache(Long articleId) {

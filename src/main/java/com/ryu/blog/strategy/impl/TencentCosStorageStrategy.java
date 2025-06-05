@@ -53,31 +53,6 @@ public class TencentCosStorageStrategy extends AbstractFileStorageStrategy {
         return "tencent";
     }
     
-    /**
-     * 构建对象存储路径
-     * @param fileName 文件名
-     * @return 完整的存储路径的Mono
-     */
-    protected Mono<String> buildObjectNameAsync(String fileName) {
-        String uniqueFileName = generateUniqueFileName(fileName);
-        return getPrefixAsync()
-            .map(prefix -> normalizePath(prefix + "/" + uniqueFileName));
-    }
-    
-    /**
-     * 构建对象存储路径（同步方法，仅供非响应式上下文使用）
-     * @param fileName 文件名
-     * @return 完整的存储路径
-     * @deprecated 请在响应式上下文中使用 buildObjectNameAsync 方法
-     */
-    @Override
-    @Deprecated
-    protected String buildObjectName(String fileName) {
-        String prefix = getPrefix();
-        String uniqueFileName = generateUniqueFileName(fileName);
-        return normalizePath(prefix + "/" + uniqueFileName);
-    }
-
     @Override
     public Mono<String> uploadFile(FilePart filePart) {
         String fileName = filePart.filename();
@@ -95,7 +70,8 @@ public class TencentCosStorageStrategy extends AbstractFileStorageStrategy {
                             return uploadBytes(cosClient, bytes, objectName, contentType);
                         })
                     )
-                    .flatMap(result -> getObjectUrl(objectName))
+                    // 直接返回objectName，不添加前缀
+                    .thenReturn(objectName)
             );
     }
 
@@ -115,7 +91,8 @@ public class TencentCosStorageStrategy extends AbstractFileStorageStrategy {
                             return uploadBytes(cosClient, bytes, objectName, contentType);
                         })
                     )
-                    .flatMap(result -> getObjectUrl(objectName))
+                    // 直接返回objectName，不添加前缀
+                    .thenReturn(objectName)
             );
     }
 
@@ -364,8 +341,8 @@ public class TencentCosStorageStrategy extends AbstractFileStorageStrategy {
         // 清理上传信息
         multipartUploadsInfo.remove(uploadId);
 
-        // 返回对象URL
-        return getObjectUrl(objectName);
+        // 直接返回对象名，不添加前缀
+        return Mono.just(objectName);
     }
 
     @Override

@@ -1,9 +1,6 @@
 package com.ryu.blog.service.impl;
 
-import com.ryu.blog.dto.FileSearchDTO;
-import com.ryu.blog.dto.FilesDTO;
-import com.ryu.blog.dto.GroupFileQueryDTO;
-import com.ryu.blog.dto.UploadOptionsDTO;
+import com.ryu.blog.dto.*;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.repository.FileRepository;
 import com.ryu.blog.repository.UserRepository;
@@ -16,6 +13,7 @@ import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
 import com.ryu.blog.vo.FileVersionVO;
+import com.ryu.blog.vo.PageResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,6 +26,7 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
@@ -222,6 +221,7 @@ public class FileServiceImpl implements FileService {
                                                                     strategy.getStrategyKey()
                                                             );
                                                             file.setMimeType(mimeType); // 存储MIME类型
+                                                            file.setFileType(FileUtils.getFileType(mimeType));
                                                             return fileRepository.save(file)
                                                                     .flatMap(this::buildFileUploadVO);
                                                         });
@@ -240,7 +240,7 @@ public class FileServiceImpl implements FileService {
      * 创建文件实体对象
      * 
      * @param fileName 文件名
-     * @param filePath 文件路径
+     * @param filePath 文件路径 - 不包含访问前缀，只保存相对路径
      * @param fileSize 文件大小
      * @param checksum 文件校验和
      * @param options 上传选项
@@ -249,23 +249,24 @@ public class FileServiceImpl implements FileService {
      */
     private File createFileEntity(String fileName, String filePath, long fileSize, 
                                  String checksum, UploadOptionsDTO options, String storageType) {
-                            File file = new File();
+        File file = new File();
         file.setFileName(fileName);
-                            file.setFilePath(filePath);
+        // 确保保存的路径不包含前缀，只保存相对路径
+        // 在获取URL时会通过getPublicUrl方法添加前缀
+        file.setFilePath(filePath);
         file.setFileSize(fileSize);
-        file.setFileType(FileUtils.getFileExtension(fileName));
-        file.setMimeType(FileUtils.getContentType(fileName));
-        file.setCreatorId(options.getGroup()); // 使用group作为creatorId
+        //TODO
+        file.setCreatorId(1L);
         file.setDescription(options.getDescription());
         file.setAccessType("public".equals(options.getAccess()) ? 0 : 1); // 0-公开, 1-私有
-                            file.setStatus(1); // 1-激活
+        file.setStatus(1); // 1-激活
         file.setStorageType(storageType);
         file.setChecksum(checksum);
-                            file.setUploadTime(LocalDateTime.now());
-                            file.setCreateTime(LocalDateTime.now());
-                            file.setUpdateTime(LocalDateTime.now());
-                            file.setIsDeleted(0); // 0-未删除
-                            
+        file.setUploadTime(LocalDateTime.now());
+        file.setCreateTime(LocalDateTime.now());
+        file.setUpdateTime(LocalDateTime.now());
+        file.setIsDeleted(0); // 0-未删除
+        
         return file;
     }
 
@@ -276,16 +277,21 @@ public class FileServiceImpl implements FileService {
      * @return 文件上传结果VO
      */
     private Mono<FileUploadVO> buildFileUploadVO(File file) {
-        FileUploadVO vo = FileUploadVO.builder()
-                .fileId(file.getId())
-                .fileName(file.getFileName())
-                .fileUrl(file.getFilePath())
-                .fileSize(file.getFileSize())
-                .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                .fileType(file.getFileType())
-                .uploadTime(file.getUploadTime().toString())
-                .build();
-        return Mono.just(vo);
+        // 使用存储策略获取完整的访问URL
+        return strategyRegistry.getStrategy(file.getStorageType())
+            .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
+            .map(fullUrl -> {
+                FileUploadVO vo = FileUploadVO.builder()
+                        .fileId(file.getId())
+                        .fileName(file.getFileName())
+                        .fileUrl(fullUrl)  // 使用完整URL而不是相对路径
+                        .fileSize(file.getFileSize())
+                        .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
+                        .fileType(file.getFileType())
+                        .uploadTime(file.getUploadTime().toString())
+                        .build();
+                return vo;
+            });
     }
 
     /**
@@ -741,21 +747,65 @@ public class FileServiceImpl implements FileService {
                 .then(Mono.just(results));
     }
 
+    /**
+     * 转换文件列表，将相对路径转换为完整URL
+     * @param files 文件列表
+     * @return 转换后的文件列表的Mono
+     */
+    private Mono<List<File>> transformFileList(List<File> files) {
+        if (files == null || files.isEmpty()) {
+            return Mono.just(Collections.emptyList());
+        }
+        
+        // 创建新的文件列表，避免修改原始列表
+        List<File> transformedFiles = new ArrayList<>(files.size());
+        
+        // 创建一个包含所有转换操作的Flux
+        return Flux.fromIterable(files)
+                .flatMap(file -> {
+                    // 获取完整URL
+                    return strategyRegistry.getStrategy(file.getStorageType())
+                            .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
+                            .map(fullUrl -> {
+                                // 创建新的File对象，复制原始对象的所有属性
+                                File newFile = new File();
+                                newFile.setId(file.getId());
+                                newFile.setFileName(file.getFileName());
+                                newFile.setFilePath(fullUrl); // 设置完整URL
+                                newFile.setFileSize(file.getFileSize());
+                                newFile.setFileType(file.getFileType());
+                                newFile.setMimeType(file.getMimeType());
+                                newFile.setUploadTime(file.getUploadTime());
+                                newFile.setUpdateTime(file.getUpdateTime());
+                                newFile.setCreatorId(file.getCreatorId());
+                                newFile.setStatus(file.getStatus());
+                                newFile.setStorageType(file.getStorageType());
+                                newFile.setDescription(file.getDescription());
+                                newFile.setChecksum(file.getChecksum());
+                                newFile.setHasThumbnail(file.getHasThumbnail());
+                                newFile.setAccessType(file.getAccessType());
+                                newFile.setCreateTime(file.getCreateTime());
+                                newFile.setIsDeleted(file.getIsDeleted());
+                                return newFile;
+                            });
+                })
+                .collectList();
+    }
+
     @Override
-    public Mono<Map<String, Object>> getGroupFiles(GroupFileQueryDTO groupFileQueryDTO) {
+    public Mono<PageResult<File>> getGroupFiles(ResourceGroupQueryDTO groupFileQueryDTO){
         log.info("获取文件分组: groupFileQueryDTO={}", groupFileQueryDTO);
         
         // 获取分页参数
         int page = groupFileQueryDTO.getCurrentPage() != null ? groupFileQueryDTO.getCurrentPage().intValue() : 1;
         int size = groupFileQueryDTO.getPageSize() != null ? groupFileQueryDTO.getPageSize().intValue() : 20;
         int skip = (page - 1) * size;
-        
+
         // 构建查询条件
-        org.springframework.data.relational.core.query.Criteria criteria = org.springframework.data.relational.core.query.Criteria.where("is_deleted").is(0);
+        Criteria criteria = org.springframework.data.relational.core.query.Criteria.where("is_deleted").is(0);
         
         // 添加分组ID条件
         if (groupFileQueryDTO.getGroupId() != null) {
-            // 假设有分组关联表，这里简化处理，直接使用creatorId代替
             criteria = criteria.and("creator_id").is(groupFileQueryDTO.getGroupId());
         }
         
@@ -768,68 +818,37 @@ public class FileServiceImpl implements FileService {
         query = query.sort(org.springframework.data.domain.Sort.by("create_time").descending());
         
         // 执行查询
-        return databaseClient.select(File.class)
+        Mono<List<File>> filesMono = databaseClient.select(File.class)
                 .from("t_file")
                 .matching(query)
                 .all()
-                .map(file -> {
-                    // 构建文件详情VO
-                    return FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .hasThumbnail(file.getHasThumbnail())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                })
-                // 获取用户信息
-                .flatMap(fileInfoVO -> {
-                    if (fileInfoVO.getCreatorId() != null) {
-                        return userRepository.findById(fileInfoVO.getCreatorId())
-                                .doOnNext(user -> fileInfoVO.setCreatorName(user.getUsername()))
-                                .thenReturn(fileInfoVO)
-                                .switchIfEmpty(Mono.just(fileInfoVO));
-                    } else {
-                        return Mono.just(fileInfoVO);
-                    }
-                })
-                // 生成预览和下载链接
-                .flatMap(fileInfoVO -> 
-                    generatePreviewUrl(fileInfoVO.getId(), 3600)
-                        .doOnNext(fileInfoVO::setPreviewUrl)
-                        .then(generateDownloadUrl(fileInfoVO.getId(), 3600))
-                        .doOnNext(fileInfoVO::setDownloadUrl)
-                        .thenReturn(fileInfoVO)
-                )
                 .collectList()
-                .zipWith(countGroupFiles(groupFileQueryDTO))
+                .flatMap(this::transformFileList); // 转换文件路径为完整URL
+        
+        // 获取总数
+        Mono<Long> countMono = databaseClient.select(File.class)
+                .from("t_file")
+                .matching(org.springframework.data.relational.core.query.Query.query(criteria))
+                .count();
+        
+        // 组合结果
+        return Mono.zip(filesMono, countMono)
                 .map(tuple -> {
-                    List<FileInfoVO> files = tuple.getT1();
+                    List<File> files = tuple.getT1();
                     Long total = tuple.getT2();
                     
-                    Map<String, Object> result = new HashMap<>();
-                    result.put("content", files);
-                    result.put("page", page);
-                    result.put("size", size);
-                    result.put("total", total);
-                    result.put("totalPages", (total + size - 1) / size);
+                    // 创建分页结果
+                    PageResult<File> pageResult = new PageResult<>();
+                    pageResult.setRecords(files);
+                    pageResult.setTotal(total);
+                    pageResult.setCurrent(page);
+                    pageResult.setSize(size);
+                    pageResult.setPages((total + size - 1) / size);
                     
-                    return result;
+                    return pageResult;
                 })
                 .doOnSuccess(result -> log.info("获取分组文件成功: groupId={}, 总数={}", 
-                        groupFileQueryDTO.getGroupId(), result.get("total")))
+                        groupFileQueryDTO.getGroupId(), result.getTotal()))
                 .doOnError(error -> log.error("获取分组文件失败: groupId={}, error={}", 
                         groupFileQueryDTO.getGroupId(), error.getMessage()));
     }
@@ -862,32 +881,12 @@ public class FileServiceImpl implements FileService {
         
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除")))
-                .flatMap(file -> {
-                    // 构建文件详情VO
-                    FileInfoVO fileInfoVO = FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .hasThumbnail(file.getHasThumbnail())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                    
+                .flatMap(this::buildFileInfoVO)
+                .flatMap(fileInfoVO -> {
                     // 获取创建者信息
                     Mono<FileInfoVO> userInfoMono;
-                    if (file.getCreatorId() != null) {
-                        userInfoMono = userRepository.findById(file.getCreatorId())
+                    if (fileInfoVO.getCreatorId() != null) {
+                        userInfoMono = userRepository.findById(fileInfoVO.getCreatorId())
                                 .doOnNext(user -> fileInfoVO.setCreatorName(user.getUsername()))
                                 .thenReturn(fileInfoVO)
                                 .switchIfEmpty(Mono.just(fileInfoVO));
@@ -930,32 +929,12 @@ public class FileServiceImpl implements FileService {
                     
                     // 保存更新后的文件信息
                     return fileRepository.save(file)
-                            .flatMap(updatedFile -> {
-                                // 构建文件详情VO
-                                FileInfoVO fileInfoVO = FileInfoVO.builder()
-                                        .id(updatedFile.getId())
-                                        .fileName(updatedFile.getFileName())
-                                        .filePath(updatedFile.getFilePath())
-                                        .fileSize(updatedFile.getFileSize())
-                                        .formattedSize(FileUtils.formatFileSize(updatedFile.getFileSize()))
-                                        .fileType(updatedFile.getFileType())
-                                        .mimeType(updatedFile.getMimeType())
-                                        .uploadTime(Date.from(updatedFile.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                                        .updateTime(Date.from(updatedFile.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                                        .creatorId(updatedFile.getCreatorId())
-                                        .status(updatedFile.getStatus())
-                                        .storageType(updatedFile.getStorageType())
-                                        .description(updatedFile.getDescription())
-                                        .checksum(updatedFile.getChecksum())
-                                        .hasThumbnail(updatedFile.getHasThumbnail())
-                                        .accessType(updatedFile.getAccessType())
-                                        .createTime(updatedFile.getCreateTime())
-                                        .build();
-                                
+                            .flatMap(this::buildFileInfoVO)
+                            .flatMap(fileInfoVO -> {
                                 // 获取创建者信息
                                 Mono<FileInfoVO> userInfoMono;
-                                if (updatedFile.getCreatorId() != null) {
-                                    userInfoMono = userRepository.findById(updatedFile.getCreatorId())
+                                if (fileInfoVO.getCreatorId() != null) {
+                                    userInfoMono = userRepository.findById(fileInfoVO.getCreatorId())
                                             .doOnNext(user -> fileInfoVO.setCreatorName(user.getUsername()))
                                             .thenReturn(fileInfoVO)
                                             .switchIfEmpty(Mono.just(fileInfoVO));
@@ -983,27 +962,33 @@ public class FileServiceImpl implements FileService {
         // 先查询文件信息，确保文件存在
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除")))
-                .flatMapMany(file -> {
-                    // 查询版本历史（假设有一个FileVersionRepository）
-                    // 这里简化处理，实际应该通过版本库查询
-                    // TODO: 替换为实际的版本查询逻辑
-                    
-                    // 返回一个包含当前版本的列表
-                    FileVersionVO currentVersion = FileVersionVO.builder()
-                            .id(1L) // 版本ID通常不同于文件ID
-                            .fileId(fileId)
-                            .versionNumber(1)
-                            .versionTag("v1")
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .creatorId(file.getCreatorId())
-                            .isCurrent(true)
-                            .createTime(Date.from(file.getCreateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .build();
-                    
-                    return Flux.just(currentVersion);
+                .flatMap(file -> {
+                    // 获取完整URL
+                    return strategyRegistry.getStrategy(file.getStorageType())
+                            .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
+                            .map(fullUrl -> {
+                                // 查询版本历史（假设有一个FileVersionRepository）
+                                // 这里简化处理，实际应该通过版本库查询
+                                // TODO: 替换为实际的版本查询逻辑
+                                
+                                // 返回一个包含当前版本的列表
+                                FileVersionVO currentVersion = FileVersionVO.builder()
+                                        .id(1L) // 版本ID通常不同于文件ID
+                                        .fileId(fileId)
+                                        .versionNumber(1)
+                                        .versionTag("v1")
+                                        .filePath(fullUrl) // 使用完整URL
+                                        .fileSize(file.getFileSize())
+                                        .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
+                                        .creatorId(file.getCreatorId())
+                                        .isCurrent(true)
+                                        .createTime(Date.from(file.getCreateTime().atZone(ZoneId.systemDefault()).toInstant()))
+                                        .build();
+                                
+                                return Flux.just(currentVersion);
+                            });
                 })
+                .flatMapMany(flux -> flux)
                 .doOnComplete(() -> log.info("获取文件版本历史完成: fileId={}", fileId))
                 .doOnError(error -> log.error("获取文件版本历史失败: fileId={}, error={}", fileId, error.getMessage()));
     }
@@ -1244,40 +1229,10 @@ public class FileServiceImpl implements FileService {
         // 批量查询文件信息
         return fileRepository.findAllById(fileIds)
                 .filter(file -> file.getIsDeleted() == 0) // 只处理未删除的文件
-                .flatMap(file -> {
-                    // 构建文件详情VO
-                    FileInfoVO fileInfoVO = FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .hasThumbnail(file.getHasThumbnail())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                    
-                    // 添加到结果Map
-                    result.put(file.getId(), fileInfoVO);
-                    
-                    // 如果有创建者ID，获取创建者信息
-                    if (file.getCreatorId() != null) {
-                        return userRepository.findById(file.getCreatorId())
-                                .doOnNext(user -> fileInfoVO.setCreatorName(user.getUsername()))
-                                .thenReturn(file.getId());
-                    } else {
-                        return Mono.just(file.getId());
-                    }
-                })
+                .flatMap(file -> buildFileInfoVO(file)
+                        .doOnNext(fileInfoVO -> result.put(file.getId(), fileInfoVO))
+                        .thenReturn(file.getId())
+                )
                 .collectList()
                 .flatMap(ids -> {
                     // 批量生成预览和下载链接
@@ -1303,6 +1258,143 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    public Mono<Map<Long, String>> getBatchFilePermanentUrls(List<Long> fileIds) {
+        log.info("批量获取文件永久URL: fileIds={}", fileIds);
+        
+        if (fileIds == null || fileIds.isEmpty()) {
+            return Mono.just(Collections.emptyMap());
+        }
+        
+        // 创建结果Map
+        Map<Long, String> result = new ConcurrentHashMap<>();
+        
+        // 批量获取文件信息并生成永久URL
+        return Flux.fromIterable(fileIds)
+                .flatMap(fileId -> 
+                    fileRepository.findByIdAndIsDeleted(fileId, 0)
+                        .flatMap(file -> {
+                            // 根据存储策略生成永久URL
+                            String storageType = file.getStorageType();
+                            return strategyRegistry.getStrategy(storageType)
+                                .flatMap(strategy -> {
+                                    // 获取永久访问URL（不使用token验证的直接访问URL）
+                                    //TODO
+//                                    if (file.getAccessType() != null && "public".equals(file.getAccessType())) {
+                                        // 公开文件，使用直接访问路径
+                                        return strategy.getPublicUrl(file.getFilePath())
+                                            .doOnNext(url -> result.put(fileId, url))
+                                            .thenReturn(fileId);
+//                                    } else {
+//                                        // 非公开文件，使用永久访问路径 (但可能需要权限验证)
+//                                        return Mono.just("/api/files/static/" + fileId)
+//                                            .doOnNext(url -> result.put(fileId, url))
+//                                            .thenReturn(fileId);
+//                                    }
+                                });
+                        })
+                        .onErrorResume(e -> {
+                            log.warn("获取文件永久URL失败: fileId={}, error={}", fileId, e.getMessage());
+                            return Mono.empty();
+                        })
+                )
+                .then(Mono.just(result))
+                .doOnSuccess(map -> log.info("批量获取文件永久URL成功: 总数={}", map.size()))
+                .doOnError(error -> log.error("批量获取文件永久URL失败: error={}", error.getMessage()));
+    }
+
+    /**
+     * 创建FileInfoVO并设置完整URL
+     * @param file 文件实体
+     * @return 包含完整URL的FileInfoVO的Mono
+     */
+    private Mono<FileInfoVO> buildFileInfoVO(File file) {
+        // 创建基本的FileInfoVO
+        FileInfoVO fileInfoVO = FileInfoVO.builder()
+                .id(file.getId())
+                .fileName(file.getFileName())
+                // 暂时使用相对路径，后面会更新为完整URL
+                .filePath(file.getFilePath())
+                .fileSize(file.getFileSize())
+                .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
+                .fileType(file.getFileType())
+                .mimeType(file.getMimeType())
+                .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
+                .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
+                .creatorId(file.getCreatorId())
+                .status(file.getStatus())
+                .storageType(file.getStorageType())
+                .description(file.getDescription())
+                .checksum(file.getChecksum())
+                .hasThumbnail(file.getHasThumbnail())
+                .accessType(file.getAccessType())
+                .createTime(file.getCreateTime())
+                .build();
+        
+        // 获取完整URL并更新filePath
+        return strategyRegistry.getStrategy(file.getStorageType())
+                .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
+                .doOnNext(fileInfoVO::setFilePath)
+                .thenReturn(fileInfoVO);
+    }
+
+    /**
+     * 检查文件类型是否支持预览
+     * 
+     * @param fileType 文件类型
+     * @return 是否支持预览
+     */
+    private boolean isFilePreviewable(String fileType) {
+        return FileUtils.isFilePreviewable(fileType);
+    }
+    
+    /**
+     * 生成访问令牌
+     * 
+     * @param fileId 文件ID
+     * @param type 令牌类型（preview、download）
+     * @param expireSeconds 过期时间（秒）
+     * @return 令牌
+     */
+    private String generateToken(Long fileId, String type, long expireSeconds) {
+        // 组合令牌数据
+        String data = fileId + ":" + type + ":" + LocalDateTime.now().plusSeconds(expireSeconds) + ":" + UUID.randomUUID();
+        
+        // 使用工具类生成令牌
+        return FileUtils.generateSecureToken(data);
+    }
+
+    /**
+     * 记录文件下载日志
+     *
+     * @param file 文件信息
+     * @return 完成信号
+     */
+    private Mono<Void> logFileDownload(File file) {
+        // TODO: 实现下载日志记录
+        // 这里可以将下载记录保存到数据库中
+        return Mono.empty();
+    }
+
+    /**
+     * 根据文件路径查找文件
+     *
+     * @param path 文件路径
+     * @param isDeleted 是否已删除（0-未删除，1-已删除）
+     * @return 文件信息
+     */
+    private Mono<File> findByFilePath(String path, Integer isDeleted) {
+        // 使用databaseClient查询文件
+        return databaseClient.select(File.class)
+                .from("t_file")
+                .matching(org.springframework.data.relational.core.query.Query.query(
+                        org.springframework.data.relational.core.query.Criteria.where("file_path").is(path)
+                                .and("is_deleted").is(isDeleted)
+                ))
+                .one()
+                .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除: " + path)));
+    }
+
+    @Override
     public Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds) {
         log.info("批量获取文件URL: fileIds={}", fileIds);
         
@@ -1313,7 +1405,7 @@ public class FileServiceImpl implements FileService {
         // 创建结果Map
         Map<Long, String> result = new ConcurrentHashMap<>();
         
-        // 批量生成下载URL
+        // 批量生成下载URL - 这里使用generateDownloadUrl是为了保持接口的语义一致性
         return Flux.fromIterable(fileIds)
                 .flatMap(fileId -> 
                     fileRepository.findByIdAndIsDeleted(fileId, 0)
@@ -1335,29 +1427,7 @@ public class FileServiceImpl implements FileService {
         
         // 查询用户的文件列表
         return fileRepository.findByCreatorIdAndIsDeleted(userId, 0)
-                .map(file -> {
-                    // 构建文件详情VO
-                    FileInfoVO fileInfoVO = FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .hasThumbnail(file.getHasThumbnail())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                    return fileInfoVO;
-                })
+                .flatMap(this::buildFileInfoVO)
                 // 获取用户信息
                 .flatMap(fileInfoVO -> 
                     userRepository.findById(userId)
@@ -1385,28 +1455,7 @@ public class FileServiceImpl implements FileService {
         
         // 查询文件列表
         return fileRepository.findAllByIsDeletedOrderByCreateTimeDesc(0, size, offset)
-                .map(file -> {
-                    // 构建文件详情VO
-                    return FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .hasThumbnail(file.getHasThumbnail())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                })
+                .flatMap(this::buildFileInfoVO)
                 // 获取用户信息
                 .flatMap(fileInfoVO -> {
                     if (fileInfoVO.getCreatorId() != null) {
@@ -1431,8 +1480,8 @@ public class FileServiceImpl implements FileService {
                 .map(tuple -> {
                     List<FileInfoVO> files = tuple.getT1();
                     Long total = tuple.getT2();
-        
-        Map<String, Object> result = new HashMap<>();
+    
+                    Map<String, Object> result = new HashMap<>();
                     result.put("content", files);
                     result.put("page", page);
                     result.put("size", size);
@@ -1453,29 +1502,7 @@ public class FileServiceImpl implements FileService {
         
         // 查询指定类型的文件列表
         return fileRepository.findByFileTypeAndIsDeleted(type, 0)
-                .map(file -> {
-                    // 构建文件详情VO
-                    FileInfoVO fileInfoVO = FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .hasThumbnail(file.getHasThumbnail())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                    return fileInfoVO;
-                })
+                .flatMap(this::buildFileInfoVO)
                 // 获取用户信息
                 .flatMap(fileInfoVO -> {
                     if (fileInfoVO.getCreatorId() != null) {
@@ -1527,7 +1554,7 @@ public class FileServiceImpl implements FileService {
                         case "rename":
                             // 重命名新文件
                             String baseName = fileName;
-        String extension = "";
+                            String extension = "";
                             int dotIndex = fileName.lastIndexOf('.');
                             if (dotIndex > 0) {
                                 baseName = fileName.substring(0, dotIndex);
@@ -1535,69 +1562,12 @@ public class FileServiceImpl implements FileService {
                             }
                             String newFileName = baseName + "_" + System.currentTimeMillis() + extension;
                             return Mono.just(newFileName);
-            default:
+                        default:
                             // 默认拒绝上传
                             return Mono.error(new RuntimeException("文件已存在: " + existingFile.getFileName()));
                     }
                 })
                 .switchIfEmpty(Mono.just(fileName)); // 如果没有找到重复文件，则返回原文件名
-    }
-
-    /**
-     * 根据文件路径查找文件
-     *
-     * @param path 文件路径
-     * @param isDeleted 是否已删除（0-未删除，1-已删除）
-     * @return 文件信息
-     */
-    private Mono<File> findByFilePath(String path, Integer isDeleted) {
-        // 使用databaseClient查询文件
-        return databaseClient.select(File.class)
-                .from("t_file")
-                .matching(org.springframework.data.relational.core.query.Query.query(
-                        org.springframework.data.relational.core.query.Criteria.where("file_path").is(path)
-                                .and("is_deleted").is(isDeleted)
-                ))
-                .one()
-                .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除: " + path)));
-    }
-    
-    /**
-     * 检查文件类型是否支持预览
-     * 
-     * @param fileType 文件类型
-     * @return 是否支持预览
-     */
-    private boolean isFilePreviewable(String fileType) {
-        return FileUtils.isFilePreviewable(fileType);
-    }
-    
-    /**
-     * 生成访问令牌
-     * 
-     * @param fileId 文件ID
-     * @param type 令牌类型（preview、download）
-     * @param expireSeconds 过期时间（秒）
-     * @return 令牌
-     */
-    private String generateToken(Long fileId, String type, long expireSeconds) {
-        // 组合令牌数据
-        String data = fileId + ":" + type + ":" + LocalDateTime.now().plusSeconds(expireSeconds) + ":" + UUID.randomUUID();
-        
-        // 使用工具类生成令牌
-        return FileUtils.generateSecureToken(data);
-    }
-
-    /**
-     * 记录文件下载日志
-     *
-     * @param file 文件信息
-     * @return 完成信号
-     */
-    private Mono<Void> logFileDownload(File file) {
-        // TODO: 实现下载日志记录
-        // 这里可以将下载记录保存到数据库中
-        return Mono.empty();
     }
 
     /**

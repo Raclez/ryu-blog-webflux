@@ -1,23 +1,18 @@
 package com.ryu.blog.utils;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
-import org.springframework.util.MimeTypeUtils;
-import org.springframework.util.StringUtils;
 import org.apache.tika.Tika;
-import org.apache.tika.mime.MimeTypes;
+import org.springframework.http.MediaType;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * 文件工具类 - 提供文件操作的通用方法
@@ -183,7 +178,7 @@ public class FileUtils {
         for (String path : paths) {
             String normalizedPath = normalizePath(path);
             if (!normalizedPath.isEmpty()) {
-                if (result.length() > 0) {
+                if (!result.isEmpty()) {
                     result.append("/");
                 }
                 result.append(normalizedPath);
@@ -237,29 +232,29 @@ public class FileUtils {
         }
         
         if (mimeType.startsWith("image/")) {
-            return "image";
+            return "Image";
         } else if (mimeType.startsWith("video/")) {
-            return "video";
+            return "Video";
         } else if (mimeType.startsWith("audio/")) {
-            return "audio";
+            return "Audio";
         } else if (mimeType.startsWith("text/")) {
-            return "text";
+            return "Text";
         } else if (mimeType.equals("application/pdf")) {
-            return "pdf";
+            return "Pdf";
         } else if (mimeType.contains("word") || mimeType.contains("opendocument.text")) {
-            return "document";
+            return "Document";
         } else if (mimeType.contains("excel") || mimeType.contains("spreadsheet")) {
-            return "spreadsheet";
+            return "Spreadsheet";
         } else if (mimeType.contains("powerpoint") || mimeType.contains("presentation")) {
-            return "presentation";
+            return "Presentation";
         } else if (mimeType.contains("zip") || mimeType.contains("compressed") || mimeType.contains("archive")) {
-            return "archive";
+            return "Archive";
         } else if (mimeType.equals("application/json")) {
-            return "json";
+            return "Json";
         } else if (mimeType.equals("application/xml") || mimeType.equals("text/xml")) {
-            return "xml";
+            return "Xml";
         } else if (mimeType.equals("text/markdown")) {
-            return "markdown";
+            return "Markdown";
         }
         
         return "other";

@@ -8,6 +8,8 @@ import com.ryu.blog.entity.StorageConfig;
 import org.mapstruct.*;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 存储策略实体与DTO转换工具类
@@ -72,12 +74,7 @@ public interface StorageConfigMapper {
     @AfterMapping
     default void handleConfig(StorageConfigCreateDTO dto, @MappingTarget StorageConfig entity) {
         if (dto.getConfig() != null) {
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                entity.setConfig(mapper.writeValueAsString(dto.getConfig()));
-            } catch (JsonProcessingException e) {
-                System.err.println("序列化配置JSON失败: " + e.getMessage());
-            }
+            entity.setConfigMap(dto.getConfig());
         }
     }
     
@@ -90,12 +87,7 @@ public interface StorageConfigMapper {
     @AfterMapping
     default void handleConfig(StorageConfigUpdateDTO dto, @MappingTarget StorageConfig entity) {
         if (dto.getConfig() != null) {
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                entity.setConfig(mapper.writeValueAsString(dto.getConfig()));
-            } catch (JsonProcessingException e) {
-                System.err.println("序列化配置JSON失败: " + e.getMessage());
-            }
+            entity.setConfigMap(dto.getConfig());
         }
     }
 } 

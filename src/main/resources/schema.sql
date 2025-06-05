@@ -547,7 +547,7 @@ CREATE TABLE IF NOT EXISTS `t_resource_groups` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资源组表';
 
 -- 资源组文件关联表
-CREATE TABLE IF NOT EXISTS `t_resource_group_file_rel` (
+CREATE TABLE IF NOT EXISTS `t_resource_group_file_rels` (
     `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '关联记录唯一标识',
     `group_id` bigint(20) NOT NULL COMMENT '资源组ID',
     `file_id` bigint(20) NOT NULL COMMENT '文件ID',

@@ -9,7 +9,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 后台管理文章列表视图对象
@@ -29,7 +28,7 @@ public class PostAdminListVO {
     private String title;
     
     @Schema(description = "文章摘要")
-    private String summary;
+    private String excerpt;
     
     @Schema(description = "分类ID")
     @JsonSerialize(using = ToStringSerializer.class)
@@ -48,30 +47,21 @@ public class PostAdminListVO {
     @Schema(description = "作者名称")
     private String authorName;
     
-    @Schema(description = "标签列表")
-    private List<String> tags;
-    
     @Schema(description = "浏览量")
     private Integer views;
-    
-    @Schema(description = "点赞数")
-    private Integer likes;
-    
-    @Schema(description = "评论数")
-    private Integer comments;
-    
-    @Schema(description = "是否置顶")
-    private Boolean isTop;
-    
+
     @Schema(description = "是否原创")
     private Boolean isOriginal;
     
     @Schema(description = "是否允许评论")
     private Boolean allowComment;
-    
-    @Schema(description = "文章封面")
-    private String cover;
-    
+
+
+    private String visibility;
+
+    @Schema(description = "排序权重")
+    private Integer sort;
+
     @Schema(description = "创建时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
@@ -79,4 +69,9 @@ public class PostAdminListVO {
     @Schema(description = "更新时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updateTime;
+
+
+    @Schema(description = "文章的发布时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime publishTime;
 } 

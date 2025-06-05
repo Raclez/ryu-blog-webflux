@@ -6,6 +6,8 @@ import com.ryu.blog.dto.PostStatusDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
 import com.ryu.blog.entity.PostCategory;
 import com.ryu.blog.entity.Posts;
+import com.ryu.blog.vo.PageResult;
+import com.ryu.blog.vo.PostAdminListVO;
 import com.ryu.blog.vo.PostDetailVO;
 import com.ryu.blog.vo.PostFrontListVO;
 import reactor.core.publisher.Flux;
@@ -21,13 +23,6 @@ import java.util.Map;
 public interface ArticleService {
 
     /**
-     * 创建文章
-     * @param article 文章信息
-     * @return 创建结果
-     */
-    Mono<Posts> createArticle(Posts article);
-    
-    /**
      * 使用DTO创建文章
      * @param articleCreateDTO 文章创建DTO
      * @param userId 用户ID
@@ -35,12 +30,6 @@ public interface ArticleService {
      */
     Mono<Posts> createArticle(PostCreateDTO articleCreateDTO, Long userId);
 
-    /**
-     * 更新文章
-     * @param article 文章信息
-     * @return 更新结果
-     */
-    Mono<Posts> updateArticle(Posts article);
     
     /**
      * 使用DTO更新文章
@@ -56,12 +45,6 @@ public interface ArticleService {
      */
     Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO);
 
-    /**
-     * 根据ID获取文章
-     * @param id 文章ID
-     * @return 文章信息
-     */
-    Mono<Posts> getArticleById(Long id);
     
     /**
      * 根据ID获取文章详情视图对象
@@ -111,6 +94,20 @@ public interface ArticleService {
      * @return 文章分页数据
      */
     Mono<Map<String, Object>> getArticlePage(int page, int size, String title, Integer status, Long categoryId, Long tagId, String startTime, String endTime);
+
+    /**
+     * 分页条件查询文章列表并返回PostAdminListVO类型的PageResult
+     * @param page 页码
+     * @param size 每页大小
+     * @param title 文章标题
+     * @param status 文章状态
+     * @param categoryId 分类ID
+     * @param tagId 标签ID
+     * @param startTime 开始时间
+     * @param endTime 结束时间
+     * @return 文章分页数据
+     */
+    Mono<PageResult<PostAdminListVO>> getArticlePageVO(int page, int size, String title, Integer status, Long categoryId, Long tagId, String startTime, String endTime);
 
     /**
      * 前台游标方式加载文章列表
@@ -234,4 +231,14 @@ public interface ArticleService {
      * @return 分类ID列表
      */
     Flux<Long> getArticleCategoryIds(Long articleId);
+
+    /**
+     * 前台游标方式加载文章列表（直接返回VO列表）
+     * @param cursor 游标ID
+     * @param limit 每页大小
+     * @param createTime 基准创建时间
+     * @param direction 加载方向
+     * @return 文章VO列表
+     */
+    Mono<List<PostFrontListVO>> getFrontArticlesVO(String cursor, int limit, String createTime, String direction);
 } 

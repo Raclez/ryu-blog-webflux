@@ -38,4 +38,7 @@ public class PostDetailVO {
     private List<Long> tagsIds;
     private String coverImageUrl;
     private Long coverImageId;
+    
+    @Schema(description = "预计阅读时间（分钟）")
+    private Integer readingTime;
 } 

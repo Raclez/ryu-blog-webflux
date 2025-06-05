@@ -134,6 +134,7 @@ app:
     allowed-headers: "*"
     allow-credentials: true
     max-age: 3600
+    exposed-headers: "Content-Disposition,Content-Length,Content-Type,Authorization"
   # 缓存配置
   cache:
     article:

@@ -1,7 +1,6 @@
 package com.ryu.blog.vo;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -30,7 +29,7 @@ public class PostFrontListVO {
     private String title;
     
     @Schema(description = "文章摘要")
-    private String summary;
+    private String excerpt;
     
     @Schema(description = "分类ID")
     @JsonSerialize(using = ToStringSerializer.class)
@@ -53,16 +52,16 @@ public class PostFrontListVO {
     private List<String> tags;
     
     @Schema(description = "文章封面")
-    private String cover;
+    private String coverImageUrl;
     
     @Schema(description = "浏览量")
     private Integer views;
     
     @Schema(description = "点赞数")
-    private Integer likes;
+    private Integer likeCount;
     
     @Schema(description = "评论数")
-    private Integer comments;
+    private Integer commentCount;
     
     @Schema(description = "是否原创")
     private Boolean isOriginal;

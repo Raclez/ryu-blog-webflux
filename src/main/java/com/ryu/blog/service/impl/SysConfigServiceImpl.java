@@ -144,7 +144,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
 
     @Override
-    public Mono<Map<String, Object>> getSysConfigPage(String configKey, String configGroup, int page, int size) {
+    public Mono<Map<String, Object>> getSysConfigPage(String configKey, int page, int size) {
         return null;
     }
 

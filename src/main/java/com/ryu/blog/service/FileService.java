@@ -1,17 +1,11 @@
 package com.ryu.blog.service;
 
-import com.ryu.blog.dto.FileSearchDTO;
-import com.ryu.blog.dto.FilesDTO;
-import com.ryu.blog.dto.GroupFileQueryDTO;
-import com.ryu.blog.dto.UploadOptionsDTO;
+import com.ryu.blog.dto.*;
 import com.ryu.blog.entity.File;
-import com.ryu.blog.entity.FileLog;
-import com.ryu.blog.entity.FilePermission;
-import com.ryu.blog.entity.FileVersion;
-import com.ryu.blog.entity.PermissionType;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
 import com.ryu.blog.vo.FileVersionVO;
+import com.ryu.blog.vo.PageResult;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
@@ -19,7 +13,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.InputStream;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -125,7 +118,7 @@ public interface FileService {
      * @param groupFileQueryDTO 查询参数
      * @return 分页结果
      */
-    Mono<Map<String, Object>> getGroupFiles(GroupFileQueryDTO groupFileQueryDTO);
+    Mono<PageResult<File>> getGroupFiles(ResourceGroupQueryDTO groupFileQueryDTO);
     
     /**
      * 获取文件详细信息
@@ -221,4 +214,12 @@ public interface FileService {
      * @return 是否允许上传
      */
     Mono<Boolean> isFileAllowed(String filename, long size);
+
+    /**
+     * 批量获取文件永久访问URL（适用于博客图片等公开内容）
+     * 
+     * @param fileIds 文件ID列表
+     * @return 文件ID到永久URL的映射
+     */
+    Mono<Map<Long, String>> getBatchFilePermanentUrls(List<Long> fileIds);
 } 

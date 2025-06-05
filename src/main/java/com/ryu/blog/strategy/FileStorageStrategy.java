@@ -138,4 +138,11 @@ public interface FileStorageStrategy {
      * @return 是否成功
      */
     Mono<Boolean> abortMultipartUpload(String uploadId);
+    
+    /**
+     * 获取文件的公共永久URL（不需要身份验证，适用于博客图片等公开内容）
+     * @param path 文件路径
+     * @return 公共永久URL
+     */
+    Mono<String> getPublicUrl(String path);
 } 

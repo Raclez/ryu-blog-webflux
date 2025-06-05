@@ -2,6 +2,7 @@ package com.ryu.blog.utils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -113,6 +114,28 @@ public final class JsonUtils {
         } catch (IOException e) {
             log.error("将JSON字符串反序列化为对象失败: {} -> {}", json, clazz.getName(), e);
             return null;
+        }
+    }
+    
+    /**
+     * 将JSON字符串反序列化为Java对象列表
+     * 
+     * @param json JSON字符串
+     * @param elementClass 列表元素类型
+     * @param <T> 泛型类型
+     * @return 反序列化后的Java对象列表，如果反序列化失败返回空列表
+     */
+    public static <T> List<T> deserializeList(String json, Class<T> elementClass) {
+        if (json == null || json.isEmpty() || elementClass == null) {
+            return Collections.emptyList();
+        }
+        
+        try {
+            JavaType type = OBJECT_MAPPER.getTypeFactory().constructCollectionType(List.class, elementClass);
+            return OBJECT_MAPPER.readValue(json, type);
+        } catch (IOException e) {
+            log.error("将JSON字符串反序列化为对象列表失败: {} -> List<{}>", json, elementClass.getName(), e);
+            return Collections.emptyList();
         }
     }
 

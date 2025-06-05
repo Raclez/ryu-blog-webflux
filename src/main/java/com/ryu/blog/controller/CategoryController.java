@@ -12,11 +12,9 @@ import com.ryu.blog.vo.CategoryStatsVO;
 import com.ryu.blog.vo.CategoryVO;
 import com.ryu.blog.vo.PageResult;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
@@ -29,7 +27,7 @@ import java.util.List;
  */
 @Slf4j
 @RestController
-@RequestMapping("/categories")
+@RequestMapping("/category")
 @RequiredArgsConstructor
 @Tag(name = "分类管理", description = "分类相关接口")
 public class CategoryController {
@@ -79,7 +77,7 @@ public class CategoryController {
     }
 
     @Operation(summary = "获取所有分类基本信息", description = "获取所有分类的基本信息列表")
-    @GetMapping("/list")
+    @GetMapping("/all")
     public Mono<Result<List<CategoryVO>>> getAllCategories() {
         return categoryService.getAllCategories()
                 .collectList()

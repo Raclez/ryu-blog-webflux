@@ -8,6 +8,7 @@ import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
  * 实现文章与分类之间的多对多关系
@@ -17,7 +18,7 @@ import java.io.Serializable;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Table("t_article_categories")
+@Table("t_post_categories")
 public class PostCategory implements Serializable {
     private static final long serialVersionUID = -3329894548771268592L;
     
@@ -38,4 +39,10 @@ public class PostCategory implements Serializable {
      */
     @Column("category_id")
     private Long categoryId;
+
+    /**
+     * 关联时间
+     */
+    @Column("create_time")
+    private LocalDateTime createTime;
 } 

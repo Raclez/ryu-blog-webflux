@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.time.LocalDateTime;
 
 /**
  * MinIO存储策略实现类
@@ -41,31 +42,6 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     @Override
     public String getStrategyKey() {
         return "minio";
-    }
-    
-    /**
-     * 构建对象存储路径
-     * @param fileName 文件名
-     * @return 完整的存储路径的Mono
-     */
-    protected Mono<String> buildObjectNameAsync(String fileName) {
-        String uniqueFileName = FileUtils.generateUniqueFileName(fileName);
-        return getPrefixAsync()
-            .map(prefix -> FileUtils.normalizePath(prefix + uniqueFileName));
-    }
-    
-    /**
-     * 构建对象存储路径（同步方法，仅供非响应式上下文使用）
-     * @param fileName 文件名
-     * @return 完整的存储路径
-     * @deprecated 请在响应式上下文中使用 buildObjectNameAsync 方法
-     */
-    @Override
-    @Deprecated
-    protected String buildObjectName(String fileName) {
-        String prefix = getPrefix();
-        String uniqueFileName = FileUtils.generateUniqueFileName(fileName);
-        return FileUtils.normalizePath(prefix  + uniqueFileName);
     }
     
     @Override
@@ -93,7 +69,8 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                                     )
                                 )
                             )
-                            .flatMap(this::buildAccessUrlAsync);
+                            // 直接返回objectName，不添加前缀
+                            .thenReturn(objectName);
                     })
             );
     }
@@ -122,7 +99,8 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                                     )
                                 )
                             )
-                            .flatMap(this::buildAccessUrlAsync);
+                            // 直接返回objectName，不添加前缀
+                            .thenReturn(objectName);
                     })
             );
     }
@@ -356,7 +334,8 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                 )
             )
             .doOnNext(result -> multipartUploadsInfo.remove(uploadId))
-            .flatMap(path -> buildAccessUrlAsync(path));
+            // 直接返回path，不添加前缀
+            .thenReturn(objectName);
     }
 
     @Override
@@ -489,5 +468,18 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                 // 构建完整的访问URL：endpoint/bucketName/objectName
                 return finalEndpoint + "/" + bucketName + "/" + path;
             }));
+    }
+
+    /**
+     * 获取文件的公共永久URL
+     * 对于MinIO，URL格式为：endpoint/bucketName/objectName
+     * 
+     * @param path 文件路径
+     * @return 公共永久URL
+     */
+    @Override
+    public Mono<String> getPublicUrl(String path) {
+        // 直接使用已有的buildAccessUrlAsync方法，它已经实现了endpoint/bucketName/objectName的格式
+        return buildAccessUrlAsync(path);
     }
 } 
