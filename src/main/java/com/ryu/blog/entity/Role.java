@@ -1,5 +1,6 @@
 package com.ryu.blog.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -7,6 +8,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -43,12 +45,12 @@ public class Role implements Serializable {
     /**
      * 是否激活：0-禁用，1-启用
      */
-    private Integer isActive;
+    private Boolean isActive;
 
     /**
      * 是否为默认角色：0-否，1-是
      */
-    private Integer isDefault;
+    private Boolean isDefault;
 
     /**
      * 角色排序
@@ -63,17 +65,23 @@ public class Role implements Serializable {
      * 创建时间
      */
     @Column("create_time")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 
     /**
      * 更新时间
      */
     @Column("update_time")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updateTime;
 
     /**
      * 是否删除：0-未删除，1-已删除
      */
     @Column("is_deleted")
-    private Integer isDeleted;
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private Boolean isDeleted;
 } 

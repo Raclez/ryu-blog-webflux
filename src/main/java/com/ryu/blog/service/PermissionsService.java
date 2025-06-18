@@ -4,6 +4,7 @@ import com.ryu.blog.dto.PermissionsAddDTO;
 import com.ryu.blog.dto.PermissionsQueryDTO;
 import com.ryu.blog.dto.PermissionsUpdateDTO;
 import com.ryu.blog.entity.Permissions;
+import com.ryu.blog.vo.PageResult;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -35,12 +36,12 @@ public interface PermissionsService {
     Mono<Void> updatePermission(PermissionsUpdateDTO permissionsUpdateDTO);
 
     /**
-     * 按模块获取权限列表
+     * 按模块前缀获取权限列表
      * 
-     * @param module 模块名称
+     * @param modulePrefix 模块前缀，如 "system", "content" 等
      * @return 权限列表
      */
-    Flux<Permissions> getPermissionsByModule(String module);
+    Flux<Permissions> getPermissionsByModule(String modulePrefix);
 
     /**
      * 分页查询权限列表
@@ -48,7 +49,7 @@ public interface PermissionsService {
      * @param permissionsQuery 查询条件
      * @return 权限分页列表
      */
-    Flux<Permissions> getPermissionsByPage(PermissionsQueryDTO permissionsQuery);
+    Mono<PageResult<Permissions>> getPermissionsByPage(PermissionsQueryDTO permissionsQuery);
 
     /**
      * 保存权限
@@ -76,6 +77,7 @@ public interface PermissionsService {
 
     /**
      * 获取所有模块
+     * 从权限标识中提取模块名称
      * 
      * @return 模块列表
      */
@@ -113,5 +115,5 @@ public interface PermissionsService {
      * @param isActive 激活状态
      * @return 操作结果
      */
-    Mono<Boolean> updatePermissionStatus(List<Long> ids, Integer isActive);
+    Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive);
 } 

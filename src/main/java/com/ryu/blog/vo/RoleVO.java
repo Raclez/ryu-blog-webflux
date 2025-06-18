@@ -1,8 +1,10 @@
 package com.ryu.blog.vo;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ryu.blog.entity.Permissions;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,9 +33,13 @@ public class RoleVO {
     private String description;
     
     @Schema(description = "创建时间")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
     
     @Schema(description = "更新时间")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updateTime;
     
     @Schema(description = "是否默认角色 (1: 是, 0: 否)")

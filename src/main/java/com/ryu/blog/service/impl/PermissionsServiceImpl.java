@@ -9,6 +9,7 @@ import com.ryu.blog.repository.PermissionsRepository;
 import com.ryu.blog.repository.RolePermissionRepository;
 import com.ryu.blog.repository.UserRoleRepository;
 import com.ryu.blog.service.PermissionsService;
+import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -57,7 +58,6 @@ public class PermissionsServiceImpl implements PermissionsService {
                     permission.setName(permissionsUpdateDTO.getName());
                     permission.setIdentity(permissionsUpdateDTO.getIdentity());
                     permission.setDescription(permissionsUpdateDTO.getDescription());
-                    permission.setModule(permissionsUpdateDTO.getModule());
                     if (permissionsUpdateDTO.getIsActive() != null) {
                         permission.setIsActive(permissionsUpdateDTO.getIsActive());
                     }
@@ -70,29 +70,52 @@ public class PermissionsServiceImpl implements PermissionsService {
     }
 
     @Override
-    public Flux<Permissions> getPermissionsByModule(String module) {
-        log.info("获取模块权限, module: {}", module);
-        return permissionsRepository.findByModuleAndIsDeletedOrderByIdAsc(module, 0);
+    public Flux<Permissions> getPermissionsByModule(String modulePrefix) {
+        log.info("获取模块权限, modulePrefix: {}", modulePrefix);
+        return permissionsRepository.findByIdentityStartingWithAndIsDeletedOrderByIdAsc(modulePrefix + ":", 0);
     }
 
     @Override
-    public Flux<Permissions> getPermissionsByPage(PermissionsQueryDTO permissionsQuery) {
+    public Mono<PageResult<Permissions>> getPermissionsByPage(PermissionsQueryDTO permissionsQuery) {
         log.info("分页查询权限: {}", permissionsQuery);
         
-        // 查询条件判断 - 实际项目中可能需要实现更复杂的分页逻辑
-        if (permissionsQuery.getModule() != null && !permissionsQuery.getModule().isEmpty()) {
-            return permissionsRepository.findByModuleAndIsDeletedOrderByIdAsc(permissionsQuery.getModule(), 0);
+        // 默认分页参数
+        long currentPage = permissionsQuery.getCurrentPage() != null ? permissionsQuery.getCurrentPage() : 1;
+        long pageSize = permissionsQuery.getPageSize() != null ? permissionsQuery.getPageSize() : 10;
+        
+        // 根据查询条件获取权限列表
+        Flux<Permissions> permissionsFlux;
+        
+        if (permissionsQuery.getModulePrefix() != null && !permissionsQuery.getModulePrefix().isEmpty()) {
+            permissionsFlux = permissionsRepository.findByIdentityStartingWithAndIsDeletedOrderByIdAsc(
+                    permissionsQuery.getModulePrefix() + ":", 0);
         } else if (permissionsQuery.getName() != null && !permissionsQuery.getName().isEmpty()) {
-            // 如果需要按名称搜索，可能需要添加自定义查询方法
-            return permissionsRepository.findByIsDeletedOrderByIdAsc(0)
+            permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0)
                     .filter(permission -> permission.getName().contains(permissionsQuery.getName()));
         } else if (permissionsQuery.getIdentity() != null && !permissionsQuery.getIdentity().isEmpty()) {
-            // 如果需要按标识搜索，可能需要添加自定义查询方法
-            return permissionsRepository.findByIsDeletedOrderByIdAsc(0)
+            permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0)
                     .filter(permission -> permission.getIdentity().contains(permissionsQuery.getIdentity()));
         } else {
-            return permissionsRepository.findByIsDeletedOrderByIdAsc(0);
+            permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0);
         }
+        
+        // 计算总数并构建分页结果
+        return permissionsFlux.collectList()
+                .map(allPermissions -> {
+                    long total = allPermissions.size();
+                    
+                    // 计算分页
+                    int fromIndex = (int) ((currentPage - 1) * pageSize);
+                    if (fromIndex >= allPermissions.size()) {
+                        fromIndex = 0;
+                    }
+                    
+                    int toIndex = (int) Math.min(fromIndex + pageSize, allPermissions.size());
+                    List<Permissions> pageData = allPermissions.subList(fromIndex, toIndex);
+                    
+                    // 创建分页结果对象
+                    return new PageResult<>(pageData, total, pageSize, currentPage);
+                });
     }
 
     @Override
@@ -105,9 +128,8 @@ public class PermissionsServiceImpl implements PermissionsService {
         permission.setName(permissionsAddDTO.getName());
         permission.setIdentity(permissionsAddDTO.getIdentity());
         permission.setDescription(permissionsAddDTO.getDescription());
-        permission.setModule(permissionsAddDTO.getModule());
-        permission.setIsActive(1); // 默认激活
-        permission.setIsDeleted(0); // 未删除
+        permission.setIsActive(true); // 默认激活
+        permission.setIsDeleted(false); // 未删除
         
         // 设置时间
         LocalDateTime now = LocalDateTime.now();
@@ -135,7 +157,7 @@ public class PermissionsServiceImpl implements PermissionsService {
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("权限不存在")))
                 .flatMap(permission -> {
                     // 逻辑删除
-                    permission.setIsDeleted(1);
+                    permission.setIsDeleted(true);
                     permission.setUpdateTime(LocalDateTime.now());
                     
                     return permissionsRepository.save(permission)
@@ -172,7 +194,7 @@ public class PermissionsServiceImpl implements PermissionsService {
                                 
                                 // 获取权限标识
                                 return permissionsRepository.findByIdIn(permissionIds)
-                                        .filter(permission -> permission.getIsActive() == 1 && permission.getIsDeleted() == 0)
+                                        .filter(permission -> permission.getIsActive() == true && permission.getIsDeleted() == false)
                                         .map(Permissions::getIdentity)
                                         .collect(Collectors.toSet());
                             });
@@ -184,7 +206,11 @@ public class PermissionsServiceImpl implements PermissionsService {
         log.info("获取所有模块");
         
         return permissionsRepository.findByIsDeletedOrderByIdAsc(0)
-                .map(Permissions::getModule)
+                .map(permission -> {
+                    String identity = permission.getIdentity();
+                    int index = identity.indexOf(":");
+                    return index > 0 ? identity.substring(0, index) : "common";
+                })
                 .distinct()
                 .collectList();
     }
@@ -197,7 +223,7 @@ public class PermissionsServiceImpl implements PermissionsService {
         return permissionsRepository.findByIdentity(permissionIdentity)
                 .switchIfEmpty(Mono.just(new Permissions())) // 权限不存在，返回空对象
                 .flatMap(permission -> {
-                    if (permission.getId() == null || permission.getIsActive() != 1 || permission.getIsDeleted() == 1) {
+                    if (permission.getId() == null || permission.getIsActive() != true || permission.getIsDeleted() == true) {
                         return Mono.just(false);
                     }
                     
@@ -254,7 +280,7 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Boolean> updatePermissionStatus(List<Long> ids, Integer isActive) {
+    public Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive) {
         log.info("批量更新权限状态, ids: {}, isActive: {}", ids, isActive);
         
         if (ids == null || ids.isEmpty()) {

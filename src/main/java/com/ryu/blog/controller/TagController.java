@@ -2,14 +2,18 @@ package com.ryu.blog.controller;
 
 import com.ryu.blog.constant.MessageConstants;
 import com.ryu.blog.dto.TagCreateDTO;
+import com.ryu.blog.dto.TagListDTO;
 import com.ryu.blog.dto.TagUpdateDTO;
 import com.ryu.blog.service.TagService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.TagVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -120,5 +124,18 @@ public class TagController {
         return tagService.getHotTags(limit)
                 .collectList()
                 .map(Result::success);
+    }
+
+
+    @GetMapping("/page")
+    @Operation(
+            summary = "分页查询标签列表",
+            description = "根据传入的查询条件分页查询标签列表")
+    public Mono<Result<PageResult<TagVO>>> getTagByPage(@ParameterObject @Valid TagListDTO tagListDTO){
+        log.info("分页查询标签请求: {}", tagListDTO);
+        return tagService.getTagByPage(tagListDTO)
+                .map(Result::success)
+                .doOnSuccess(result -> log.info("分页查询标签成功，总数: {}", result.getData().getTotal()))
+                .doOnError(e -> log.error("分页查询标签失败: {}", e.getMessage(), e));
     }
 } 

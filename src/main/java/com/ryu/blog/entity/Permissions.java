@@ -1,10 +1,12 @@
 package com.ryu.blog.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDateTime;
 
@@ -34,39 +36,32 @@ public class Permissions {
     private String name;
 
     /**
-     * 权限标识
+     * 权限标识，包含模块前缀，如 system:user:create
      */
-    @Schema(description = "权限标识")
+    @Schema(description = "权限标识，包含模块前缀，如 system:user:create")
     private String identity;
-
-
-
-    /**
-     * 权限模块
-     */
-    @Schema(description = "权限模块")
-    private String module;
-
-
-
 
     /**
      * 创建时间
      */
     @Schema(description = "创建时间")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 
     /**
      * 更新时间
      */
     @Schema(description = "更新时间")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updateTime;
 
     /**
      * 是否激活 (1: 激活, 0: 禁用)
      */
     @Schema(description = "是否激活 (1: 激活, 0: 禁用)")
-    private Integer isActive;
+    private Boolean isActive;
 
     /**
      * 权限描述
@@ -78,6 +73,5 @@ public class Permissions {
      * 是否删除：0-未删除，1-已删除
      */
     @Column("is_deleted")
-    private Integer isDeleted;
-
+    private Boolean isDeleted;
 } 

@@ -3,7 +3,6 @@ package com.ryu.blog.repository;
 import com.ryu.blog.entity.Permissions;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -53,12 +52,22 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
     Flux<Permissions> findAllEnabled();
     
     /**
-     * 根据模块查询权限
+     * 根据权限标识前缀查询权限
      *
-     * @param module 模块名称
+     * @param prefix 权限标识前缀，如 "system:", "content:"
+     * @param isDeleted 是否删除标志
      * @return 权限列表
      */
-    Flux<Permissions> findByModuleAndIsDeletedOrderByIdAsc(String module, Integer isDeleted);
+    @Query("SELECT * FROM t_permissions WHERE identity LIKE CONCAT(:prefix, '%') AND is_deleted = :isDeleted ORDER BY id ASC")
+    Flux<Permissions> findByIdentityStartingWithAndIsDeletedOrderByIdAsc(String prefix, Integer isDeleted);
+    
+    /**
+     * 根据权限标识前缀查询权限
+     *
+     * @param prefix 权限标识前缀
+     * @return 权限列表
+     */
+    Flux<Permissions> findByIdentityStartingWith(String prefix);
     
     /**
      * 查询所有未删除的权限

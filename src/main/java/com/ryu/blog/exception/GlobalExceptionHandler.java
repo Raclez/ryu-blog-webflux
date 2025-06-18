@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * @author ryu
  */
 @Slf4j
-@RestControllerAdvice
+@RestControllerAdvice(basePackages = "com.ryu.blog.controller")
 public class GlobalExceptionHandler {
     
     /**
@@ -353,6 +353,22 @@ public class GlobalExceptionHandler {
     public Mono<Result<Void>> handleException(Exception e, ServerWebExchange exchange) {
         log.error("系统异常: {}, 类型: {}, 路径: {}", e.getMessage(), e.getClass().getName(), exchange.getRequest().getPath(), e);
         return Mono.just(Result.error(ErrorCodeConstants.ERROR, MessageConstants.ERROR));
+    }
+    
+    /**
+     * 处理资源未找到异常
+     * @param e 资源未找到异常
+     * @return 错误结果
+     */
+    @ExceptionHandler(org.springframework.web.reactive.resource.NoResourceFoundException.class)
+    public Mono<Result<String>> handleNoResourceFoundException(org.springframework.web.reactive.resource.NoResourceFoundException e) {
+        // 对于favicon.ico的请求，不记录错误日志
+        if (e.getMessage() != null && e.getMessage().contains("favicon.ico")) {
+            return Mono.just(Result.error(HttpStatus.NOT_FOUND.value(), "资源不存在"));
+        }
+        
+        log.error("资源未找到: {}", e.getMessage());
+        return Mono.just(Result.error(HttpStatus.NOT_FOUND.value(), "资源不存在"));
     }
     
     /**

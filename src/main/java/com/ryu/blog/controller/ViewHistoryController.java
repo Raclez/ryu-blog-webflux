@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.entity.ViewHistory;
 import com.ryu.blog.service.ViewHistoryService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.ViewHistoryStatsVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,7 +21,7 @@ import java.util.Map;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/history")
+@RequestMapping("/view")
 @Tag(name = "浏览历史管理", description = "浏览历史相关接口")
 public class ViewHistoryController {
 
@@ -30,7 +31,7 @@ public class ViewHistoryController {
     /**
      * 添加浏览记录
      */
-    @PostMapping("/{articleId}")
+    @PostMapping("/record/{articleId}")
     @Operation(summary = "添加浏览记录", description = "添加文章浏览记录")
     public Mono<Result<Boolean>> addViewHistory(
             @Parameter(description = "文章ID") @PathVariable("articleId") Long articleId) {
@@ -52,15 +53,14 @@ public class ViewHistoryController {
     }
 
     /**
-     * 分页获取用户浏览历史
+     * 分页获取浏览历史
      */
-    @GetMapping("/user/page")
-    @Operation(summary = "分页获取用户浏览历史", description = "分页获取当前用户的浏览历史")
+    @GetMapping("/page")
+    @Operation(summary = "分页获取浏览历史", description = "分页获取浏览历史")
     public Mono<Result<Map<String, Object>>> getUserViewHistoryPaged(
-            @Parameter(description = "页码") @RequestParam(defaultValue = "1") int page,
-            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        return viewHistoryService.getUserViewHistoryPaged(userId, page, size)
+            @Parameter(description = "页码") @RequestParam(defaultValue = "1") int currentPage,
+            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int pageSize) {
+        return viewHistoryService.getUserViewHistoryPaged(currentPage, pageSize)
                 .map(Result::success);
     }
 
@@ -93,6 +93,16 @@ public class ViewHistoryController {
     public Mono<Result<Boolean>> clearUserViewHistory() {
         Long userId = StpUtil.getLoginIdAsLong();
         return viewHistoryService.clearUserViewHistory(userId)
+                .map(Result::success);
+    }
+
+    /**
+     * 获取浏览历史统计信息
+     */
+    @GetMapping("/stats")
+    @Operation(summary = "获取浏览历史统计信息", description = "获取浏览历史的统计数据，包括PV、UV等信息")
+    public Mono<Result<ViewHistoryStatsVO>> getViewHistoryStats() {
+        return viewHistoryService.getViewHistoryStats()
                 .map(Result::success);
     }
 } 

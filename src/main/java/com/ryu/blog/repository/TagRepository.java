@@ -1,6 +1,7 @@
 package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.Tag;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.stereotype.Repository;
@@ -70,4 +71,26 @@ public interface TagRepository extends R2dbcRepository<Tag, Long> {
            "ORDER BY post_count DESC, t.name ASC " +
            "LIMIT :limit")
     Flux<Tag> findHotTags(int limit);
+    
+    /**
+     * 根据关键字查询标签
+     * @param keyword 关键字
+     * @param pageable 分页参数
+     * @return 标签列表
+     */
+    @Query("SELECT * FROM t_tags WHERE is_deleted = 0 " +
+           "AND (COALESCE(:keyword, '') = '' OR name LIKE CONCAT('%', :keyword, '%') " +
+           "OR description LIKE CONCAT('%', :keyword, '%')) " +
+           "ORDER BY create_time DESC")
+    Flux<Tag> findByKeyword(String keyword, Pageable pageable);
+    
+    /**
+     * 统计符合条件的标签总数
+     * @param keyword 关键字
+     * @return 标签总数
+     */
+    @Query("SELECT COUNT(1) FROM t_tags WHERE is_deleted = 0 " +
+           "AND (COALESCE(:keyword, '') = '' OR name LIKE CONCAT('%', :keyword, '%') " +
+           "OR description LIKE CONCAT('%', :keyword, '%'))")
+    Mono<Long> countByKeyword(String keyword);
 } 

@@ -22,7 +22,7 @@ import java.util.Map;
  */
 @Slf4j
 @RestController
-@RequestMapping("/posts/version")
+@RequestMapping("/postVersion")
 @RequiredArgsConstructor
 @Tag(name = "文章版本管理", description = "文章版本相关接口")
 public class PostVersionController {
@@ -35,7 +35,7 @@ public class PostVersionController {
      * @param postId 文章ID
      * @return 版本列表
      */
-    @GetMapping("/list/{postId}")
+    @GetMapping("/{postId}/versions")
     @Operation(summary = "获取文章版本列表", description = "获取指定文章的全部版本列表")
     public Mono<Result<List<PostVersion>>> getVersions(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId) {
@@ -53,33 +53,6 @@ public class PostVersionController {
                 });
     }
 
-    /**
-     * 分页获取文章版本列表
-     * 
-     * @param postId 文章ID
-     * @param page 页码
-     * @param size 每页大小
-     * @return 分页版本列表和分页信息
-     */
-    @GetMapping("/page/{postId}")
-    @Operation(summary = "分页获取文章版本列表", description = "分页获取指定文章的版本列表，返回分页信息")
-    public Mono<Result<Map<String, Object>>> getVersionsPaged(
-            @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
-            @Parameter(description = "页码") @RequestParam(defaultValue = "1") int page,
-            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
-        log.info("分页获取文章版本列表: 文章ID={}, 页码={}, 每页大小={}", postId, page, size);
-        
-        return articleVersionService.getVersionsPaged(postId, page, size)
-                .map(result -> {
-                    log.info("分页获取文章版本列表成功: 文章ID={}, 总数={}", postId, result.get("total"));
-                    return Result.success(result);
-                })
-                .onErrorResume(e -> {
-                    log.error("分页获取文章版本列表失败: 文章ID={}, 页码={}, 每页大小={}, 错误信息={}",
-                            postId, page, size, e.getMessage(), e);
-                    return Mono.just(Result.fail("获取版本列表失败: " + e.getMessage()));
-                });
-    }
 
     /**
      * 获取文章指定版本
@@ -88,7 +61,7 @@ public class PostVersionController {
      * @param version 版本号
      * @return 版本详情
      */
-    @GetMapping("/{postId}/{version}")
+    @GetMapping("/detail/{postId}/versions/{version}")
     @Operation(summary = "获取文章指定版本", description = "根据文章ID和版本号获取指定版本的详细信息")
     public Mono<Result<PostVersion>> getVersion(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,

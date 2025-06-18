@@ -3,7 +3,9 @@ package com.ryu.blog.service;
 import com.ryu.blog.dto.PermissionsAssignDTO;
 import com.ryu.blog.dto.RoleDTO;
 import com.ryu.blog.dto.RoleListDTO;
+import com.ryu.blog.dto.RoleUpdateDTO;
 import com.ryu.blog.entity.Role;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.RolePermissionsVO;
 import com.ryu.blog.vo.RoleVO;
 import reactor.core.publisher.Flux;
@@ -42,7 +44,7 @@ public interface RoleService {
      * @param roleListDTO 查询条件
      * @return 角色分页列表
      */
-    Flux<Role> getRoles(RoleListDTO roleListDTO);
+    Mono<PageResult<Role>> getRolesByConditions(RoleListDTO roleListDTO);
 
     /**
      * 获取角色详情
@@ -116,4 +118,12 @@ public interface RoleService {
      * @return 删除结果
      */
     Mono<Void> removeById(Long id);
+
+    /**
+     * 更新角色信息
+     * 
+     * @param roleUpdateDTO 角色更新信息
+     * @return 更新结果
+     */
+    Mono<Role> updateRole(RoleUpdateDTO roleUpdateDTO);
 } 

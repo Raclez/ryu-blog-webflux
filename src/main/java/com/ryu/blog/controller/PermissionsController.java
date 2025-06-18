@@ -7,8 +7,11 @@ import com.ryu.blog.dto.PermissionsUpdateDTO;
 import com.ryu.blog.entity.Permissions;
 import com.ryu.blog.service.PermissionsService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.PageResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +20,6 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -80,26 +82,26 @@ public class PermissionsController {
     }
 
     /**
-     * 按模块获取权限列表
-     * 获取指定模块下的所有权限
+     * 按模块前缀获取权限列表
+     * 获取指定模块前缀下的所有权限
      * 
-     * @param module 模块名称
+     * @param modulePrefix 模块前缀，如 "system", "content" 等
      * @return 权限列表
      */
-    @GetMapping("/module/{module}")
-    @Operation(summary = "按模块获取权限列表", description = "获取指定模块下的所有权限")
-    public Mono<Result<List<Permissions>>> getPermissionsByModule(@PathVariable String module) {
-        log.info("请求按模块获取权限列表, module: {}", module);
+    @GetMapping("/module/{modulePrefix}")
+    @Operation(summary = "按模块前缀获取权限列表", description = "获取指定模块前缀下的所有权限")
+    public Mono<Result<List<Permissions>>> getPermissionsByModule(@PathVariable String modulePrefix) {
+        log.info("请求按模块前缀获取权限列表, modulePrefix: {}", modulePrefix);
         
-        if (StringUtils.isBlank(module)) {
-            log.warn("按模块获取权限失败: 模块名称为空");
-            return Mono.just(Result.error("模块名称不能为空"));
+        if (StringUtils.isBlank(modulePrefix)) {
+            log.warn("按模块前缀获取权限失败: 模块前缀为空");
+            return Mono.just(Result.error("模块前缀不能为空"));
         }
         
-        return permissionsService.getPermissionsByModule(module)
+        return permissionsService.getPermissionsByModule(modulePrefix)
                 .collectList()
                 .map(permissions -> {
-                    log.info("成功按模块获取权限列表, module: {}, 数量: {}", module, permissions.size());
+                    log.info("成功按模块前缀获取权限列表, modulePrefix: {}, 数量: {}", modulePrefix, permissions.size());
                     return Result.success(permissions);
                 });
     }
@@ -113,7 +115,7 @@ public class PermissionsController {
      */
     @GetMapping("/page")
     @Operation(summary = "分页查询权限列表", description = "根据查询条件分页获取权限列表")
-    public Mono<Result<List<Permissions>>> getPermissionsByPage(@ParameterObject PermissionsQueryDTO permissionsQuery) {
+    public Mono<Result<PageResult<Permissions>>> getPermissionsByPage(@ParameterObject PermissionsQueryDTO permissionsQuery) {
         log.info("请求分页查询权限列表, 查询条件: {}", permissionsQuery);
         
         if (permissionsQuery == null) {
@@ -122,10 +124,10 @@ public class PermissionsController {
         }
         
         return permissionsService.getPermissionsByPage(permissionsQuery)
-                .collectList()
-                .map(permissionsList -> {
-                    log.info("成功分页查询权限列表, 总数: {}", permissionsList.size());
-                    return Result.success(permissionsList);
+                .map(pageResult -> {
+                    log.info("成功分页查询权限列表, 总数: {}, 当前页: {}, 每页大小: {}", 
+                            pageResult.getTotal(), pageResult.getCurrent(), pageResult.getSize());
+                    return Result.success(pageResult);
                 });
     }
 

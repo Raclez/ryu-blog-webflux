@@ -3,6 +3,7 @@ package com.ryu.blog.service;
 import com.ryu.blog.dto.SysConfigDTO;
 import com.ryu.blog.dto.SysConfigUpdateDTO;
 import com.ryu.blog.entity.SysConfig;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysConfigVO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -22,6 +23,16 @@ public interface SysConfigService {
      * @return 配置值
      */
     Mono<String> getConfigValue(String key, String defaultValue);
+
+    /**
+     * 获取用户配置值
+     *
+     * @param userId       用户ID
+     * @param key          配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    Mono<String> getUserConfigValue(Long userId, String key, String defaultValue);
 
     /**
      * 获取配置信息
@@ -58,20 +69,28 @@ public interface SysConfigService {
     /**
      * 获取配置列表
      *
-     * @param group 配置分组，可为null
+     * @param groupPrefix 分组前缀，可为null
      * @return 配置视图对象列表
      */
-    Flux<SysConfigVO> getConfigList(String group);
+    Flux<SysConfigVO> getConfigList(String groupPrefix);
+
+    /**
+     * 获取用户配置列表
+     *
+     * @param userId 用户ID
+     * @return 配置视图对象列表
+     */
+    Flux<SysConfigVO> getUserConfigList(Long userId);
 
     /**
      * 分页获取配置列表
      *
-     * @param page  页码
-     * @param size  每页大小
-     * @param group 配置分组，可为null
+     * @param page        页码
+     * @param size        每页大小
+     * @param groupPrefix 分组前缀，可为null
      * @return 配置列表和分页信息
      */
-    Mono<Map<String, Object>> getConfigListPaged(int page, int size, String group);
+    Mono<Map<String, Object>> getConfigListPaged(int page, int size, String groupPrefix);
     
     /**
      * 分页获取系统配置
@@ -81,12 +100,12 @@ public interface SysConfigService {
      * @param size 每页大小
      * @return 系统配置分页结果
      */
-    Mono<Map<String, Object>> getSysConfigPage(String configKey, int page, int size);
+    Mono<PageResult<SysConfigVO>> getSysConfigPage(String configKey, int page, int size);
 
     /**
      * 搜索配置
      *
-     * @param key 配置键关键字
+     * @param key 配置键或名称关键字
      * @return 配置视图对象列表
      */
     Flux<SysConfigVO> searchConfig(String key);
@@ -105,7 +124,7 @@ public interface SysConfigService {
      * @param configDTO 配置DTO
      * @return 更新后的配置视图对象
      */
-    Mono<SysConfigVO> updateConfig( SysConfigUpdateDTO configDTO);
+    Mono<SysConfigVO> updateConfig(SysConfigUpdateDTO configDTO);
 
     /**
      * 删除配置
@@ -130,4 +149,18 @@ public interface SysConfigService {
      * @return 是否更新成功
      */
     Mono<Boolean> batchUpdateConfig(Map<String, String> configs);
+
+    /**
+     * 清除所有缓存
+     *
+     * @return 操作结果
+     */
+    Mono<Boolean> clearAllCache();
+    
+    /**
+     * 获取配置分组列表
+     * 
+     * @return 配置分组列表，包含分组名称和层级结构
+     */
+    Mono<Map<String, Object>> getConfigGroups();
 } 

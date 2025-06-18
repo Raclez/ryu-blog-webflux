@@ -1,27 +1,24 @@
 package com.ryu.blog.controller;
 
-import com.ryu.blog.dto.BatchAssignRoleDTO;
-import com.ryu.blog.dto.PermissionsAssignDTO;
-import com.ryu.blog.dto.RoleDTO;
-import com.ryu.blog.dto.RoleListDTO;
-import com.ryu.blog.dto.RoleStatusDTO;
+import com.ryu.blog.dto.*;
 import com.ryu.blog.entity.Role;
 import com.ryu.blog.service.RoleService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.RolePermissionsVO;
 import com.ryu.blog.vo.RoleVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -147,7 +144,7 @@ public class RoleController {
      */
     @GetMapping("/page")
     @Operation(summary = "获取角色列表", description = "获取角色列表，支持分页和条件查询")
-    public Mono<Result<List<Role>>> getRoles(@ParameterObject RoleListDTO roleListDTO) {
+    public Mono<Result<PageResult<Role>>> getRoles(@ParameterObject RoleListDTO roleListDTO) {
         log.info("请求获取角色列表: {}", roleListDTO);
         
         if (roleListDTO == null) {
@@ -155,12 +152,22 @@ public class RoleController {
             return Mono.just(Result.error("查询条件不能为空"));
         }
         
-        return roleService.getRoles(roleListDTO)
-                .collectList()
-                .map(roles -> {
-                    log.info("成功获取角色列表, 总数: {}", roles.size());
-                    return Result.success(roles);
-                });
+        // 设置默认值
+        if (roleListDTO.getCurrentPage() == null) {
+            roleListDTO.setCurrentPage(1L);
+        }
+        
+        if (roleListDTO.getPageSize() == null) {
+            roleListDTO.setPageSize(10L);
+        }
+        
+        return roleService.getRolesByConditions(roleListDTO)
+                .map(pageResult -> {
+                    log.info("成功获取角色列表, 总数: {}, 当前页: {}, 每页大小: {}", 
+                            pageResult.getTotal(), pageResult.getCurrent(), pageResult.getSize());
+                    return Result.success(pageResult);
+                })
+                .defaultIfEmpty(Result.success(new PageResult<>()));
     }
 
     /**
@@ -393,6 +400,40 @@ public class RoleController {
                 .map(roles -> {
                     log.info("成功获取所有角色, 总数: {}", roles.size());
                     return Result.success(roles);
+                });
+    }
+
+
+    /**
+     * 更新角色信息（使用DTO中的ID）
+     * 修改角色信息
+     *
+     * @param roleUpdateDTO 角色更新信息DTO（包含ID）
+     * @return 操作结果
+     */
+    @PutMapping("/edit")
+    @Operation(summary = "更新角色信息", description = "使用DTO中的ID修改角色信息")
+    public Mono<Result<Role>> updateRoleWithDTO(@RequestBody RoleUpdateDTO roleUpdateDTO) {
+        log.info("请求更新角色信息, 更新信息: {}", roleUpdateDTO);
+        
+        if (roleUpdateDTO == null) {
+            log.error("更新角色信息失败: 更新信息为空");
+            return Mono.just(Result.error("更新信息不能为空"));
+        }
+        
+        if (roleUpdateDTO.getId() == null) {
+            log.error("更新角色信息失败: 角色ID为空");
+            return Mono.just(Result.error("角色ID不能为空"));
+        }
+        
+        return roleService.updateRole(roleUpdateDTO)
+                .map(updatedRole -> {
+                    log.info("成功更新角色信息, ID: {}, 名称: {}", roleUpdateDTO.getId(), updatedRole.getName());
+                    return Result.success(updatedRole);
+                })
+                .onErrorResume(e -> {
+                    log.error("更新角色信息失败, ID: {}, 错误: {}", roleUpdateDTO.getId(), e.getMessage());
+                    return Mono.just(Result.error("更新角色信息失败: " + e.getMessage()));
                 });
     }
 } 

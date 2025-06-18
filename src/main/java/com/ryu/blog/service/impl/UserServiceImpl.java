@@ -3,7 +3,6 @@ package com.ryu.blog.service.impl;
 import cn.hutool.crypto.SecureUtil;
 import com.ryu.blog.dto.UserDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
-import com.ryu.blog.entity.Role;
 import com.ryu.blog.entity.User;
 import com.ryu.blog.entity.UserRole;
 import com.ryu.blog.mapper.UserMapper;
@@ -11,7 +10,7 @@ import com.ryu.blog.repository.RoleRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.repository.UserRoleRepository;
 import com.ryu.blog.service.UserService;
-import com.ryu.blog.utils.CryptoUtil;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.UserInfoVO;
 import com.ryu.blog.vo.UserVO;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 /**
  * 用户服务实现类
@@ -291,7 +291,7 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
-    public Mono<Map<String, Object>> getUserPage(int page, int size, String username, String email, Integer status) {
+    public Mono<PageResult<UserVO>> getUserPage(int page, int size, String username, String email, Integer status) {
         // 构建查询条件
         Map<String, Object> params = new HashMap<>();
         if (username != null && !username.isEmpty()) {
@@ -315,14 +315,20 @@ public class UserServiceImpl implements UserService {
                     List<User> users = tuple.getT1();
                     Long total = tuple.getT2();
                     
-                    Map<String, Object> result = new HashMap<>();
-                    result.put("records", users);
-                    result.put("total", total);
-                    result.put("size", size);
-                    result.put("current", page + 1);
-                    result.put("pages", (total + size - 1) / size);
+                    // 使用MapStruct将User转换为UserVO
+                    List<UserVO> userVOs = users.stream()
+                            .map(userMapper::toUserVO)
+                            .collect(Collectors.toList());
                     
-                    return result;
+                    // 创建并返回PageResult对象
+                    PageResult<UserVO> pageResult = new PageResult<>();
+                    pageResult.setRecords(userVOs);
+                    pageResult.setTotal(total);
+                    pageResult.setSize(size);
+                    pageResult.setCurrent(page + 1);
+                    pageResult.setPages((total + size - 1) / size);
+                    
+                    return pageResult;
                 });
     }
     

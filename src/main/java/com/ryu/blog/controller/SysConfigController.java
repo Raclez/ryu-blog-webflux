@@ -4,6 +4,7 @@ import com.ryu.blog.dto.SysConfigDTO;
 import com.ryu.blog.dto.SysConfigUpdateDTO;
 import com.ryu.blog.service.SysConfigService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysConfigVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -33,7 +34,7 @@ public class SysConfigController {
      */
     @GetMapping("/page")
     @Operation(summary = "分页获取系统配置信息")
-    public Mono<Result<Map<String, Object>>> getSysConfig(
+    public Mono<Result<PageResult<SysConfigVO>>> getSysConfig(
             @RequestParam(required = false) String configKey,
             @RequestParam(defaultValue = "1") int currentPage,
             @RequestParam(defaultValue = "10") int pageSize) {

@@ -25,20 +25,24 @@ public class SysConfigVO {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
-    @Schema(description = "配置键")
+    @Schema(description = "配置键，格式为'分组.子分组.配置名'")
     private String configKey;
 
     @Schema(description = "配置值")
     private String configValue;
 
-    @Schema(description = "配置描述")
-    private String description;
+    @Schema(description = "备注")
+    private String remark;
 
-    @Schema(description = "配置分组")
-    private String configGroup;
+    @Schema(description = "状态：true 启用, false 禁用")
+    private Boolean status;
 
-    @Schema(description = "是否系统内置：0-否，1-是")
-    private Integer isSystem;
+    @Schema(description = "用户ID，0表示全局配置")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long userId;
+
+    @Schema(description = "扩展信息")
+    private String extra;
 
     @Schema(description = "创建时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

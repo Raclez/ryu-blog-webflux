@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
@@ -95,8 +96,8 @@ public class CategoryController {
     }
 
     @Operation(summary = "分页查询分类", description = "根据条件分页查询分类")
-    @PostMapping("/page")
-    public Mono<Result<PageResult<Category>>> getCategoriesByPage(@RequestBody CategoryListDTO categoryListDTO) {
+    @GetMapping("/page")
+    public Mono<Result<PageResult<Category>>> getCategoriesByPage(@ParameterObject CategoryListDTO categoryListDTO) {
         return categoryService.getCategoriesByPage(categoryListDTO)
                 .map(Result::success)
                 .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));

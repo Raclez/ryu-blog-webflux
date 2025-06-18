@@ -19,7 +19,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Web配置类
+ * Web配置类 - 主要处理CORS跨域
  * @author ryu
  */
 @Configuration
@@ -40,7 +40,7 @@ public class WebConfig {
     @Value("${app.cors.max-age}")
     private long maxAge;
 
-    @Value("${app.cors.exposed-headers:Content-Disposition,Content-Length,Content-Type}")
+    @Value("${app.cors.exposed-headers:Content-Disposition,Content-Length,Content-Type,Authorization}")
     private String exposedHeaders;
 
     /**

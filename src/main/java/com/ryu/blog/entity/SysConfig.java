@@ -1,5 +1,6 @@
 package com.ryu.blog.entity;
 
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,7 +28,7 @@ public class SysConfig {
     private Long id;
 
     /**
-     * 配置键
+     * 配置键，格式为"分组.子分组.配置名"
      */
     @Column("config_key")
     private String configKey;
@@ -39,27 +40,31 @@ public class SysConfig {
     private String configValue;
 
     /**
-     * 配置描述
+     * 备注
      */
-    private String description;
-
-    /**
-     * 配置分组
-     */
-    @Column("config_group")
-    private String configGroup;
-
-    /**
-     * 是否系统内置：0-否，1-是
-     */
-    @Column("is_system")
-    private Integer isSystem;
+    private String remark;
 
     /**
      * 创建时间
      */
     @Column("create_time")
     private LocalDateTime createTime;
+
+    /**
+     * 扩展信息
+     */
+    @Size(max = 1000, message = "扩展信息长度不能超过1000")
+    private String extra;
+    
+    /**
+     * 用户ID，0 表示全局
+     */
+    private Long userId;
+
+    /**
+     * 状态：true 启用, false 禁用
+     */
+    private Boolean status;
 
     /**
      * 更新时间

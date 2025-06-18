@@ -6,7 +6,9 @@ import com.ryu.blog.dto.UserListDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
 import com.ryu.blog.service.UserService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.UserInfoVO;
+import com.ryu.blog.vo.UserVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 用户管理控制器
@@ -37,7 +38,7 @@ public class UserController {
      */
     @Operation(summary = "分页查询用户列表", description = "根据条件获取用户分页列表")
     @GetMapping("/page")
-    public Mono<Result<Map<String, Object>>> getUserPage(@Validated UserListDTO userListDTO) {
+    public Mono<Result<PageResult<UserVO>>> getUserPage(@Validated UserListDTO userListDTO) {
         return userService.getUserPage(
                 userListDTO.getCurrent() - 1, 
                 userListDTO.getSize(), 

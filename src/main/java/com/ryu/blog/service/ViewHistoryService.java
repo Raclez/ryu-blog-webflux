@@ -1,6 +1,7 @@
 package com.ryu.blog.service;
 
 import com.ryu.blog.entity.ViewHistory;
+import com.ryu.blog.vo.ViewHistoryStatsVO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -29,14 +30,13 @@ public interface ViewHistoryService {
     Flux<ViewHistory> getUserViewHistory(Long userId);
 
     /**
-     * 分页获取用户浏览历史
+     * 分页获取浏览历史
      *
-     * @param userId 用户ID
      * @param page   页码
      * @param size   每页大小
      * @return 浏览历史列表和分页信息
      */
-    Mono<Map<String, Object>> getUserViewHistoryPaged(Long userId, int page, int size);
+    Mono<Map<String, Object>> getUserViewHistoryPaged(int page, int size);
 
     /**
      * 获取文章浏览量
@@ -61,4 +61,11 @@ public interface ViewHistoryService {
      * @return 是否成功
      */
     Mono<Boolean> clearUserViewHistory(Long userId);
+    
+    /**
+     * 获取浏览历史统计信息
+     *
+     * @return 浏览历史统计信息
+     */
+    Mono<ViewHistoryStatsVO> getViewHistoryStats();
 } 

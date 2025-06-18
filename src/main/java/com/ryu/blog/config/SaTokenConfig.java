@@ -17,7 +17,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class SaTokenConfig {
 
-
     /**
      * 使用JWT无状态登录
      */
@@ -28,33 +27,38 @@ public class SaTokenConfig {
 
     /**
      * 注册Sa-Token全局过滤器
-     * 合并了SecurityConfig的安全规则
      */
     @Bean
     public SaReactorFilter saReactorFilter() {
         return new SaReactorFilter()
                 // 拦截地址
                 .addInclude("/**")
-                // 排除地址（合并两个配置类的排除规则）
+                // 排除地址
                 .addExclude(
-                        "/favicon.ico", 
-                        "/doc.html", 
+                        // 静态资源
+                        "/favicon.ico",
+                        "/static/**",
+                        
+                        // API文档资源
+                        "/doc.html",
+                        "/webjars/**",
                         "/swagger-ui.html",
                         "/swagger-ui/**",
-                        "/webjars/**", 
-                        "/swagger-resources/**", 
                         "/v3/api-docs/**"
                 )
                 // 鉴权方法：每次访问进入
                 .setAuth(obj -> {
-                    // 登录校验 - 排除登录接口、注册接口、公共接口
+                    // 登录校验 - 排除公开接口
                     SaRouter.match("/**")
+                            // 身份认证相关
                             .notMatch("/auth/login", "/auth/register")
                             .notMatch("/auth/captcha", "/auth/captcha/gif", "/auth/captcha/arithmetic")
                             .notMatch("/auth/check/username", "/auth/check/email", "/auth/check")
                             .notMatch("/user/register", "/user/login", "/user/captcha")
+                            // 内容相关
                             .notMatch("/content/article/list", "/content/article/detail/**")
                             .notMatch("/content/category/list", "/content/tag/list")
+                            // 通用接口
                             .notMatch("/ip/info", "/ip/query")
                             .check(r -> {
                                 try {
@@ -71,7 +75,6 @@ public class SaTokenConfig {
                 })
                 // 异常处理
                 .setError(e -> {
-                    // 返回统一的错误信息
                     log.error("Sa-Token鉴权异常: {}", e.getMessage());
                     return com.ryu.blog.utils.Result.error(e.getMessage());
                 });

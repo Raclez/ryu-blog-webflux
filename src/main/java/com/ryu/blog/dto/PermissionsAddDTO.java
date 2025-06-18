@@ -10,12 +10,9 @@ public class PermissionsAddDTO {
     @Schema(description = "权限名称", required = true)
     private String name;
     
-    @Schema(description = "权限标识，用于鉴权", required = true)
+    @Schema(description = "权限标识，包含模块前缀，如 system:user:create", required = true)
     private String identity;
     
     @Schema(description = "权限描述")
     private String description;
-    
-    @Schema(description = "所属模块", required = true)
-    private String module;
 }

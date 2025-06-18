@@ -1,8 +1,10 @@
 package com.ryu.blog.service;
 
 import com.ryu.blog.dto.TagCreateDTO;
+import com.ryu.blog.dto.TagListDTO;
 import com.ryu.blog.dto.TagUpdateDTO;
 import com.ryu.blog.entity.Tag;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.TagVO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -85,4 +87,11 @@ public interface TagService {
      * @return 标签VO列表
      */
     Flux<TagVO> getHotTags(int limit);
+    
+    /**
+     * 分页查询标签
+     * @param tagListDTO 标签查询条件
+     * @return 标签分页结果
+     */
+    Mono<PageResult<TagVO>> getTagByPage(TagListDTO tagListDTO);
 } 

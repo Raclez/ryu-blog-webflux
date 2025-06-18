@@ -96,5 +96,11 @@ public class Menus {
      * 是否为外链 (0: 否, 1: 是)
      */
     @Schema(description = "是否为外链 (0: 否, 1: 是)")
-    private Integer isLink;
+    private Boolean isLink;
+
+    /**
+     * 是否删除：0-未删除，1-已删除
+     */
+
+    private Boolean isDeleted;
 } 

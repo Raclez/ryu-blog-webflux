@@ -3,12 +3,13 @@ package com.ryu.blog.service;
 import com.ryu.blog.dto.UserDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
 import com.ryu.blog.entity.User;
+import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.UserInfoVO;
+import com.ryu.blog.vo.UserVO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 用户服务接口
@@ -126,7 +127,7 @@ public interface UserService {
      * @param status 状态（可选）
      * @return 用户分页数据
      */
-    Mono<Map<String, Object>> getUserPage(int page, int size, String username, String email, Integer status);
+    Mono<PageResult<UserVO>> getUserPage(int page, int size, String username, String email, Integer status);
 
     /**
      * 重置用户密码

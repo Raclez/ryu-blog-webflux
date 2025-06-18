@@ -22,6 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import com.ryu.blog.dto.TagListDTO;
+import com.ryu.blog.vo.PageResult;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -369,5 +373,40 @@ public class TagServiceImpl implements TagService {
                         .flatMap(reactiveRedisTemplate::delete)
                         .then()
         ).doOnSuccess(v -> log.debug("标签缓存清理完成"));
+    }
+
+    @Override
+    public Mono<PageResult<TagVO>> getTagByPage(TagListDTO tagListDTO) {
+        // 创建分页请求
+        int page = Math.max(0, tagListDTO.getCurrentPage() - 1); // Spring Data页码从0开始
+        int size = tagListDTO.getPageSize();
+        Pageable pageable = PageRequest.of(page, size);
+        String keyword = tagListDTO.getKeyword();
+        
+        // 查询总记录数
+        return tagRepository.countByKeyword(keyword)
+                .flatMap(total -> {
+                    if (total == 0) {
+                        // 如果没有记录，返回空页
+                        return Mono.just(new PageResult<TagVO>());
+                    }
+                    
+                    // 查询分页数据
+                    return tagRepository.findByKeyword(keyword, pageable)
+                            .map(tagMapper::toTagVO)
+                            .collectList()
+                            .map(tagVOs -> {
+                                // 创建分页结果
+                                PageResult<TagVO> pageResult = new PageResult<>();
+                                pageResult.setRecords(tagVOs);
+                                pageResult.setTotal(total);
+                                pageResult.setSize(size);
+                                pageResult.setCurrent(tagListDTO.getCurrentPage());
+                                pageResult.setPages((total + size - 1) / size); // 计算总页数
+                                return pageResult;
+                            });
+                })
+                .doOnSuccess(result -> log.debug("分页查询标签成功，总数: {}", result.getTotal()))
+                .doOnError(e -> log.error("分页查询标签失败: {}", e.getMessage(), e));
     }
 } 

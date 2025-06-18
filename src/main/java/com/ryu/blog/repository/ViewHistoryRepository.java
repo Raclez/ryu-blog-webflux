@@ -3,7 +3,6 @@ package com.ryu.blog.repository;
 import com.ryu.blog.entity.ViewHistory;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -25,11 +24,11 @@ public interface ViewHistoryRepository extends R2dbcRepository<ViewHistory, Long
     /**
      * 根据用户ID和文章ID查询浏览历史
      *
-     * @param VisitorId    用户ID
+     * @param visitorId    用户ID
      * @param postId 文章ID
      * @return 浏览历史
      */
-    Mono<ViewHistory> findByVisitorIdAndPostId(Long VisitorId, Long postId);
+    Mono<ViewHistory> findByVisitorIdAndPostId(Long visitorId, Long postId);
 
     /**
      * 根据文章ID查询浏览历史
@@ -40,31 +39,42 @@ public interface ViewHistoryRepository extends R2dbcRepository<ViewHistory, Long
     Flux<ViewHistory> findByPostId(Long articleId);
 
     /**
-     * 统计文章浏览量
+     * 根据文章ID统计浏览量
      *
      * @param postId 文章ID
      * @return 浏览量
      */
+    @Query("SELECT COUNT(*) FROM t_view_history WHERE post_id = :postId")
     Mono<Long> countByPostId(Long postId);
 
     /**
      * 分页查询用户浏览历史
      *
-     * @param VisitorId 用户ID
+     * @param visitorId 用户ID
      * @param limit  限制数量
      * @param offset 偏移量
      * @return 浏览历史列表
      */
     @Query("SELECT vh.* FROM t_view_history vh WHERE vh.user_id = :userId ORDER BY vh.create_time DESC LIMIT :limit OFFSET :offset")
-    Flux<ViewHistory> findByVisitorIdOrderByCreateTimeDesc(Long VisitorId, int limit, long offset);
+    Flux<ViewHistory> findByVisitorIdOrderByCreateTimeDesc(Long visitorId, int limit, long offset);
+
+    /**
+     * 分页查询所有浏览历史，按创建时间倒序排序
+     *
+     * @param limit  每页大小
+     * @param offset 偏移量
+     * @return 浏览历史列表
+     */
+    @Query("SELECT * FROM t_view_history ORDER BY create_time DESC LIMIT :limit OFFSET :offset")
+    Flux<ViewHistory> findOrderByCreateTimeDesc(int limit, long offset);
 
     /**
      * 统计用户浏览历史数量
      *
-     * @param VisitorId 用户ID
+     * @param visitorId 用户ID
      * @return 浏览历史数量
      */
-    Mono<Long> countByVisitorId(Long VisitorId);
+    Mono<Long> countByVisitorId(Long visitorId);
 
     /**
      * 批量获取多篇文章的浏览量
@@ -72,6 +82,6 @@ public interface ViewHistoryRepository extends R2dbcRepository<ViewHistory, Long
      * @param articleIds 文章ID列表
      * @return 文章ID和浏览量的映射
      */
-    @Query("SELECT article_id, COUNT(*) as count FROM t_view_history WHERE article_id IN (:articleIds) GROUP BY article_id")
+    @Query("SELECT post_id, COUNT(*) FROM t_view_history WHERE post_id IN (:articleIds) GROUP BY post_id")
     Flux<Object[]> countByArticleIds(Iterable<Long> articleIds);
 } 

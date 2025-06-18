@@ -11,5 +11,9 @@ public class PermissionsQueryDTO {
     private String name;
 
     private String identity;
-    private String module;
+    
+    /**
+     * 模块前缀，用于按模块查询权限
+     */
+    private String modulePrefix;
 }
