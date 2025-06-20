@@ -1,14 +1,11 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.utils.MarkdownUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.commonmark.node.Node;
-import org.commonmark.parser.Parser;
-import org.commonmark.renderer.html.HtmlRenderer;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import com.ryu.blog.service.ContentService;
 
@@ -21,8 +18,6 @@ import com.ryu.blog.service.ContentService;
 @Service
 public class ContentServiceImpl implements ContentService {
 
-    private static final Parser PARSER = Parser.builder().build();
-    private static final HtmlRenderer HTML_RENDERER = HtmlRenderer.builder().build();
     private static final int WORDS_PER_MINUTE = 250; // 每分钟阅读词数
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]*>");
     
@@ -32,11 +27,8 @@ public class ContentServiceImpl implements ContentService {
             return Mono.just("");
         }
         
-        return Mono.fromCallable(() -> {
-                Node document = PARSER.parse(markdown);
-                return HTML_RENDERER.render(document);
-            })
-            .subscribeOn(Schedulers.parallel())
+        // 使用MarkdownUtils工具类
+        return MarkdownUtils.renderHtmlReactive(markdown)
             .doOnError(e -> log.error("Markdown转HTML失败: {}", e.getMessage()));
     }
     
@@ -98,43 +90,9 @@ public class ContentServiceImpl implements ContentService {
             return Mono.just(1); // 最小阅读时间为1分钟
         }
         
-        return extractTextFromHtml(content)
-            .map(text -> {
-                // 简单计算：按空格分词，中文按字符数
-                int wordCount = 0;
-                
-                // 计算英文单词数
-                String[] words = text.split("\\s+");
-                wordCount += words.length;
-                
-                // 计算中文字符数（每个中文字符算作一个词）
-                for (int i = 0; i < text.length(); i++) {
-                    char c = text.charAt(i);
-                    if (isChinese(c)) {
-                        wordCount++;
-                    }
-                }
-                
-                // 计算阅读时间（分钟）
-                int minutes = wordCount / WORDS_PER_MINUTE;
-                return Math.max(1, minutes); // 最少1分钟
-            })
-            .onErrorReturn(1) // 发生错误时返回默认值1
-            .doOnError(e -> log.error("计算阅读时间失败: {}", e.getMessage()));
-    }
-    
-    /**
-     * 判断字符是否是中文
-     * 
-     * @param c 字符
-     * @return 是否是中文
-     */
-    private boolean isChinese(char c) {
-        Character.UnicodeBlock ub = Character.UnicodeBlock.of(c);
-        return ub == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
-                || ub == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS
-                || ub == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A
-                || ub == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B
-                || ub == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION;
+        // 使用MarkdownUtils工具类
+        return MarkdownUtils.calculateReadingTimeReactive(content)
+            .doOnError(e -> log.error("计算阅读时间失败: {}", e.getMessage()))
+            .onErrorReturn(1); // 发生错误时返回默认值1
     }
 } 

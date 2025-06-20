@@ -15,6 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import com.ryu.blog.constant.CacheConstants;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -42,6 +46,10 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #comment.articleId + ':*'", allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "' + #comment.articleId")
+    })
     public Mono<Comment> createComment(Comment comment) {
         // 设置默认值
         comment.setCreateTime(LocalDateTime.now());
@@ -70,6 +78,10 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #comment.id"),
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #comment.articleId + ':*'", allEntries = true)
+    })
     public Mono<Comment> updateComment(Comment comment) {
         return commentRepository.findById(comment.getId())
                 .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")))
@@ -115,6 +127,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<Comment> getCommentById(Long id) {
         return commentRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")));
@@ -122,6 +135,11 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id"),
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "'*'", allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "'*'", allEntries = true)
+    })
     public Mono<Void> deleteComment(Long id) {
         return commentRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")))
@@ -146,6 +164,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #articleId + ':' + #page + ':' + #size", unless = "#result == null")
     public Flux<Comment> getCommentsByArticleId(Long articleId, int page, int size) {
         // 先尝试从缓存中获取
         String key = ARTICLE_COMMENTS_CACHE_KEY + articleId + ":" + page + ":" + size;
@@ -169,6 +188,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "' + #articleId", unless = "#result == 0")
     public Mono<Long> countCommentsByArticleId(Long articleId) {
         // 先尝试从缓存中获取
         String key = COMMENT_COUNT_CACHE_KEY + "article:" + articleId;
@@ -185,6 +205,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_USER_KEY + "' + #userId + ':' + #page + ':' + #size", unless = "#result == null")
     public Flux<Comment> getCommentsByUserId(Long userId, int page, int size) {
         // 先尝试从缓存中获取
         String key = USER_COMMENTS_CACHE_KEY + userId + ":" + page + ":" + size;
@@ -224,6 +245,10 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id"),
+        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "'*'", allEntries = true)
+    })
     public Mono<Integer> updateCommentStatus(Long id, Integer status) {
         return commentRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")))

@@ -5,7 +5,6 @@ import com.ryu.blog.dto.PostCreateDTO;
 import com.ryu.blog.dto.PostQueryDTO;
 import com.ryu.blog.dto.PostStatusDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
-import com.ryu.blog.mapper.PostMapper;
 import com.ryu.blog.service.ArticleService;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.PageResult;
@@ -18,10 +17,18 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -38,7 +45,6 @@ import java.util.List;
 public class PostsController {
 
     private final ArticleService articleService;
-    private final PostMapper postMapper;
 
     /**
      * 后台管理分页查询文章列表
@@ -240,6 +246,81 @@ public class PostsController {
                     log.error("更新文章状态失败: ID={}, 状态={}, 错误: {}", 
                             statusDTO.getId(), statusDTO.getStatus(), e.getMessage(), e);
                     return Mono.just(Result.<Void>error(e.getMessage()));
+                });
+    }
+
+    /**
+     * 导入Markdown文件创建文章
+     * 
+     * @param file 上传的Markdown文件
+     * @param categoryId 分类ID
+     * @return 操作结果
+     */
+    @Operation(summary = "导入Markdown文件", description = "导入Markdown文件创建文章")
+    @PostMapping(value = "/upload-md", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Mono<Result<Void>> importMarkdown(
+            @RequestPart("files") FilePart file,
+            @RequestParam(required = false) Long categoryId) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        log.info("导入Markdown文件: 文件名={}, 分类ID={}, 用户ID={}", file.filename(), categoryId, userId);
+        
+        return articleService.importMarkdownArticle(file, categoryId, userId)
+                .then(Mono.defer(() -> {
+                    log.info("Markdown文件导入成功: 文件名={}, 用户ID={}", file.filename(), userId);
+                    return Mono.just(Result.<Void>success());
+                }))
+                .onErrorResume(e -> {
+                    log.error("Markdown文件导入失败: 文件名={}, 用户ID={}, 错误: {}", 
+                            file.filename(), userId, e.getMessage(), e);
+                    return Mono.just(Result.<Void>error(e.getMessage()));
+                });
+    }
+
+    /**
+     * 将文章导出为Markdown文件
+     * 
+     * @param id 文章ID
+     * @return Markdown文件下载
+     */
+    @Operation(summary = "导出为Markdown文件", description = "将文章导出为Markdown文件")
+    @GetMapping("/export/{id}")
+    public Mono<ResponseEntity<ByteArrayResource>> exportMarkdown(@PathVariable Long id) {
+        log.info("导出文章为Markdown: ID={}", id);
+        
+        return articleService.exportArticleToMarkdown(id)
+                .map(result -> {
+                    String filename = result.getFilename();
+                    byte[] content = result.getContent().getBytes(StandardCharsets.UTF_8);
+                    
+                    ByteArrayResource resource = new ByteArrayResource(content);
+                    
+                    log.info("文章导出为Markdown成功: ID={}, 文件名={}", id, filename);
+
+                    // 对文件名进行URL编码，以支持中文文件名
+                    try {
+                        String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8.name())
+                                .replaceAll("\\+", "%20"); // 将空格的+替换为%20
+                        
+                        // 设置两种Content-Disposition，兼容不同的浏览器
+                        return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_DISPOSITION, 
+                                        "attachment; filename=\"" + encodedFilename + "\"; filename*=UTF-8''" + encodedFilename)
+                                .contentType(MediaType.TEXT_MARKDOWN)
+                                .contentLength(content.length)
+                                .body(resource);
+                    } catch (UnsupportedEncodingException e) {
+                        log.error("文件名编码失败: {}", e.getMessage());
+                        // 如果编码失败，使用原始文件名
+                        return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                                .contentType(MediaType.TEXT_MARKDOWN)
+                                .contentLength(content.length)
+                                .body(resource);
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.error("文章导出为Markdown失败: ID={}, 错误: {}", id, e.getMessage(), e);
+                    return Mono.error(e);
                 });
     }
 }

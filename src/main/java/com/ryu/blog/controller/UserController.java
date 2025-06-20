@@ -10,10 +10,10 @@ import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.UserInfoVO;
 import com.ryu.blog.vo.UserVO;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
@@ -38,7 +38,7 @@ public class UserController {
      */
     @Operation(summary = "分页查询用户列表", description = "根据条件获取用户分页列表")
     @GetMapping("/page")
-    public Mono<Result<PageResult<UserVO>>> getUserPage(@Validated UserListDTO userListDTO) {
+    public Mono<Result<PageResult<UserVO>>> getUserPage(@ParameterObject @Validated UserListDTO userListDTO) {
         return userService.getUserPage(
                 userListDTO.getCurrent() - 1, 
                 userListDTO.getSize(), 

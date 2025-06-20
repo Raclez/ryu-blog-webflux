@@ -18,6 +18,9 @@ import com.ryu.blog.vo.CategoryVO;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -47,6 +50,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, allEntries = true)
     public Mono<Void> createCategory(CategoryCreateDTO categoryCreateDTO) {
         // 将DTO转换为实体
         Category category = categoryMapper.toEntity(categoryCreateDTO);
@@ -77,6 +81,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, allEntries = true)
     public Mono<Void> updateCategory(CategoryUpdateDTO categoryUpdateDTO) {
         return categoryRepository.findById(categoryUpdateDTO.getId())
                 .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.CATEGORY_NOT_FOUND)))
@@ -110,7 +115,9 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id", unless = "#result == null")
     public Mono<CategoryVO> getCategoryById(Long id) {
+        log.debug("从数据库获取分类详情: id={}", id);
         // 尝试从缓存获取
         String cacheKey = CacheConstants.CATEGORY_CACHE_PREFIX + "id:" + id;
         
@@ -130,6 +137,11 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = CacheConstants.CATEGORY_DETAIL_KEY + " + #id"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:all'"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:stats'")
+    })
     public Mono<Void> deleteCategory(Long id) {
         return categoryRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.CATEGORY_NOT_FOUND)))
@@ -158,7 +170,9 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:all'", unless = "#result == null")
     public Flux<CategoryVO> getAllCategories() {
+        log.debug("从数据库获取所有分类");
         // 先尝试从缓存中获取
         return reactiveRedisTemplate.opsForValue().get(CacheConstants.CATEGORY_ALL_KEY)
                 .flatMapMany(jsonString -> deserializeCategoryVOList(jsonString))
@@ -176,7 +190,9 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:stats'", unless = "#result == null")
     public Flux<CategoryStatsVO> getAllCategoriesWithArticleCount() {
+        log.debug("从数据库获取所有分类统计信息");
         // 先尝试从缓存中获取
         return reactiveRedisTemplate.opsForValue().get(CacheConstants.CATEGORY_CACHE_PREFIX + "all:stats")
                 .flatMapMany(jsonString -> deserializeCategoryStatsVOList(jsonString))
@@ -198,13 +214,14 @@ public class CategoryServiceImpl implements CategoryService {
                                             categories, 
                                             Duration.ofHours(1)
                                     )
-                                    .thenReturn(categories)
+                                        .thenReturn(categories)
                                 )
                                 .flatMapMany(Flux::fromIterable)
                 );
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_PAGE_KEY + "' + #categoryListDTO.currentPage + ':' + #categoryListDTO.pageSize + ':' + #categoryListDTO.keyword", unless = "#result == null")
     public Mono<PageResult<Category>> getCategoriesByPage(CategoryListDTO categoryListDTO) {
         // 创建分页请求
         int page = Math.max(0, categoryListDTO.getCurrentPage() - 1); // Spring Data页码从0开始
@@ -250,6 +267,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId", unless = "#result == null")
     public Flux<CategoryVO> getCategoriesByArticleId(Long articleId) {
         // 先尝试从缓存中获取
         String cacheKey = CacheConstants.CATEGORY_CACHE_PREFIX + "article:" + articleId;
@@ -273,6 +291,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
     
     @Override
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId", unless = "#result == null")
     public Flux<Long> getCategoryIdsByArticleId(Long articleId) {
         return postCategoryRepository.findByPostId(articleId)
                 .map(PostCategory::getCategoryId);
@@ -280,6 +299,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
     public Mono<Void> addArticleCategory(Long articleId, Long categoryId) {
         // 检查分类是否存在
         return categoryRepository.findById(categoryId)
@@ -309,6 +329,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
     public Mono<Void> removeArticleCategory(Long articleId, Long categoryId) {
         return postCategoryRepository.deleteByPostIdAndCategoryId(articleId, categoryId)
                 .doOnSuccess(result -> {
@@ -319,6 +340,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
     public Mono<Void> removeAllArticleCategories(Long articleId) {
         return postCategoryRepository.deleteByPostId(articleId)
                 .doOnSuccess(result -> {

@@ -1,7 +1,6 @@
 package com.ryu.blog.service.impl;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.entity.Posts;
 import com.ryu.blog.entity.ViewHistory;
 import com.ryu.blog.mapper.ViewHistoryMapper;
@@ -12,6 +11,11 @@ import com.ryu.blog.service.ViewHistoryService;
 import com.ryu.blog.vo.ViewHistoryStatsVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache.ValueWrapper;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheConfig;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,7 +27,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 浏览历史服务实现类
@@ -31,36 +34,15 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@CacheConfig(cacheNames = {CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, CacheConstants.VIEW_HISTORY_UV_CACHE_NAME, CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME})
 public class ViewHistoryServiceImpl implements ViewHistoryService {
 
     private final ViewHistoryRepository viewHistoryRepository;
     private final PostsRepository postsRepository;
     private final UserRepository userRepository;
     private final ViewHistoryMapper viewHistoryMapper;
+    private final CacheManager cacheManager;
 
-    // 缓存键前缀常量
-    private static final String PV_KEY_PREFIX = "stats:pv:";
-    private static final String UV_KEY_PREFIX = "stats:uv:";
-    private static final String POST_PV_KEY_PREFIX = "stats:post:pv:";
-    private static final String LOCATION_STATS_KEY = "stats:location";
-    private static final String DEVICE_STATS_KEY = "stats:device";
-
-    // Caffeine缓存
-    private final Cache<String, Long> pvCache = Caffeine.newBuilder()
-            .expireAfterWrite(1, TimeUnit.DAYS)
-            .maximumSize(100)
-            .build();
-            
-    private final Cache<String, Set<String>> uvCache = Caffeine.newBuilder()
-            .expireAfterWrite(1, TimeUnit.DAYS)
-            .maximumSize(100)
-            .build();
-            
-    private final Cache<String, Long> postPvCache = Caffeine.newBuilder()
-            .expireAfterWrite(1, TimeUnit.DAYS)
-            .maximumSize(1000)
-            .build();
-    
     // 设备和地区分布统计
     private final Map<String, Integer> deviceStats = new ConcurrentHashMap<>();
     private final Map<String, Integer> locationStats = new ConcurrentHashMap<>();
@@ -147,7 +129,9 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME, key = "#articleId", unless = "#result == 0")
     public Mono<Long> getArticleViewCount(Long articleId) {
+        log.debug("从数据库获取文章访问量: articleId={}", articleId);
         return viewHistoryRepository.countByPostId(articleId);
     }
 
@@ -183,8 +167,8 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         String yesterday = LocalDate.now().minusDays(1).format(formatter);
         
         // 1. 获取今日和昨日PV
-        Long todayPv = pvCache.getIfPresent(PV_KEY_PREFIX + today);
-        Long yesterdayPv = pvCache.getIfPresent(PV_KEY_PREFIX + yesterday);
+        Long todayPv = getCachedPvValue(CacheConstants.VIEW_HISTORY_PV_KEY_PREFIX + today);
+        Long yesterdayPv = getCachedPvValue(CacheConstants.VIEW_HISTORY_PV_KEY_PREFIX + yesterday);
         
         statsVO.setTodayViews(todayPv != null ? todayPv : 0L);
         statsVO.setYesterdayViews(yesterdayPv != null ? yesterdayPv : 0L);
@@ -193,7 +177,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         Map<String, Long> dailyViewsTrend = new LinkedHashMap<>();
         for (int i = 6; i >= 0; i--) {
             String date = LocalDate.now().minusDays(i).format(formatter);
-            Long datePv = pvCache.getIfPresent(PV_KEY_PREFIX + date);
+            Long datePv = getCachedPvValue(CacheConstants.VIEW_HISTORY_PV_KEY_PREFIX + date);
             dailyViewsTrend.put(date, datePv != null ? datePv : 0L);
         }
         statsVO.setDailyViewsTrend(dailyViewsTrend);
@@ -205,7 +189,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         long monthlyPv = 0L;
         for (int i = 0; i < 30; i++) {
             String date = LocalDate.now().minusDays(i).format(formatter);
-            Long datePv = pvCache.getIfPresent(PV_KEY_PREFIX + date);
+            Long datePv = getCachedPvValue(CacheConstants.VIEW_HISTORY_PV_KEY_PREFIX + date);
             if (datePv != null) {
                 monthlyPv += datePv;
             }
@@ -213,28 +197,38 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         statsVO.setMonthlyViews(monthlyPv);
         
         // 4. 获取今日UV
-        Set<String> uniqueVisitors = uvCache.getIfPresent(UV_KEY_PREFIX + today);
+        Set<String> uniqueVisitors = getCachedUvValue(CacheConstants.VIEW_HISTORY_UV_KEY_PREFIX + today);
         statsVO.setUniqueVisitors(uniqueVisitors != null ? (long) uniqueVisitors.size() : 0L);
         
         // 5. 获取访问量最高的文章
         Map<Long, Integer> topPosts = new LinkedHashMap<>();
         
         // 从缓存中获取文章访问量
-        postPvCache.asMap().entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(5)
-                .forEach(entry -> {
-                    String key = entry.getKey();
-                    if (key.startsWith(POST_PV_KEY_PREFIX)) {
-                        String postIdStr = key.substring(POST_PV_KEY_PREFIX.length());
-                        try {
-                            Long postId = Long.parseLong(postIdStr);
-                            topPosts.put(postId, entry.getValue().intValue());
-                        } catch (NumberFormatException e) {
-                            log.warn("无法解析文章ID: {}", postIdStr);
-                        }
-                    }
-                });
+        org.springframework.cache.Cache postPvCacheObj = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+        if (postPvCacheObj != null) {
+            Object nativeCache = postPvCacheObj.getNativeCache();
+            if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
+                @SuppressWarnings("unchecked")
+                Map<Object, Object> cacheMap = ((com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache).asMap();
+                
+                cacheMap.entrySet().stream()
+                        .filter(entry -> entry.getKey() instanceof String && entry.getValue() instanceof Long)
+                        .sorted(Map.Entry.<Object, Object>comparingByValue((o1, o2) -> ((Long) o2).compareTo((Long) o1)))
+                        .limit(5)
+                        .forEach(entry -> {
+                            String key = (String) entry.getKey();
+                            if (key.startsWith(CacheConstants.VIEW_HISTORY_POST_PV_KEY_PREFIX)) {
+                                String postIdStr = key.substring(CacheConstants.VIEW_HISTORY_POST_PV_KEY_PREFIX.length());
+                                try {
+                                    Long postId = Long.parseLong(postIdStr);
+                                    topPosts.put(postId, ((Long) entry.getValue()).intValue());
+                                } catch (NumberFormatException e) {
+                                    log.warn("无法解析文章ID: {}", postIdStr);
+                                }
+                            }
+                        });
+            }
+        }
         
         // 如果缓存中没有足够的数据，从数据库补充
         if (topPosts.size() < 5) {
@@ -292,7 +286,9 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 
      * @return 总访问量
      */
-    private Mono<Long> getTotalViewsFromDatabase() {
+    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, key = "'" + CacheConstants.STATS_TOTAL_KEY + "'", unless = "#result == 0")
+    public Mono<Long> getTotalViewsFromDatabase() {
+        log.debug("从数据库获取总访问量");
         return viewHistoryRepository.count();
     }
     
@@ -304,17 +300,88 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
         
         // 更新PV
-        String pvKey = PV_KEY_PREFIX + today;
-        pvCache.asMap().compute(pvKey, (k, v) -> v == null ? 1L : v + 1L);
+        String pvKey = CacheConstants.VIEW_HISTORY_PV_KEY_PREFIX + today;
+        updatePvValue(pvKey);
         
         // 更新文章PV
-        String postPvKey = POST_PV_KEY_PREFIX + articleId;
-        postPvCache.asMap().compute(postPvKey, (k, v) -> v == null ? 1L : v + 1L);
+        String postPvKey = CacheConstants.VIEW_HISTORY_POST_PV_KEY_PREFIX + articleId;
+        updatePostPvValue(postPvKey);
         
         // 更新UV
-        String uvKey = UV_KEY_PREFIX + today;
-        Set<String> visitors = uvCache.get(uvKey, k -> new HashSet<>());
+        String uvKey = CacheConstants.VIEW_HISTORY_UV_KEY_PREFIX + today;
+        updateUvValue(uvKey, visitorId);
+    }
+    
+    /**
+     * 获取缓存中的PV值
+     */
+    private Long getCachedPvValue(String key) {
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_PV_CACHE_NAME);
+        if (cache != null) {
+            ValueWrapper wrapper = cache.get(key);
+            if (wrapper != null) {
+                Object value = wrapper.get();
+                if (value instanceof Long) {
+                    return (Long) value;
+                }
+            }
+        }
+        return 0L;
+    }
+    
+    /**
+     * 获取缓存中的UV集合
+     */
+    private Set<String> getCachedUvValue(String key) {
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_UV_CACHE_NAME);
+        if (cache != null) {
+            ValueWrapper wrapper = cache.get(key);
+            if (wrapper != null) {
+                Object value = wrapper.get();
+                if (value instanceof Set) {
+                    @SuppressWarnings("unchecked")
+                    Set<String> visitors = (Set<String>) value;
+                    return visitors;
+                }
+            }
+        }
+        return new HashSet<>();
+    }
+    
+    /**
+     * 更新PV值
+     */
+    @CachePut(cacheNames = CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, key = "#key")
+    public Long updatePvValue(String key) {
+        Long currentValue = getCachedPvValue(key);
+        return currentValue + 1L;
+    }
+    
+    /**
+     * 更新文章PV值
+     */
+    @CachePut(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME, key = "#key")
+    public Long updatePostPvValue(String key) {
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+        if (cache != null) {
+            ValueWrapper wrapper = cache.get(key);
+            if (wrapper != null) {
+                Object value = wrapper.get();
+                if (value instanceof Long) {
+                    return (Long) value + 1L;
+                }
+            }
+        }
+        return 1L;
+    }
+    
+    /**
+     * 更新UV集合
+     */
+    @CachePut(cacheNames = CacheConstants.VIEW_HISTORY_UV_CACHE_NAME, key = "#key")
+    public Set<String> updateUvValue(String key, String visitorId) {
+        Set<String> visitors = getCachedUvValue(key);
         visitors.add(visitorId);
-        uvCache.put(uvKey, visitors);
+        return visitors;
     }
 } 

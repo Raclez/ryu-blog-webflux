@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.SysConfigDTO;
 import com.ryu.blog.dto.SysConfigUpdateDTO;
 import com.ryu.blog.entity.SysConfig;
@@ -33,7 +34,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@CacheConfig(cacheNames = "sysConfig")
+@CacheConfig(cacheNames = CacheConstants.SYS_CONFIG_CACHE_NAME)
 public class SysConfigServiceImpl implements SysConfigService {
 
     private final SysConfigRepository sysConfigRepository;
@@ -43,7 +44,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     private static final String CONFIG_KEY_SEPARATOR = ".";
 
     @Override
-    @Cacheable(key = "'value:' + #key", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_VALUE_KEY + "' + #key", unless = "#result == null")
     public Mono<String> getConfigValue(String key, String defaultValue) {
         log.debug("获取配置值, key: {}, defaultValue: {}", key, defaultValue);
         
@@ -58,7 +59,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
 
     @Override
-    @Cacheable(key = "'userValue:' + #userId + ':' + #key", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_USER_VALUE_KEY + "' + #userId + ':' + #key", unless = "#result == null")
     public Mono<String> getUserConfigValue(Long userId, String key, String defaultValue) {
         log.debug("获取用户配置值, userId: {}, key: {}, defaultValue: {}", userId, key, defaultValue);
         
@@ -73,7 +74,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
 
     @Override
-    @Cacheable(key = "'config:' + #key", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_INFO_KEY + "' + #key", unless = "#result == null")
     public Mono<SysConfigVO> getConfig(String key) {
         log.debug("获取配置信息, key: {}", key);
         return getConfigEntity(key)
@@ -83,7 +84,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
 
     @Override
-    @Cacheable(key = "'configById:' + #id", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_INFO_BY_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<SysConfigVO> getConfigById(Long id) {
         log.debug("通过ID获取配置信息, id: {}", id);
         return getConfigEntityById(id)
@@ -93,7 +94,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
 
     @Override
-    @Cacheable(key = "'entity:' + #key", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_ENTITY_KEY + "' + #key", unless = "#result == null")
     public Mono<SysConfig> getConfigEntity(String key) {
         log.debug("获取配置实体, key: {}", key);
         
@@ -103,7 +104,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
 
     @Override
-    @Cacheable(key = "'entityById:' + #id", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_ENTITY_BY_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<SysConfig> getConfigEntityById(Long id) {
         log.debug("通过ID获取配置实体, id: {}", id);
         
@@ -220,9 +221,9 @@ public class SysConfigServiceImpl implements SysConfigService {
 
     @Override
     @Caching(evict = {
-            @CacheEvict(key = "'value:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'config:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'entity:' + #result.configKey", condition = "#result != null")
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_VALUE_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_INFO_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_ENTITY_KEY + "' + #result.configKey", condition = "#result != null")
     })
     public Mono<SysConfigVO> addConfig(SysConfigDTO configDTO) {
         log.debug("添加配置, configDTO: {}", configDTO);
@@ -268,12 +269,12 @@ public class SysConfigServiceImpl implements SysConfigService {
 
     @Override
     @Caching(evict = {
-            @CacheEvict(key = "'value:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'config:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'entity:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'configById:' + #configDTO.id", condition = "#result != null"),
-            @CacheEvict(key = "'entityById:' + #configDTO.id", condition = "#result != null"),
-            @CacheEvict(key = "'userValue:' + #result.userId + ':' + #result.configKey", condition = "#result != null && #result.userId != null")
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_VALUE_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_INFO_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_ENTITY_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_INFO_BY_ID_KEY + "' + #configDTO.id", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_ENTITY_BY_ID_KEY + "' + #configDTO.id", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_USER_VALUE_KEY + "' + #result.userId + ':' + #result.configKey", condition = "#result != null && #result.userId != null")
     })
     public Mono<SysConfigVO> updateConfig(SysConfigUpdateDTO configDTO) {
         log.debug("更新配置, configDTO: {}", configDTO);
@@ -310,12 +311,12 @@ public class SysConfigServiceImpl implements SysConfigService {
 
     @Override
     @Caching(evict = {
-            @CacheEvict(key = "'value:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'config:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'entity:' + #result.configKey", condition = "#result != null"),
-            @CacheEvict(key = "'configById:' + #id", condition = "#result != null"),
-            @CacheEvict(key = "'entityById:' + #id", condition = "#result != null"),
-            @CacheEvict(key = "'userValue:' + #result.userId + ':' + #result.configKey", condition = "#result != null && #result.userId != null")
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_VALUE_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_INFO_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_ENTITY_KEY + "' + #result.configKey", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_INFO_BY_ID_KEY + "' + #id", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_ENTITY_BY_ID_KEY + "' + #id", condition = "#result != null"),
+            @CacheEvict(key = "'" + CacheConstants.CONFIG_USER_VALUE_KEY + "' + #result.userId + ':' + #result.configKey", condition = "#result != null && #result.userId != null")
     })
     public Mono<Boolean> deleteConfig(Long id) {
         log.debug("删除配置, id: {}", id);
@@ -389,7 +390,7 @@ public class SysConfigServiceImpl implements SysConfigService {
     }
     
     @Override
-    @Cacheable(key = "'configGroups'", unless = "#result == null")
+    @Cacheable(key = "'" + CacheConstants.CONFIG_GROUPS_KEY + "'", unless = "#result == null")
     public Mono<Map<String, Object>> getConfigGroups() {
         log.debug("获取配置分组列表");
         

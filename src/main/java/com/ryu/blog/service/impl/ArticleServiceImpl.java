@@ -2,14 +2,11 @@ package com.ryu.blog.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.PostCreateDTO;
 import com.ryu.blog.dto.PostStatusDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
-import com.ryu.blog.entity.Category;
-import com.ryu.blog.entity.PostCategory;
-import com.ryu.blog.entity.PostTag;
-import com.ryu.blog.entity.Posts;
-import com.ryu.blog.entity.Tag;
+import com.ryu.blog.entity.*;
 import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.mapper.PostMapper;
 import com.ryu.blog.repository.*;
@@ -17,17 +14,19 @@ import com.ryu.blog.service.ArticleService;
 import com.ryu.blog.service.ArticleVersionService;
 import com.ryu.blog.service.ContentService;
 import com.ryu.blog.service.FileService;
-import com.ryu.blog.vo.PageResult;
-import com.ryu.blog.vo.PostAdminListVO;
-import com.ryu.blog.vo.PostDetailVO;
-import com.ryu.blog.vo.PostFrontListVO;
+import com.ryu.blog.utils.MarkdownUtils;
+import com.ryu.blog.vo.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.commonmark.parser.Parser;
-import org.commonmark.renderer.html.HtmlRenderer;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,15 +37,14 @@ import reactor.core.scheduler.Schedulers;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -70,15 +68,14 @@ public class ArticleServiceImpl implements ArticleService {
     private final PostMapper postMapper;
     private final DatabaseClient databaseClient;
     private final ContentService contentService;
+    private final FileService fileService;
+    private final CacheManager cacheManager;
     
     private static final String ARTICLE_VIEW_COUNT_KEY = "article:view:count:";
     private static final String HOT_ARTICLES_KEY = "hot:articles";
     private static final String ARTICLE_DETAIL_KEY = "article:detail:";
     private static final Duration ARTICLE_DETAIL_CACHE_TTL = Duration.ofHours(2);
-    private static final Parser PARSER = Parser.builder().build();
-    private static final HtmlRenderer HTML_RENDERER = HtmlRenderer.builder().build();
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private final FileService fileService;
 
     /**
      * 处理SEO元数据并序列化为JSON字符串
@@ -369,7 +366,42 @@ public class ArticleServiceImpl implements ArticleService {
             
             // 清除热门文章缓存
             reactiveRedisTemplate.delete(HOT_ARTICLES_KEY)
-                .doOnSuccess(result -> log.debug("清除热门文章缓存, 结果={}", result))
+                .doOnSuccess(result -> log.debug("清除热门文章缓存, 结果={}", result)),
+                
+            // 清除相关文章缓存（模式匹配删除）
+            reactiveRedisTemplate.keys("*:related:" + articleId + ":*")
+                .flatMap(key -> reactiveRedisTemplate.delete(key))
+                .collectList()
+                .doOnSuccess(result -> log.debug("清除相关文章缓存, 结果={}", result.size())),
+                
+            // 清除前台文章列表缓存（可能包含该文章）
+            reactiveRedisTemplate.keys("*:front:*")
+                .flatMap(key -> reactiveRedisTemplate.delete(key))
+                .collectList()
+                .doOnSuccess(result -> log.debug("清除前台文章列表缓存, 结果={}", result.size())),
+                
+            // 清除后台文章列表缓存
+            reactiveRedisTemplate.keys("*:admin:page:*")
+                .flatMap(key -> reactiveRedisTemplate.delete(key))
+                .collectList()
+                .doOnSuccess(result -> log.debug("清除后台文章列表缓存, 结果={}", result.size())),
+                
+            // 清除Spring Cache中的缓存
+            Mono.fromRunnable(() -> {
+                try {
+                    // 清除详情缓存
+                    cacheManager.getCache("postDetailCache").evict("detail:" + articleId);
+                    // 清除热门文章缓存
+                    cacheManager.getCache("postHotCache").clear();
+                    // 清除前台文章列表缓存
+                    cacheManager.getCache("postFrontCache").clear();
+                    // 清除后台文章列表缓存
+                    cacheManager.getCache("postAdminCache").clear();
+                    log.debug("清除Spring Cache中的文章缓存成功: ID={}", articleId);
+                } catch (Exception e) {
+                    log.error("清除Spring Cache中的文章缓存失败: ID={}, 错误={}", articleId, e.getMessage());
+                }
+            })
         )
         .doOnError(e -> log.error("清除文章缓存失败: ID={}, 错误={}", articleId, e.getMessage()))
         .then();
@@ -525,9 +557,14 @@ public class ArticleServiceImpl implements ArticleService {
                                         .rowsUpdated()
                                         .map(Long::intValue);
                                 
-                                // 4. 并行执行更新和删除操作
+                                // 4. 清除缓存
+                                Mono<Void> clearCacheMono = Flux.fromIterable(idsToDelete)
+                                        .flatMap(this::clearArticleCache)
+                                        .then();
+                                
+                                // 5. 并行执行更新、删除和缓存清除操作
                                 return Mono.zip(updateMono, deleteRelationsMono)
-                                        .doOnSuccess(results -> {
+                                        .flatMap(results -> {
                                             int updatedCount = results.getT1();
                                             int deletedRelations = results.getT2();
                                             log.debug("批量删除结果: 更新文章状态={}, 删除关联记录={}", updatedCount, deletedRelations);
@@ -535,16 +572,36 @@ public class ArticleServiceImpl implements ArticleService {
                                             // 记录每篇文章的删除情况
                                             articlesToDelete.forEach(article -> 
                                                 log.debug("文章已删除: ID={}, 标题={}", article.getT1(), article.getT2())
-                                    );
-                        })
-                        .onErrorResume(e -> {
+                                            );
+                                            
+                                            // 清除缓存
+                                            return clearCacheMono;
+                                        })
+                                        .onErrorResume(e -> {
                                             log.error("批量删除操作失败: {}", e.getMessage());
                                             return Mono.error(new BusinessException("批量删除操作失败: " + e.getMessage()));
                                         });
                             });
                 })
                 .then()
-                .doOnSuccess(v -> log.info("批量删除文章完成: 请求删除数量={}", longIds.size()))
+                .doOnSuccess(v -> {
+                    log.info("批量删除文章完成: 请求删除数量={}", longIds.size());
+                    // 清除前台文章列表和热门文章缓存
+                    reactiveRedisTemplate.keys("*:front:*")
+                        .flatMap(key -> reactiveRedisTemplate.delete(key))
+                        .collectList()
+                        .subscribe(result -> log.debug("清除前台文章列表缓存, 结果={}", result.size()));
+                    
+                    reactiveRedisTemplate.keys("*:hot:*")
+                        .flatMap(key -> reactiveRedisTemplate.delete(key))
+                        .collectList()
+                        .subscribe(result -> log.debug("清除热门文章缓存, 结果={}", result.size()));
+                    
+                    reactiveRedisTemplate.keys("*:admin:page:*")
+                        .flatMap(key -> reactiveRedisTemplate.delete(key))
+                        .collectList()
+                        .subscribe(result -> log.debug("清除管理后台文章列表缓存, 结果={}", result.size()));
+                })
                 .doOnError(e -> {
                     if (e instanceof BusinessException) {
                         log.warn("批量删除文章失败: 业务异常: {}", e.getMessage());
@@ -635,6 +692,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
     
     @Override
+    @Cacheable(cacheNames = CacheConstants.POST_CACHE_NAME, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #postId + ':' + #limit", unless = "#result == null")
     public Flux<PostFrontListVO> getRelatedArticlesVO(Long postId, Integer limit) {
         log.info("获取相关博客推荐VO: 文章ID={}, 限制数量={}", postId, limit);
         
@@ -875,6 +933,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
     
     @Override
+    @Cacheable(cacheNames = CacheConstants.POST_HOT_CACHE_NAME, key = "'" + CacheConstants.POST_HOT_KEY + "' + #limit", unless = "#result == null")
     public Flux<Posts> getHotArticles(int limit) {
         log.debug("获取热门文章: limit={}", limit);
         
@@ -927,6 +986,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.POST_ADMIN_CACHE_NAME, key = "'" + CacheConstants.POST_ADMIN_KEY + "' + #page + ':' + #size + ':' + #title + ':' + #status + ':' + #categoryId + ':' + #tagId + ':' + #startTime + ':' + #endTime", unless = "#result == null")
     public Mono<PageResult<PostAdminListVO>> getArticlePageVO(int page, int size, String title, Integer status, Long categoryId, Long tagId, String startTime, String endTime) {
         log.debug("分页查询文章VO: page={}, size={}, title={}, status={}, categoryId={}, tagId={}, startTime={}, endTime={}", 
                  page, size, title, status, categoryId, tagId, startTime, endTime);
@@ -1167,7 +1227,7 @@ public class ArticleServiceImpl implements ArticleService {
         if (markdown == null || markdown.isEmpty()) {
             return Mono.just("");
         }
-        return contentService.markdownToHtml(markdown);
+        return MarkdownUtils.renderHtmlReactive(markdown);
     }
     
     /**
@@ -1266,6 +1326,148 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.POST_DETAIL_CACHE_NAME, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id", unless = "#result == null")
+    public Mono<PostDetailVO> getArticleDetailVO(Long id) {
+        log.info("获取文章详情VO: ID={}", id);
+        
+        // 先尝试从缓存获取
+        return reactiveRedisTemplate.opsForValue().get(ARTICLE_DETAIL_KEY + id)
+                .cast(PostDetailVO.class)
+                .switchIfEmpty(
+                    // 缓存未命中，从数据库获取并缓存
+                    getArticleDetailVOFromDB(id)
+                        .flatMap(detailVO -> 
+                            // 缓存文章详情
+                            reactiveRedisTemplate.opsForValue()
+                                .set(ARTICLE_DETAIL_KEY + id, detailVO, ARTICLE_DETAIL_CACHE_TTL)
+                                .thenReturn(detailVO)
+                        )
+                )
+                .doOnSuccess(detailVO -> log.debug("获取文章详情VO成功: ID={}", id))
+                .doOnError(e -> log.error("获取文章详情VO失败: ID={}, 错误信息={}", id, e.getMessage()));
+    }
+    
+    /**
+     * 从数据库获取文章详情VO
+     * 
+     * @param id 文章ID
+     * @return 文章详情VO
+     */
+    private Mono<PostDetailVO> getArticleDetailVOFromDB(Long id) {
+        return postsRepository.findById(id)
+                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
+                .flatMap(article -> {
+                    // 检查文章是否已删除
+                    if (article.getIsDeleted() == 1) {
+                        return Mono.error(BusinessException.postAlreadyDeleted());
+                    }
+                    
+                    // 使用MapStruct转换为VO
+                    PostDetailVO detailVO = postMapper.toDetailVO(article);
+                    
+                    // 获取文章分类ID
+                    Mono<List<Long>> categoryIdsMono = getArticleCategoryIds(article.getId())
+                        .collectList();
+                    
+                    // 获取文章标签ID
+                    Mono<List<Long>> tagIdsMono = tagRepository.findByPostId(article.getId())
+                        .map(Tag::getId)
+                        .collectList();
+                    
+                    // 获取封面图片URL
+                    Mono<String> coverImageUrlMono = getImageUrl(article.getCoverImageId());
+                    
+                    // 计算阅读时间
+                    Mono<Integer> readingTimeMono = contentService.calculateReadingTime(article.getContent());
+                    
+                    // 解析SEO信息
+                    String seoTitle = "";
+                    String seoDescription = "";
+                    String slug = "";
+                    // 如果有SEO元数据，进行解析
+                    if (article.getSeoMeta() != null && !article.getSeoMeta().isEmpty()) {
+                        try {
+                            Map<String, String> seoMeta = new ObjectMapper().readValue(article.getSeoMeta(), Map.class);
+                            seoTitle = seoMeta.getOrDefault("seoTitle", "");
+                            seoDescription = seoMeta.getOrDefault("seoDescription", "");
+                            slug = seoMeta.getOrDefault("slug", "");
+                            log.debug("文章[{}]SEO元数据: 标题={}, 描述={}, 别名={}", article.getId(), seoTitle, seoDescription, slug);
+                        } catch (Exception e) {
+                            log.error("解析SEO元数据失败: {}", e.getMessage());
+                        }
+                    }
+                    
+                    // 设置额外属性
+                    final String finalSeoTitle = seoTitle;
+                    final String finalSeoDescription = seoDescription;
+                    final String finalSlug = slug;
+                    
+                    // 增加浏览量（异步操作，不阻塞当前流程）
+                    incrementViews(article.getId())
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .subscribe(
+                                    newViews -> log.debug("文章[{}]浏览量更新为: {}", article.getId(), newViews),
+                                    error -> log.error("更新文章[{}]浏览量失败: {}", article.getId(), error.getMessage())
+                            );
+                    
+                    // 并行获取所有关联数据
+                    return Mono.zip(categoryIdsMono, tagIdsMono, coverImageUrlMono, readingTimeMono)
+                        .map(tuple -> {
+                            List<Long> categoryIds = tuple.getT1();
+                            List<Long> tagIds = tuple.getT2();
+                            String coverImageUrl = tuple.getT3();
+                            Integer readingTime = tuple.getT4();
+                            
+                            // 设置分类ID（如果有）
+                            if (!categoryIds.isEmpty()) {
+                                detailVO.setCategoryId(categoryIds.get(0));
+                            }
+                            
+                            // 设置标签IDs
+                            detailVO.setTagsIds(tagIds);
+                            
+                            // 设置封面图片URL
+                            detailVO.setCoverImageUrl(coverImageUrl);
+                            
+                            // 设置阅读时间
+                            detailVO.setReadingTime(readingTime);
+                            
+                            // 设置SEO信息
+                            detailVO.setSeoTitle(finalSeoTitle);
+                            detailVO.setSeoDescription(finalSeoDescription);
+                            detailVO.setSlug(finalSlug);
+                            
+                            log.debug("文章详情VO构建完成: ID={}, 标题={}, 分类ID={}, 标签数={}", 
+                                    detailVO.getId(), detailVO.getTitle(), detailVO.getCategoryId(), 
+                                    detailVO.getTagsIds() != null ? detailVO.getTagsIds().size() : 0);
+                            
+                            return detailVO;
+                        });
+                })
+                .onErrorResume(e -> {
+                    log.error("获取文章详情失败: ID={}, 错误={}", id, e.getMessage());
+                    if (e instanceof BusinessException) {
+                        return Mono.error(e);
+                    }
+                    return Mono.error(BusinessException.postNotFound());
+                });
+    }
+    
+    /**
+     * 简化版获取文章基本信息方法，仅供内部使用
+     * 
+     * @param id 文章ID
+     * @return 文章实体
+     */
+    private Mono<Posts> getArticleBasicInfo(Long id) {
+        return postsRepository.findById(id)
+                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
+                .doOnSuccess(article -> log.debug("获取文章基本信息成功: ID={}, 标题={}", article.getId(), article.getTitle()))
+                .doOnError(e -> log.error("获取文章基本信息失败: ID={}, 错误信息={}", id, e.getMessage()));
+    }
+
+    @Override
+    @Cacheable(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, key = "'" + CacheConstants.POST_FRONT_KEY + "' + #cursor + ':' + #limit + ':' + #createTime + ':' + #direction", unless = "#result.isEmpty()")
     public Mono<List<PostFrontListVO>> getFrontArticlesVO(String cursor, int limit, String createTime, String direction) {
         log.debug("前台游标分页查询文章VO: cursor={}, limit={}, createTime={}, direction={}", 
                  cursor, limit, createTime, direction);
@@ -1533,7 +1735,13 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE_NAME, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id"),
+        @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, key = "'" + CacheConstants.POST_FRONT_KEY + "'*'", allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE_NAME, key = "'" + CacheConstants.POST_HOT_KEY + "'*'", allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.POST_CACHE_NAME, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #id + ':*'", allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.POST_ADMIN_CACHE_NAME, key = "'" + CacheConstants.POST_ADMIN_KEY + "'*'", allEntries = true)
+    })
     public Mono<Void> deleteArticle(Long id) {
         log.info("删除文章: ID={}", id);
         
@@ -1560,144 +1768,164 @@ public class ArticleServiceImpl implements ArticleService {
                     }
                 });
     }
-    
-    @Override
-    public Mono<PostDetailVO> getArticleDetailVO(Long id) {
-        log.info("获取文章详情VO: ID={}", id);
+
+    /**
+     * 从Markdown文本中提取标题
+     * 如果没有找到标题，返回默认标题
+     * 
+     * @param markdownContent Markdown内容
+     * @return 提取的标题
+     */
+    private String extractTitleFromMarkdown(String markdownContent) {
+        if (markdownContent == null || markdownContent.isEmpty()) {
+            return "未命名文章";
+        }
         
-        // 先尝试从缓存获取
-        return reactiveRedisTemplate.opsForValue().get(ARTICLE_DETAIL_KEY + id)
-                .cast(PostDetailVO.class)
-                .switchIfEmpty(
-                    // 缓存未命中，从数据库获取并缓存
-                    getArticleDetailVOFromDB(id)
-                        .flatMap(detailVO -> 
-                            // 缓存文章详情
-                            reactiveRedisTemplate.opsForValue()
-                                .set(ARTICLE_DETAIL_KEY + id, detailVO, ARTICLE_DETAIL_CACHE_TTL)
-                                .thenReturn(detailVO)
-                        )
-                )
-                .doOnSuccess(detailVO -> log.debug("获取文章详情VO成功: ID={}", id))
-                .doOnError(e -> log.error("获取文章详情VO失败: ID={}, 错误信息={}", id, e.getMessage()));
+        // 尝试匹配第一个H1标题 (# 标题)
+        Pattern h1Pattern = Pattern.compile("^\\s*# (.+)$", Pattern.MULTILINE);
+        Matcher h1Matcher = h1Pattern.matcher(markdownContent);
+        
+        if (h1Matcher.find()) {
+            return h1Matcher.group(1).trim();
+        }
+        
+        // 没有找到H1标题，尝试提取第一行非空内容作为标题
+        String[] lines = markdownContent.split("\\r?\\n");
+        for (String line : lines) {
+            String trimmedLine = line.trim();
+            if (!trimmedLine.isEmpty() && !trimmedLine.startsWith("#") && !trimmedLine.startsWith("---")) {
+                // 限制标题长度
+                if (trimmedLine.length() > 100) {
+                    return trimmedLine.substring(0, 97) + "...";
+                }
+                return trimmedLine;
+            }
+        }
+        
+        // 如果都没找到，返回默认标题
+        return "未命名文章";
     }
     
     /**
-     * 从数据库获取文章详情VO
+     * 从Markdown文本中提取摘要
+     * 如果没有找到合适的摘要，返回空字符串
      * 
-     * @param id 文章ID
-     * @return 文章详情VO
+     * @param markdownContent Markdown内容
+     * @return 提取的摘要
      */
-    private Mono<PostDetailVO> getArticleDetailVOFromDB(Long id) {
-        return postsRepository.findById(id)
-                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
-                .flatMap(article -> {
-                    // 检查文章是否已删除
-                    if (article.getIsDeleted() == 1) {
-                        return Mono.error(BusinessException.postAlreadyDeleted());
-                    }
-                    
-                    // 使用MapStruct转换为VO
-                    PostDetailVO detailVO = postMapper.toDetailVO(article);
-                    
-                    // 获取文章分类ID
-                    Mono<List<Long>> categoryIdsMono = getArticleCategoryIds(article.getId())
-                        .collectList();
-                    
-                    // 获取文章标签ID
-                    Mono<List<Long>> tagIdsMono = tagRepository.findByPostId(article.getId())
-                        .map(Tag::getId)
-                        .collectList();
-                    
-                    // 获取封面图片URL
-                    Mono<String> coverImageUrlMono = getImageUrl(article.getCoverImageId());
-                    
-                    // 计算阅读时间
-                    Mono<Integer> readingTimeMono = contentService.calculateReadingTime(article.getContent());
-                    
-                    // 解析SEO信息
-                    String seoTitle = "";
-                    String seoDescription = "";
-                    String slug = "";
-                    // 如果有SEO元数据，进行解析
-                    if (article.getSeoMeta() != null && !article.getSeoMeta().isEmpty()) {
-                        try {
-                            Map<String, String> seoMeta = new ObjectMapper().readValue(article.getSeoMeta(), Map.class);
-                            seoTitle = seoMeta.getOrDefault("seoTitle", "");
-                            seoDescription = seoMeta.getOrDefault("seoDescription", "");
-                            slug = seoMeta.getOrDefault("slug", "");
-                            log.debug("文章[{}]SEO元数据: 标题={}, 描述={}, 别名={}", article.getId(), seoTitle, seoDescription, slug);
-                        } catch (Exception e) {
-                            log.error("解析SEO元数据失败: {}", e.getMessage());
-                        }
-                    }
-                    
-                    // 设置额外属性
-                    final String finalSeoTitle = seoTitle;
-                    final String finalSeoDescription = seoDescription;
-                    final String finalSlug = slug;
-                    
-                    // 增加浏览量（异步操作，不阻塞当前流程）
-                    incrementViews(article.getId())
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .subscribe(
-                                    newViews -> log.debug("文章[{}]浏览量更新为: {}", article.getId(), newViews),
-                                    error -> log.error("更新文章[{}]浏览量失败: {}", article.getId(), error.getMessage())
-                            );
-                    
-                    // 并行获取所有关联数据
-                    return Mono.zip(categoryIdsMono, tagIdsMono, coverImageUrlMono, readingTimeMono)
-                        .map(tuple -> {
-                            List<Long> categoryIds = tuple.getT1();
-                            List<Long> tagIds = tuple.getT2();
-                            String coverImageUrl = tuple.getT3();
-                            Integer readingTime = tuple.getT4();
-                            
-                            // 设置分类ID（如果有）
-                            if (!categoryIds.isEmpty()) {
-                                detailVO.setCategoryId(categoryIds.get(0));
-                            }
-                            
-                            // 设置标签IDs
-                            detailVO.setTagsIds(tagIds);
-                            
-                            // 设置封面图片URL
-                            detailVO.setCoverImageUrl(coverImageUrl);
-                            
-                            // 设置阅读时间
-                            detailVO.setReadingTime(readingTime);
-                            
-                            // 设置SEO信息
-                            detailVO.setSeoTitle(finalSeoTitle);
-                            detailVO.setSeoDescription(finalSeoDescription);
-                            detailVO.setSlug(finalSlug);
-                            
-                            log.debug("文章详情VO构建完成: ID={}, 标题={}, 分类ID={}, 标签数={}", 
-                                    detailVO.getId(), detailVO.getTitle(), detailVO.getCategoryId(), 
-                                    detailVO.getTagsIds() != null ? detailVO.getTagsIds().size() : 0);
-                            
-                            return detailVO;
-                        });
+    private String extractExcerptFromMarkdown(String markdownContent) {
+        if (markdownContent == null || markdownContent.isEmpty()) {
+            return "";
+        }
+        
+        // 删除代码块
+        String contentWithoutCodeBlocks = markdownContent.replaceAll("```[\\s\\S]*?```", "");
+        
+        // 删除H1标题
+        String contentWithoutH1 = contentWithoutCodeBlocks.replaceAll("^\\s*# .+$", "");
+        
+        // 提取第一个非空段落
+        Pattern paragraphPattern = Pattern.compile("([\\p{L}\\p{N}][^\\n]+(?:\\n[^\\n]+)*)");
+        Matcher paragraphMatcher = paragraphPattern.matcher(contentWithoutH1);
+        
+        if (paragraphMatcher.find()) {
+            String excerpt = paragraphMatcher.group(1).trim();
+            // 限制摘要长度
+            if (excerpt.length() > 200) {
+                return excerpt.substring(0, 197) + "...";
+            }
+            return excerpt;
+        }
+        
+        return "";
+    }
+
+    @Override
+    @Transactional
+    public Mono<Void> importMarkdownArticle(FilePart file, Long categoryId, Long userId) {
+        log.info("导入Markdown文件: 文件名={}, 分类ID={}, 用户ID={}", file.filename(), categoryId, userId);
+        
+        // 使用非阻塞方式读取文件内容
+        return DataBufferUtils.join(file.content())
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return new String(bytes, StandardCharsets.UTF_8);
                 })
+                .flatMap(markdownContent -> {
+                    // 使用MarkdownUtils提取标题和摘要
+                    String title = MarkdownUtils.extractTitle(markdownContent);
+                    String excerpt = MarkdownUtils.extractExcerpt(markdownContent, 200);
+                    
+                    // 创建文章对象
+                    PostCreateDTO postCreateDTO = new PostCreateDTO();
+                    postCreateDTO.setTitle(title);
+                    postCreateDTO.setContent(markdownContent);
+                    postCreateDTO.setExcerpt(excerpt);
+                    postCreateDTO.setIsOriginal(true);
+                    postCreateDTO.setAllowComment(true);
+                    postCreateDTO.setVisibility("public");
+                    
+                    // 创建文章
+                    return createArticle(postCreateDTO, userId)
+                            // 如果指定了分类，添加文章分类关联
+                            .flatMap(article -> {
+                                if (categoryId != null) {
+                                    return addArticleCategory(article.getId(), categoryId)
+                                            .then(Mono.just(article));
+                                }
+                                return Mono.just(article);
+                            })
+                            // 清除缓存
+                            .flatMap(article -> clearArticleCache(article.getId()).thenReturn(article));
+                })
+                .then()
                 .onErrorResume(e -> {
-                    log.error("获取文章详情失败: ID={}, 错误={}", id, e.getMessage());
+                    log.error("导入Markdown文件失败", e);
                     if (e instanceof BusinessException) {
                         return Mono.error(e);
                     }
-                    return Mono.error(BusinessException.postNotFound());
+                    return Mono.error(new BusinessException("导入Markdown文件失败: " + e.getMessage()));
                 });
     }
-    
-    /**
-     * 简化版获取文章基本信息方法，仅供内部使用
-     * 
-     * @param id 文章ID
-     * @return 文章实体
-     */
-    private Mono<Posts> getArticleBasicInfo(Long id) {
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<MarkdownExportVO> exportArticleToMarkdown(Long id) {
+        log.info("导出文章为Markdown: ID={}", id);
+        
         return postsRepository.findById(id)
-                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
-                .doOnSuccess(article -> log.debug("获取文章基本信息成功: ID={}, 标题={}", article.getId(), article.getTitle()))
-                .doOnError(e -> log.error("获取文章基本信息失败: ID={}, 错误信息={}", id, e.getMessage()));
+                .switchIfEmpty(Mono.error(new BusinessException("文章不存在")))
+                .map(article -> {
+                    // 1. 使用文章标题作为文件名
+                    String title = StringUtils.hasText(article.getTitle()) ? article.getTitle() : "未命名文章";
+                    
+                    // 替换文件名中的非法字符，但保留中文
+                    // 只替换文件系统不允许的特殊字符，不替换中文
+                    String safeTitle = title.replaceAll("[\\\\/:*?\"<>|]", "_");
+                    
+                    // 添加.md后缀
+                    String filename = safeTitle + ".md";
+                    
+                    // 2. 直接使用博客内容作为Markdown内容
+                    String content = article.getContent();
+                    if (content == null) {
+                        content = "";
+                    }
+                    
+                    return MarkdownExportVO.builder()
+                            .content(content)
+                            .filename(filename)
+                            .build();
+                })
+                .doOnSuccess(result -> log.info("导出文章为Markdown成功: ID={}, 文件名={}", id, result.getFilename()))
+                .doOnError(e -> log.error("导出文章为Markdown失败: ID={}, 错误={}", id, e.getMessage()))
+                .onErrorResume(e -> {
+                    if (e instanceof BusinessException) {
+                        return Mono.error(e);
+                    }
+                    return Mono.error(new BusinessException("导出文章为Markdown失败: " + e.getMessage()));
+                });
     }
 }

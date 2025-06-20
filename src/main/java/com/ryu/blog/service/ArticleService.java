@@ -6,10 +6,12 @@ import com.ryu.blog.dto.PostStatusDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
 import com.ryu.blog.entity.PostCategory;
 import com.ryu.blog.entity.Posts;
+import com.ryu.blog.vo.MarkdownExportVO;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.PostAdminListVO;
 import com.ryu.blog.vo.PostDetailVO;
 import com.ryu.blog.vo.PostFrontListVO;
+import org.springframework.http.codec.multipart.FilePart;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -241,4 +243,20 @@ public interface ArticleService {
      * @return 文章VO列表
      */
     Mono<List<PostFrontListVO>> getFrontArticlesVO(String cursor, int limit, String createTime, String direction);
+
+    /**
+     * 导入Markdown文件创建文章
+     * @param file Markdown文件
+     * @param categoryId 分类ID
+     * @param userId 用户ID
+     * @return 操作结果
+     */
+    Mono<Void> importMarkdownArticle(FilePart file, Long categoryId, Long userId);
+    
+    /**
+     * 将文章导出为Markdown文件
+     * @param id 文章ID
+     * @return Markdown内容和文件名
+     */
+    Mono<MarkdownExportVO> exportArticleToMarkdown(Long id);
 } 

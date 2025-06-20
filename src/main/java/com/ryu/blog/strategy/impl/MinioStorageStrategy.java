@@ -1,10 +1,14 @@
 package com.ryu.blog.strategy.impl;
 
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.event.ConfigChangeEvent;
 import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.utils.MinioUtils;
 import io.minio.MinioClient;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
@@ -20,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import java.time.LocalDateTime;
 
 /**
  * MinIO存储策略实现类
@@ -32,12 +35,14 @@ import java.time.LocalDateTime;
 public class MinioStorageStrategy extends AbstractFileStorageStrategy {
 
     private final DataBufferFactory bufferFactory = new DefaultDataBufferFactory();
-    
-    // 缓存MinIO客户端，避免频繁创建
-    private final Map<String, Object> minioClientCache = new ConcurrentHashMap<>();
+    private final CacheManager cacheManager;
     
     // 分片上传信息
     private final Map<String, Map<String, Object>> multipartUploadsInfo = new ConcurrentHashMap<>();
+
+    public MinioStorageStrategy(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
 
     @Override
     public String getStrategyKey() {
@@ -367,11 +372,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 获取MinIO客户端
      */
-    private Mono<MinioClient> getMinioClient() {
-        // 从缓存获取客户端
-        if (minioClientCache.containsKey("client")) {
-            return Mono.just((MinioClient) minioClientCache.get("client"));
-        }
+    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE_NAME, key = "'" + CacheConstants.STORAGE_CLIENT_KEY + ":" + "' + #this.getStrategyKey()")
+    public Mono<MinioClient> getMinioClient() {
+        log.debug("创建新的MinIO客户端实例 (缓存未命中)");
         
         // 从配置获取参数并创建客户端
         return Mono.zip(
@@ -393,10 +396,6 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                 try {
                     // 创建MinIO客户端
                     MinioClient minioClient = MinioUtils.createMinioClient(endpoint, accessKey, secretKey, secure);
-                    
-                    // 缓存客户端
-                    minioClientCache.put("client", minioClient);
-                    
                     return Mono.just(minioClient);
                 } catch (Exception e) {
                     return Mono.error(new RuntimeException("创建MinIO客户端失败: " + e.getMessage(), e));
@@ -407,16 +406,12 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 获取存储桶名称
      */
-    private Mono<String> getBucketName() {
-        // 使用本地方法变量存储以减少频繁读取
-        String cachedBucket = (String) minioClientCache.get("bucket");
-        if (cachedBucket != null) {
-            return Mono.just(cachedBucket);
-        }
+    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE_NAME, key = "'" + CacheConstants.STORAGE_BUCKET_KEY + ":" + "' + #this.getStrategyKey()")
+    public Mono<String> getBucketName() {
+        log.debug("获取MinIO存储桶名称 (缓存未命中)");
         
         // 从配置获取
-        return getConfigPropertyAsync("bucket", "ryu-blog")
-            .doOnNext(bucket -> minioClientCache.put("bucket", bucket));
+        return getConfigPropertyAsync("bucket", "ryu-blog");
     }
     
     /**
@@ -436,8 +431,8 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 刷新缓存
      */
-    private void refreshCache() {
-        minioClientCache.clear();
+    @CacheEvict(value = CacheConstants.STORAGE_CLIENT_CACHE_NAME, allEntries = true)
+    public void refreshCache() {
         log.info("MinIO存储策略配置缓存已刷新");
     }
 

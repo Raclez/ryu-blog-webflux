@@ -20,6 +20,9 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -698,6 +701,13 @@ public class FileServiceImpl implements FileService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = "fileCache", key = "'info:' + #fileId"),
+        @CacheEvict(cacheNames = "fileCache", key = "'url:' + #fileId"),
+        @CacheEvict(cacheNames = "fileCache", key = "'download:' + #fileId"),
+        @CacheEvict(cacheNames = "fileCache", key = "'user:*'", allEntries = true),
+        @CacheEvict(cacheNames = "fileCache", key = "'type:*'", allEntries = true)
+    })
     public Mono<Void> handleFileDelete(Long fileId) {
         log.info("处理文件删除请求: fileId={}", fileId);
         
@@ -876,6 +886,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'info:' + #fileId", unless = "#result == null")
     public Mono<FileInfoVO> getFileInfo(Long fileId) {
         log.info("获取文件详情: fileId={}", fileId);
         
@@ -908,6 +919,13 @@ public class FileServiceImpl implements FileService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = "fileCache", key = "'info:' + #fileId"),
+        @CacheEvict(cacheNames = "fileCache", key = "'url:' + #fileId"),
+        @CacheEvict(cacheNames = "fileCache", key = "'download:' + #fileId"),
+        @CacheEvict(cacheNames = "fileCache", key = "'user:*'", allEntries = true),
+        @CacheEvict(cacheNames = "fileCache", key = "'type:*'", allEntries = true)
+    })
     public Mono<FileInfoVO> updateFileInfo(Long fileId, FilesDTO filesDTO) {
         log.info("更新文件信息: fileId={}, filesDTO={}", fileId, filesDTO);
         
@@ -956,6 +974,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'versions:' + #fileId", unless = "#result == null")
     public Flux<FileVersionVO> getFileVersions(Long fileId) {
         log.info("获取文件版本历史: fileId={}", fileId);
         
@@ -1146,6 +1165,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'url:' + #fileId", unless = "#result == null")
     public Mono<String> generatePreviewUrl(Long fileId, long expireSeconds) {
         log.info("生成文件预览URL: fileId={}, expireSeconds={}", fileId, expireSeconds);
         
@@ -1185,6 +1205,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'download:' + #fileId", unless = "#result == null")
     public Mono<String> generateDownloadUrl(Long fileId, long expireSeconds) {
         log.info("生成文件下载URL: fileId={}, expireSeconds={}", fileId, expireSeconds);
         
@@ -1216,6 +1237,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'infos:' + #fileIds.hashCode()", unless = "#result.isEmpty()")
     public Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds) {
         log.info("批量获取文件详细信息: fileIds={}", fileIds);
         
@@ -1258,6 +1280,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'permanent-urls:' + #fileIds.hashCode()", unless = "#result.isEmpty()")
     public Mono<Map<Long, String>> getBatchFilePermanentUrls(List<Long> fileIds) {
         log.info("批量获取文件永久URL: fileIds={}", fileIds);
         
@@ -1395,6 +1418,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'urls:' + #fileIds.hashCode()", unless = "#result.isEmpty()")
     public Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds) {
         log.info("批量获取文件URL: fileIds={}", fileIds);
         
@@ -1422,6 +1446,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Cacheable(cacheNames = "fileCache", key = "'user:' + #userId", unless = "#result == null")
     public Flux<FileInfoVO> getUserFiles(Long userId) {
         log.info("获取用户文件列表: userId={}", userId);
         
@@ -1447,56 +1472,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    public Mono<Map<String, Object>> getFileList(int page, int size) {
-        log.info("分页获取文件列表: page={}, size={}", page, size);
-        
-        // 计算分页参数
-        int offset = (page - 1) * size;
-        
-        // 查询文件列表
-        return fileRepository.findAllByIsDeletedOrderByCreateTimeDesc(0, size, offset)
-                .flatMap(this::buildFileInfoVO)
-                // 获取用户信息
-                .flatMap(fileInfoVO -> {
-                    if (fileInfoVO.getCreatorId() != null) {
-                        return userRepository.findById(fileInfoVO.getCreatorId())
-                                .doOnNext(user -> fileInfoVO.setCreatorName(user.getUsername()))
-                                .thenReturn(fileInfoVO)
-                                .switchIfEmpty(Mono.just(fileInfoVO));
-                    } else {
-                        return Mono.just(fileInfoVO);
-                    }
-                })
-                // 生成预览和下载链接
-                .flatMap(fileInfoVO -> 
-                    generatePreviewUrl(fileInfoVO.getId(), 3600)
-                        .doOnNext(fileInfoVO::setPreviewUrl)
-                        .then(generateDownloadUrl(fileInfoVO.getId(), 3600))
-                        .doOnNext(fileInfoVO::setDownloadUrl)
-                        .thenReturn(fileInfoVO)
-                )
-                .collectList()
-                .zipWith(fileRepository.countByIsDeleted(0))
-                .map(tuple -> {
-                    List<FileInfoVO> files = tuple.getT1();
-                    Long total = tuple.getT2();
-    
-                    Map<String, Object> result = new HashMap<>();
-                    result.put("content", files);
-                    result.put("page", page);
-                    result.put("size", size);
-                    result.put("total", total);
-                    result.put("totalPages", (total + size - 1) / size);
-                    
-                    return result;
-                })
-                .doOnSuccess(result -> log.info("分页获取文件列表成功: page={}, size={}, total={}", 
-                        page, size, result.get("total")))
-                .doOnError(error -> log.error("分页获取文件列表失败: page={}, size={}, error={}", 
-                        page, size, error.getMessage()));
-    }
-
-    @Override
+    @Cacheable(cacheNames = "fileCache", key = "'type:' + #type", unless = "#result == null")
     public Flux<FileInfoVO> getFilesByType(String type) {
         log.info("根据类型获取文件列表: type={}", type);
         
@@ -1588,5 +1564,55 @@ public class FileServiceImpl implements FileService {
                                 .and("is_deleted").is(isDeleted)
                 ))
                 .one();
+    }
+
+    @Override
+    public Mono<Map<String, Object>> getFileList(int page, int size) {
+        log.info("分页获取文件列表: page={}, size={}", page, size);
+        
+        // 计算分页参数
+        int offset = (page - 1) * size;
+        
+        // 查询文件列表
+        return fileRepository.findAllByIsDeletedOrderByCreateTimeDesc(0, size, offset)
+                .flatMap(this::buildFileInfoVO)
+                // 获取用户信息
+                .flatMap(fileInfoVO -> {
+                    if (fileInfoVO.getCreatorId() != null) {
+                        return userRepository.findById(fileInfoVO.getCreatorId())
+                                .doOnNext(user -> fileInfoVO.setCreatorName(user.getUsername()))
+                                .thenReturn(fileInfoVO)
+                                .switchIfEmpty(Mono.just(fileInfoVO));
+                    } else {
+                        return Mono.just(fileInfoVO);
+                    }
+                })
+                // 生成预览和下载链接
+                .flatMap(fileInfoVO -> 
+                    generatePreviewUrl(fileInfoVO.getId(), 3600)
+                        .doOnNext(fileInfoVO::setPreviewUrl)
+                        .then(generateDownloadUrl(fileInfoVO.getId(), 3600))
+                        .doOnNext(fileInfoVO::setDownloadUrl)
+                        .thenReturn(fileInfoVO)
+                )
+                .collectList()
+                .zipWith(fileRepository.countByIsDeleted(0))
+                .map(tuple -> {
+                    List<FileInfoVO> files = tuple.getT1();
+                    Long total = tuple.getT2();
+
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("content", files);
+                    result.put("page", page);
+                    result.put("size", size);
+                    result.put("total", total);
+                    result.put("totalPages", (total + size - 1) / size);
+                    
+                    return result;
+                })
+                .doOnSuccess(result -> log.info("分页获取文件列表成功: page={}, size={}, total={}", 
+                        page, size, result.get("total")))
+                .doOnError(error -> log.error("分页获取文件列表失败: page={}, size={}, error={}", 
+                        page, size, error.getMessage()));
     }
 }

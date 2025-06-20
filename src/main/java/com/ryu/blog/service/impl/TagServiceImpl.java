@@ -26,6 +26,9 @@ import com.ryu.blog.dto.TagListDTO;
 import com.ryu.blog.vo.PageResult;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -49,6 +52,7 @@ public class TagServiceImpl implements TagService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, allEntries = true)
     public Mono<Boolean> createTag(TagCreateDTO tagCreateDTO) {
         Tag tag = tagMapper.toTag(tagCreateDTO);
         
@@ -79,6 +83,7 @@ public class TagServiceImpl implements TagService {
     
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, allEntries = true)
     public Mono<Boolean> updateTag(TagUpdateDTO tagUpdateDTO) {
         return tagRepository.findById(tagUpdateDTO.getId())
                 .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.TAG_NOT_FOUND)))
@@ -114,7 +119,7 @@ public class TagServiceImpl implements TagService {
                         .then(Flux.from(postTagRepository.findByTagId(savedTag.getId()))
                             .map(PostTag::getPostId)
                             .flatMap(articleId -> {
-                                String key = CacheConstants.ARTICLE_TAGS_KEY + articleId;
+                                String key = CacheConstants.TAG_ARTICLE_KEY + articleId;
                                 return reactiveRedisTemplate.delete(key);
                             })
                                 .then())
@@ -123,6 +128,7 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_DETAIL_KEY + "' + #id", unless = "#result == null")
     public Mono<TagVO> getTagById(Long id) {
         return tagRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.TAG_NOT_FOUND)))
@@ -131,6 +137,7 @@ public class TagServiceImpl implements TagService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, allEntries = true)
     public Mono<Boolean> deleteTag(Long id) {
         return tagRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.TAG_NOT_FOUND)))
@@ -171,12 +178,13 @@ public class TagServiceImpl implements TagService {
                 .map(PostTag::getPostId)
                 .distinct()
                 .forEach(articleId -> {
-                    String key = CacheConstants.ARTICLE_TAGS_KEY + articleId;
+                    String key = CacheConstants.TAG_ARTICLE_KEY + articleId;
                     reactiveRedisTemplate.delete(key).subscribe();
                 });
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ALL_KEY + "' + #withCount", unless = "#result == null")
     public Flux<TagVO> getAllTags(boolean withCount) {
         if (withCount) {
             return getAllTagsWithCount();
@@ -204,8 +212,9 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId", unless = "#result == null")
     public Flux<TagVO> getTagsByArticleId(Long articleId) {
-        String key = CacheConstants.ARTICLE_TAGS_KEY + articleId;
+        String key = CacheConstants.TAG_ARTICLE_KEY + articleId;
         // 从缓存或数据库获取文章标签列表
         return getTagsFromCacheOrDatabase(
                 key,
@@ -270,6 +279,10 @@ public class TagServiceImpl implements TagService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_HOT_KEY + "'*'", allEntries = true)
+    })
     public Mono<Boolean> addTagsToArticle(Long articleId, List<Long> tagIds) {
         if (tagIds == null || tagIds.isEmpty()) {
             return Mono.just(true);
@@ -288,19 +301,23 @@ public class TagServiceImpl implements TagService {
                         .then()
                         .flatMap(v -> {
                             // 清除文章标签缓存
-                            String key = CacheConstants.ARTICLE_TAGS_KEY + articleId;
+                            String key = CacheConstants.TAG_ARTICLE_KEY + articleId;
                             return reactiveRedisTemplate.delete(key).thenReturn(true);
                         }));
     }
 
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_HOT_KEY + "'*'", allEntries = true)
+    })
     public Mono<Boolean> removeTagsFromArticle(Long articleId) {
         return postTagRepository.deleteByPostId(articleId)
                 .then()
                 .flatMap(v -> {
                     // 清除文章标签缓存
-                    String key = CacheConstants.ARTICLE_TAGS_KEY + articleId;
+                    String key = CacheConstants.TAG_ARTICLE_KEY + articleId;
                     return reactiveRedisTemplate.delete(key).thenReturn(true);
                 });
     }
@@ -312,6 +329,7 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_HOT_KEY + "' + #limit", unless = "#result == null")
     public Flux<TagVO> getHotTags(int limit) {
         // 先尝试从缓存中获取
         String key = CacheConstants.TAG_HOT_KEY + limit;

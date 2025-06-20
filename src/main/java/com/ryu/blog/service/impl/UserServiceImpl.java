@@ -15,7 +15,10 @@ import com.ryu.blog.vo.UserInfoVO;
 import com.ryu.blog.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
+
+import com.ryu.blog.constant.CacheConstants;
 
 /**
  * 用户服务实现类
@@ -97,6 +102,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #user.id", condition = "#user.id != null")
     public Mono<User> updateUser(User user) {
         return userRepository.findById(user.getId())
                 .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
@@ -166,6 +172,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<User> getUserById(Long id) {
         // 先尝试从缓存中获取
         String key = USER_CACHE_KEY + id;
@@ -183,6 +190,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_USERNAME_KEY + "' + #username", unless = "#result == null")
     public Mono<User> getUserByUsername(String username) {
         return userRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")));
@@ -190,6 +198,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Void> deleteUser(Long id) {
         return userRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
@@ -227,6 +236,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Integer> updateUserStatus(Long id, Integer status) {
         return userRepository.updateStatus(id, status)
                 .doOnSuccess(result -> {
@@ -237,6 +248,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
     public Mono<Void> updateUserRoles(Long userId, List<Long> roleIds) {
         // 先删除原有的用户角色关联
         return userRoleRepository.deleteByUserId(userId)
@@ -272,6 +284,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Integer> updateLastLogin(Long id, String ip) {
         return userRepository.updateLastLogin(id, ip)
                 .doOnSuccess(result -> {
@@ -282,6 +296,7 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, allEntries = true)
     public Mono<Void> batchDeleteUsers(List<Long> ids) {
         return Flux.fromIterable(ids)
                 .flatMap(id -> userRoleRepository.deleteByUserId(id)
@@ -292,23 +307,46 @@ public class UserServiceImpl implements UserService {
     
     @Override
     public Mono<PageResult<UserVO>> getUserPage(int page, int size, String username, String email, Integer status) {
-        // 构建查询条件
-        Map<String, Object> params = new HashMap<>();
-        if (username != null && !username.isEmpty()) {
-            params.put("username", username);
-        }
-        if (email != null && !email.isEmpty()) {
-            params.put("email", email);
-        }
-        if (status != null) {
-            params.put("status", status);
-        }
+        // 分页查询参数
+        PageRequest pageRequest = PageRequest.of(page, size);
         
-        // 分页查询用户
-        Flux<User> userFlux = userRepository.findByCondition(params, PageRequest.of(page, size));
+        // 根据查询条件选择适当的查询方法
+        Flux<User> userFlux;
+        Mono<Long> countMono;
         
-        // 查询符合条件的总记录数
-        Mono<Long> countMono = userRepository.countByCondition(params);
+        if (username != null && !username.isEmpty() && email != null && !email.isEmpty() && status != null) {
+            // 用户名 + 邮箱 + 状态
+            userFlux = userRepository.findByUsernameLikeAndEmailLikeAndStatus(username, email, status, pageRequest);
+            countMono = userRepository.countByUsernameLikeAndEmailLikeAndStatus(username, email, status);
+        } else if (username != null && !username.isEmpty() && email != null && !email.isEmpty()) {
+            // 用户名 + 邮箱
+            userFlux = userRepository.findByUsernameLikeAndEmailLike(username, email, pageRequest);
+            countMono = userRepository.countByUsernameLikeAndEmailLike(username, email);
+        } else if (username != null && !username.isEmpty() && status != null) {
+            // 用户名 + 状态
+            userFlux = userRepository.findByUsernameLikeAndStatus(username, status, pageRequest);
+            countMono = userRepository.countByUsernameLikeAndStatus(username, status);
+        } else if (email != null && !email.isEmpty() && status != null) {
+            // 邮箱 + 状态
+            userFlux = userRepository.findByEmailLikeAndStatus(email, status, pageRequest);
+            countMono = userRepository.countByEmailLikeAndStatus(email, status);
+        } else if (username != null && !username.isEmpty()) {
+            // 仅用户名
+            userFlux = userRepository.findByUsernameLike(username, pageRequest);
+            countMono = userRepository.countByUsernameLike(username);
+        } else if (email != null && !email.isEmpty()) {
+            // 仅邮箱
+            userFlux = userRepository.findByEmailLike(email, pageRequest);
+            countMono = userRepository.countByEmailLike(email);
+        } else if (status != null) {
+            // 仅状态
+            userFlux = userRepository.findByStatus(status, pageRequest);
+            countMono = userRepository.countByStatus(status);
+        } else {
+            // 无条件，查询所有
+            userFlux = userRepository.findAllUsers(pageRequest);
+            countMono = userRepository.countAllUsers();
+        }
         
         return Mono.zip(userFlux.collectList(), countMono)
                 .map(tuple -> {
@@ -333,6 +371,8 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
+    @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<String> resetPassword(Long id) {
         return userRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
@@ -409,6 +449,7 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_INFO_KEY + "' + #userId", unless = "#result == null")
     public Mono<UserInfoVO> getCurrentUserInfo(Long userId) {
         return getUserById(userId)
                 .flatMap(user -> roleRepository.findByUserId(userId)
@@ -417,6 +458,7 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_DETAIL_KEY + "' + #id", unless = "#result == null")
     public Mono<UserInfoVO> getUserDetailById(Long id) {
         return getUserById(id)
                 .flatMap(user -> roleRepository.findByUserId(id)
@@ -426,6 +468,7 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
     public Mono<User> createUserWithRoles(UserDTO userDTO) {
         User user = userMapper.toUser(userDTO);
         
@@ -441,6 +484,7 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
     public Mono<User> updateUserWithRoles(UserDTO userDTO) {
         return getUserById(userDTO.getId())
                 .flatMap(existingUser -> {
@@ -457,6 +501,8 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
+    @Transactional
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
     public Mono<Boolean> updatePassword(Long userId, UserPasswordDTO passwordDTO) {
         return getUserById(userId)
                 .flatMap(user -> {

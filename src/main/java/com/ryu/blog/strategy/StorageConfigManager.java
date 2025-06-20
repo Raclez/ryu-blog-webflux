@@ -1,5 +1,6 @@
 package com.ryu.blog.strategy;
 
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.entity.StorageConfig;
 import com.ryu.blog.event.ConfigChangeEvent;
 import com.ryu.blog.repository.StorageConfigRepository;
@@ -16,6 +17,7 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
 import jakarta.annotation.PostConstruct;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -123,7 +125,7 @@ public class StorageConfigManager {
      * @param strategyKey 策略键
      * @return 策略配置
      */
-    @Cacheable(value = "storageConfig", key = "#strategyKey", unless = "#result == null")
+    @Cacheable(value = CacheConstants.STORAGE_CONFIG_CACHE_NAME, key = "#strategyKey", unless = "#result == null")
     public Mono<StorageConfig> getStrategyConfig(String strategyKey) {
         log.debug("获取策略配置: strategyKey={} (缓存未命中)", strategyKey);
         
@@ -167,7 +169,7 @@ public class StorageConfigManager {
     /**
      * 清除配置缓存
      */
-    @CacheEvict(value = {"storageConfig", "storageProperties", "accessUrl"}, allEntries = true)
+    @CacheEvict(value = {CacheConstants.STORAGE_CONFIG_CACHE_NAME, CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, CacheConstants.STORAGE_ACCESS_URL_CACHE_NAME}, allEntries = true)
     public void clearConfigCache() {
         log.info("存储配置缓存已清除");
     }
@@ -230,7 +232,7 @@ public class StorageConfigManager {
      * @param defaultValue 默认值
      * @return 属性值的Mono
      */
-    @Cacheable(value = "storageProperties", key = "#strategyKey + ':' + #key", unless = "#result == null")
+    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, key = "#strategyKey + ':' + #key", unless = "#result == null")
     public Mono<String> getConfigPropertyAsync(String strategyKey, String key, String defaultValue) {
         log.debug("获取配置属性: strategyKey={}, key={} (缓存未命中)", strategyKey, key);
         
@@ -274,21 +276,22 @@ public class StorageConfigManager {
     }
     
     /**
-     * 获取配置属性Map
+     * 获取配置属性集合
      * @param strategyKey 策略键
-     * @return 配置属性Map的Mono
+     * @return 配置属性集合的Mono
      */
-    @Cacheable(value = "storageProperties", key = "#strategyKey + ':all'", unless = "#result.isEmpty()")
+    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY", unless = "#result.isEmpty()")
     public Mono<Map<String, String>> getConfigPropertiesAsync(String strategyKey) {
-        log.debug("获取配置属性Map: strategyKey={} (缓存未命中)", strategyKey);
+        log.debug("获取配置属性集合: strategyKey={} (缓存未命中)", strategyKey);
         
-        // 从配置对象获取属性Map
+        // 从配置对象获取属性集合
         return getStrategyConfig(strategyKey)
-            .map(config -> {
+            .<Map<String, String>>map(config -> {
                 Map<String, String> configProps = config.getConfigMap();
-                return configProps != null ? new HashMap<>(configProps) : new HashMap<String, String>();
+                log.debug("获取到配置属性集合: strategyKey={}, count={}", strategyKey, 
+                    configProps != null ? configProps.size() : 0);
+                return configProps != null ? configProps : new HashMap<>();
             })
-            .<Map<String, String>>map(props -> props)
             .defaultIfEmpty(new HashMap<>());
     }
     
@@ -297,15 +300,17 @@ public class StorageConfigManager {
      * @param strategyKey 策略键
      * @return 访问URL的Mono
      */
-    @Cacheable(value = "accessUrl", key = "#strategyKey", unless = "#result == null or #result.isEmpty()")
+    @Cacheable(value = CacheConstants.STORAGE_ACCESS_URL_CACHE_NAME, key = "#strategyKey", unless = "#result == null or #result.isEmpty()")
     public Mono<String> getAccessUrlAsync(String strategyKey) {
         log.debug("获取访问URL: strategyKey={} (缓存未命中)", strategyKey);
         
         // 从配置对象获取访问URL
         return getStrategyConfig(strategyKey)
-            .map(StorageConfig::getAccessUrl)
-            .filter(StringUtils::hasText)
-            .defaultIfEmpty("");
+            .map(config -> {
+                String accessUrl = config.getAccessUrl();
+                log.debug("获取到访问URL: strategyKey={}, accessUrl={}", strategyKey, accessUrl);
+                return accessUrl;
+            });
     }
     
     /**
@@ -339,51 +344,62 @@ public class StorageConfigManager {
      * @param strategyKey 策略键
      * @param key 属性键
      * @param value 属性值
-     * @return 完成信号
+     * @return Void Mono
      */
-    @CacheEvict(value = {"storageProperties"}, key = "#strategyKey + ':' + #key")
+    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE_NAME}, key = "#strategyKey + ':' + #key")
     public Mono<Void> updateConfigProperty(String strategyKey, String key, String value) {
+        log.info("更新配置属性: strategyKey={}, key={}, value={}", strategyKey, key, value);
+        
+        // 更新属性
         return getStrategyConfig(strategyKey)
             .flatMap(config -> {
-                Map<String, String> props = config.getConfigMap();
-                props.put(key, value);
-                config.setConfigMap(props);
-                return storageConfigRepository.save(config);
-            })
-            .doOnNext(config -> {
-                // 发布配置变更事件
-                publishConfigChangeEvent(strategyKey);
+                Map<String, String> configProps = config.getConfigMap();
+                if (configProps == null) {
+                    configProps = new HashMap<>();
+                    config.setConfigMap(configProps);
+                }
                 
-                log.info("更新配置属性成功: strategyKey={}, key={}, value={}", strategyKey, key, value);
-            })
-            .then();
+                // 更新属性值
+                configProps.put(key, value);
+                config.setUpdateTime(LocalDateTime.now());
+                
+                // 保存到数据库
+                return storageConfigRepository.save(config)
+                    .doOnNext(savedConfig -> log.info("配置属性已更新: strategyKey={}, key={}", strategyKey, key))
+                    .then();
+            });
     }
     
     /**
-     * 批量更新配置属性
+     * 更新配置属性集合
      * @param strategyKey 策略键
-     * @param properties 属性Map
-     * @return 完成信号
+     * @param properties 属性集合
+     * @return Void Mono
      */
-    @CacheEvict(value = {"storageProperties"}, key = "#strategyKey + ':all'")
+    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE_NAME}, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY")
     public Mono<Void> updateConfigProperties(String strategyKey, Map<String, String> properties) {
-        if (properties == null || properties.isEmpty()) {
-            return Mono.empty();
-        }
+        log.info("更新配置属性集合: strategyKey={}, propertiesCount={}", strategyKey, properties != null ? properties.size() : 0);
         
+        // 更新属性集合
         return getStrategyConfig(strategyKey)
             .flatMap(config -> {
-                Map<String, String> props = config.getConfigMap();
-                props.putAll(properties);
-                config.setConfigMap(props);
-                return storageConfigRepository.save(config);
-            })
-            .doOnNext(config -> {
-                // 发布配置变更事件
-                publishConfigChangeEvent(strategyKey);
+                Map<String, String> configProps = config.getConfigMap();
+                if (configProps == null) {
+                    configProps = new HashMap<>();
+                    config.setConfigMap(configProps);
+                }
                 
-                log.info("批量更新配置属性成功: strategyKey={}, properties={}", strategyKey, properties.keySet());
-            })
-            .then();
+                // 更新所有属性值
+                if (properties != null) {
+                    configProps.putAll(properties);
+                }
+                
+                config.setUpdateTime(LocalDateTime.now());
+                
+                // 保存到数据库
+                return storageConfigRepository.save(config)
+                    .doOnNext(savedConfig -> log.info("配置属性集合已更新: strategyKey={}", strategyKey))
+                    .then();
+            });
     }
 } 

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -99,68 +100,131 @@ public interface UserRepository extends R2dbcRepository<User, Long> {
     Mono<Long> countAllUsers();
     
     /**
-     * 根据条件分页查询用户
-     * @param params 查询条件
+     * 根据用户名模糊查询用户
+     * @param username 用户名
      * @param pageable 分页参数
      * @return 用户列表
      */
-    default Flux<User> findByCondition(Map<String, Object> params, Pageable pageable) {
-        StringBuilder sql = new StringBuilder("SELECT * FROM t_users WHERE is_deleted = 0");
-        
-        if (params.containsKey("username")) {
-            sql.append(" AND username LIKE '%").append(params.get("username")).append("%'");
-        }
-        
-        if (params.containsKey("email")) {
-            sql.append(" AND email LIKE '%").append(params.get("email")).append("%'");
-        }
-        
-        if (params.containsKey("status")) {
-            sql.append(" AND status = ").append(params.get("status"));
-        }
-        
-        sql.append(" ORDER BY create_time DESC LIMIT ").append(pageable.getPageSize())
-           .append(" OFFSET ").append(pageable.getOffset());
-        
-        return findByQuery(sql.toString());
-    }
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByUsernameLike(String username, Pageable pageable);
     
     /**
-     * 根据条件统计用户总数
-     * @param params 查询条件
-     * @return 用户总数
-     */
-    default Mono<Long> countByCondition(Map<String, Object> params) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0");
-        
-        if (params.containsKey("username")) {
-            sql.append(" AND username LIKE '%").append(params.get("username")).append("%'");
-        }
-        
-        if (params.containsKey("email")) {
-            sql.append(" AND email LIKE '%").append(params.get("email")).append("%'");
-        }
-        
-        if (params.containsKey("status")) {
-            sql.append(" AND status = ").append(params.get("status"));
-        }
-        
-        return countByQuery(sql.toString());
-    }
-    
-    /**
-     * 根据SQL查询用户
-     * @param sql SQL语句
+     * 根据邮箱模糊查询用户
+     * @param email 邮箱
+     * @param pageable 分页参数
      * @return 用户列表
      */
-    @Query("?#[0]")
-    Flux<User> findByQuery(String sql);
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND email LIKE CONCAT('%', :email, '%') ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByEmailLike(String email, Pageable pageable);
     
     /**
-     * 根据SQL统计用户
-     * @param sql SQL语句
+     * 根据状态查询用户
+     * @param status 状态
+     * @param pageable 分页参数
+     * @return 用户列表
+     */
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND status = :status ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByStatus(Integer status, Pageable pageable);
+    
+    /**
+     * 根据用户名和邮箱模糊查询用户
+     * @param username 用户名
+     * @param email 邮箱
+     * @param pageable 分页参数
+     * @return 用户列表
+     */
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND email LIKE CONCAT('%', :email, '%') ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByUsernameLikeAndEmailLike(String username, String email, Pageable pageable);
+    
+    /**
+     * 根据用户名和状态查询用户
+     * @param username 用户名
+     * @param status 状态
+     * @param pageable 分页参数
+     * @return 用户列表
+     */
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND status = :status ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByUsernameLikeAndStatus(String username, Integer status, Pageable pageable);
+    
+    /**
+     * 根据邮箱和状态查询用户
+     * @param email 邮箱
+     * @param status 状态
+     * @param pageable 分页参数
+     * @return 用户列表
+     */
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND email LIKE CONCAT('%', :email, '%') AND status = :status ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByEmailLikeAndStatus(String email, Integer status, Pageable pageable);
+    
+    /**
+     * 根据用户名、邮箱和状态查询用户
+     * @param username 用户名
+     * @param email 邮箱
+     * @param status 状态
+     * @param pageable 分页参数
+     * @return 用户列表
+     */
+    @Query("SELECT * FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND email LIKE CONCAT('%', :email, '%') AND status = :status ORDER BY create_time DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<User> findByUsernameLikeAndEmailLikeAndStatus(String username, String email, Integer status, Pageable pageable);
+    
+    /**
+     * 统计用户名模糊匹配的用户总数
+     * @param username 用户名
      * @return 用户总数
      */
-    @Query("?#[0]")
-    Mono<Long> countByQuery(String sql);
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%')")
+    Mono<Long> countByUsernameLike(String username);
+    
+    /**
+     * 统计邮箱模糊匹配的用户总数
+     * @param email 邮箱
+     * @return 用户总数
+     */
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND email LIKE CONCAT('%', :email, '%')")
+    Mono<Long> countByEmailLike(String email);
+    
+    /**
+     * 统计状态匹配的用户总数
+     * @param status 状态
+     * @return 用户总数
+     */
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND status = :status")
+    Mono<Long> countByStatus(Integer status);
+    
+    /**
+     * 统计用户名和邮箱模糊匹配的用户总数
+     * @param username 用户名
+     * @param email 邮箱
+     * @return 用户总数
+     */
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND email LIKE CONCAT('%', :email, '%')")
+    Mono<Long> countByUsernameLikeAndEmailLike(String username, String email);
+    
+    /**
+     * 统计用户名和状态匹配的用户总数
+     * @param username 用户名
+     * @param status 状态
+     * @return 用户总数
+     */
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND status = :status")
+    Mono<Long> countByUsernameLikeAndStatus(String username, Integer status);
+    
+    /**
+     * 统计邮箱和状态匹配的用户总数
+     * @param email 邮箱
+     * @param status 状态
+     * @return 用户总数
+     */
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND email LIKE CONCAT('%', :email, '%') AND status = :status")
+    Mono<Long> countByEmailLikeAndStatus(String email, Integer status);
+    
+    /**
+     * 统计用户名、邮箱和状态匹配的用户总数
+     * @param username 用户名
+     * @param email 邮箱
+     * @param status 状态
+     * @return 用户总数
+     */
+    @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND email LIKE CONCAT('%', :email, '%') AND status = :status")
+    Mono<Long> countByUsernameLikeAndEmailLikeAndStatus(String username, String email, Integer status);
 } 
