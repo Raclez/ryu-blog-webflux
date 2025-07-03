@@ -6,7 +6,6 @@ import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.UploadOptionsDTO;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.service.FileService;
-import com.ryu.blog.service.ResourceGroupService;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
@@ -43,7 +42,6 @@ import java.util.Map;
 public class FileController {
 
     private final FileService fileService;
-    private final ResourceGroupService resourceGroupService;
 
     /**
      * 上传文件

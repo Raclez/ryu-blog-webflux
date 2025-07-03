@@ -12,6 +12,8 @@ import com.ryu.blog.service.PermissionsService;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
@@ -83,39 +85,85 @@ public class PermissionsServiceImpl implements PermissionsService {
         long currentPage = permissionsQuery.getCurrentPage() != null ? permissionsQuery.getCurrentPage() : 1;
         long pageSize = permissionsQuery.getPageSize() != null ? permissionsQuery.getPageSize() : 10;
         
-        // 根据查询条件获取权限列表
-        Flux<Permissions> permissionsFlux;
+        // 创建分页请求
+        int page = (int) Math.max(0, currentPage - 1); // Spring Data页码从0开始
+        int size = (int) pageSize;
+        Pageable pageable = PageRequest.of(page, size);
         
+        // 根据查询条件选择不同的查询策略
         if (permissionsQuery.getModulePrefix() != null && !permissionsQuery.getModulePrefix().isEmpty()) {
-            permissionsFlux = permissionsRepository.findByIdentityStartingWithAndIsDeletedOrderByIdAsc(
-                    permissionsQuery.getModulePrefix() + ":", 0);
-        } else if (permissionsQuery.getName() != null && !permissionsQuery.getName().isEmpty()) {
-            permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0)
-                    .filter(permission -> permission.getName().contains(permissionsQuery.getName()));
-        } else if (permissionsQuery.getIdentity() != null && !permissionsQuery.getIdentity().isEmpty()) {
-            permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0)
-                    .filter(permission -> permission.getIdentity().contains(permissionsQuery.getIdentity()));
+            // 按模块前缀查询
+            String prefix = permissionsQuery.getModulePrefix() + ":";
+            return permissionsRepository.countByIdentityStartingWithAndIsDeleted(prefix, 0)
+                    .flatMap(total -> {
+                        if (total == 0) {
+                            return Mono.just(new PageResult<Permissions>());
+                        }
+                        
+                        return permissionsRepository.findByIdentityStartingWithAndIsDeletedOrderByIdAsc(prefix, 0, pageable)
+                                .collectList()
+                                .map(permissions -> {
+                                    PageResult<Permissions> pageResult = new PageResult<>();
+                                    pageResult.setRecords(permissions);
+                                    pageResult.setTotal(total);
+                                    pageResult.setSize(pageSize);
+                                    pageResult.setCurrent(currentPage);
+                                    pageResult.setPages((total + pageSize - 1) / pageSize);
+                                    return pageResult;
+                                });
+                    });
+        } else if (permissionsQuery.getName() != null && !permissionsQuery.getName().isEmpty() ||
+                   permissionsQuery.getIdentity() != null && !permissionsQuery.getIdentity().isEmpty()) {
+            // 按名称或标识模糊查询 - 这种情况仍需内存分页
+            Flux<Permissions> permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0)
+                    .filter(permission -> {
+                        boolean matches = true;
+                        if (permissionsQuery.getName() != null && !permissionsQuery.getName().isEmpty()) {
+                            matches = matches && permission.getName().contains(permissionsQuery.getName());
+                        }
+                        if (permissionsQuery.getIdentity() != null && !permissionsQuery.getIdentity().isEmpty()) {
+                            matches = matches && permission.getIdentity().contains(permissionsQuery.getIdentity());
+                        }
+                        return matches;
+                    });
+            
+            return permissionsFlux.collectList()
+                    .map(allPermissions -> {
+                        long total = allPermissions.size();
+                        
+                        // 计算分页
+                        int fromIndex = (int) ((currentPage - 1) * pageSize);
+                        if (fromIndex >= allPermissions.size()) {
+                            fromIndex = 0;
+                        }
+                        
+                        int toIndex = (int) Math.min(fromIndex + pageSize, allPermissions.size());
+                        List<Permissions> pageData = allPermissions.subList(fromIndex, toIndex);
+                        
+                        // 创建分页结果对象
+                        return new PageResult<>(pageData, total, pageSize, currentPage);
+                    });
         } else {
-            permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0);
+            // 查询所有未删除的权限
+            return permissionsRepository.countByIsDeleted(0)
+                    .flatMap(total -> {
+                        if (total == 0) {
+                            return Mono.just(new PageResult<Permissions>());
+                        }
+                        
+                        return permissionsRepository.findByIsDeletedOrderByIdAsc(0, pageable)
+                                .collectList()
+                                .map(permissions -> {
+                                    PageResult<Permissions> pageResult = new PageResult<>();
+                                    pageResult.setRecords(permissions);
+                                    pageResult.setTotal(total);
+                                    pageResult.setSize(pageSize);
+                                    pageResult.setCurrent(currentPage);
+                                    pageResult.setPages((total + pageSize - 1) / pageSize);
+                                    return pageResult;
+                                });
+                    });
         }
-        
-        // 计算总数并构建分页结果
-        return permissionsFlux.collectList()
-                .map(allPermissions -> {
-                    long total = allPermissions.size();
-                    
-                    // 计算分页
-                    int fromIndex = (int) ((currentPage - 1) * pageSize);
-                    if (fromIndex >= allPermissions.size()) {
-                        fromIndex = 0;
-                    }
-                    
-                    int toIndex = (int) Math.min(fromIndex + pageSize, allPermissions.size());
-                    List<Permissions> pageData = allPermissions.subList(fromIndex, toIndex);
-                    
-                    // 创建分页结果对象
-                    return new PageResult<>(pageData, total, pageSize, currentPage);
-                });
     }
 
     @Override

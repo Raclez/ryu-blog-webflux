@@ -55,6 +55,8 @@ public class CacheConstants {
     public static final String TAG_HOT_KEY = TAG_CACHE_PREFIX + "hot:";
     public static final String TAG_ARTICLE_KEY = TAG_CACHE_PREFIX + "article:";
     public static final String TAG_DETAIL_KEY = TAG_CACHE_PREFIX + "detail:";
+    public static final String TAG_PAGE_KEY = TAG_CACHE_PREFIX + "page:";
+    public static final String TAG_PAGE_PATTERN = TAG_PAGE_KEY + "*";
     
     /** 分类相关缓存 */
     public static final String CATEGORY_CACHE_PREFIX = CACHE_PREFIX + "category:";
@@ -128,6 +130,7 @@ public class CacheConstants {
     public static final String VIEW_HISTORY_PV_CACHE_NAME = "viewHistoryPv";
     public static final String VIEW_HISTORY_UV_CACHE_NAME = "viewHistoryUv";
     public static final String VIEW_HISTORY_POST_PV_CACHE_NAME = "viewHistoryPostPv";
+    public static final String VISIT_RECORD_CACHE_NAME = "visitRecordCache";
     
     /** 浏览历史统计相关缓存键前缀 */
     public static final String VIEW_HISTORY_PV_KEY_PREFIX = "pv:";

@@ -45,9 +45,10 @@ public interface CategoryRepository extends R2dbcRepository<Category, Long> {
      * @return 分类列表
      */
     @Query("SELECT * FROM t_categories WHERE is_deleted = 0 " +
-           "AND (COALESCE(:keyword, '') = '' OR name LIKE CONCAT('%', :keyword, '%') " +
+           "AND (:keyword IS NULL OR :keyword = '' OR name LIKE CONCAT('%', :keyword, '%') " +
            "OR description LIKE CONCAT('%', :keyword, '%')) " +
-           "ORDER BY sort ASC")
+           "ORDER BY sort ASC " +
+           "LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
     Flux<Category> findByKeyword(String keyword, Pageable pageable);
     
     /**
@@ -56,7 +57,7 @@ public interface CategoryRepository extends R2dbcRepository<Category, Long> {
      * @return 分类总数
      */
     @Query("SELECT COUNT(1) FROM t_categories WHERE is_deleted = 0 " +
-           "AND (COALESCE(:keyword, '') = '' OR name LIKE CONCAT('%', :keyword, '%') " +
+           "AND (:keyword IS NULL OR :keyword = '' OR name LIKE CONCAT('%', :keyword, '%') " +
            "OR description LIKE CONCAT('%', :keyword, '%'))")
     Mono<Long> countByKeyword(String keyword);
 } 

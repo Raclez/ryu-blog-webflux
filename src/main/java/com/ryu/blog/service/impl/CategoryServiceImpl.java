@@ -115,32 +115,20 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id")
     public Mono<CategoryVO> getCategoryById(Long id) {
         log.debug("从数据库获取分类详情: id={}", id);
-        // 尝试从缓存获取
-        String cacheKey = CacheConstants.CATEGORY_CACHE_PREFIX + "id:" + id;
-        
-        return reactiveRedisTemplate.opsForValue().get(cacheKey)
-                .flatMap(this::deserializeCategoryVO)
-                .switchIfEmpty(
-                    categoryRepository.findById(id)
-                        .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.CATEGORY_NOT_FOUND)))
-                        .map(categoryMapper::toVO)
-                        .flatMap(categoryVO -> 
-                            // 存入缓存
-                            serializeAndCache(cacheKey, categoryVO, Duration.ofMinutes(30))
-                                .thenReturn(categoryVO)
-                        )
-                );
+        return categoryRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException(MessageConstants.CATEGORY_NOT_FOUND)))
+                .map(categoryMapper::toVO);
     }
 
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = CacheConstants.CATEGORY_DETAIL_KEY + " + #id"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:all'"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:stats'")
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'allCategories'"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'categoryStats'")
     })
     public Mono<Void> deleteCategory(Long id) {
         return categoryRepository.findById(id)
@@ -160,9 +148,6 @@ public class CategoryServiceImpl implements CategoryService {
                                         .doOnSuccess(savedCategory -> {
                                             // 清除缓存
                                             clearCategoryCache();
-                                            // 清除分类详情缓存
-                                            reactiveRedisTemplate.delete(CacheConstants.CATEGORY_CACHE_PREFIX + "id:" + id)
-                                                    .subscribe();
                                         })
                                         .then();
                             });
@@ -170,58 +155,30 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:all'", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'allCategories'")
     public Flux<CategoryVO> getAllCategories() {
         log.debug("从数据库获取所有分类");
-        // 先尝试从缓存中获取
-        return reactiveRedisTemplate.opsForValue().get(CacheConstants.CATEGORY_ALL_KEY)
-                .flatMapMany(jsonString -> deserializeCategoryVOList(jsonString))
-                .switchIfEmpty(
-                        categoryRepository.findAllCategories()
-                                .map(categoryMapper::toVO)
-                                .collectList()
-                                .flatMap(categories -> 
-                                    // 更新缓存
-                                    serializeAndCache(CacheConstants.CATEGORY_ALL_KEY, categories, Duration.ofHours(1))
-                                        .thenReturn(categories)
-                                )
-                                .flatMapMany(Flux::fromIterable)
-                );
+        return categoryRepository.findAllCategories()
+                .map(categoryMapper::toVO);
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'blog:category:stats'", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'categoryStats'")
     public Flux<CategoryStatsVO> getAllCategoriesWithArticleCount() {
         log.debug("从数据库获取所有分类统计信息");
-        // 先尝试从缓存中获取
-        return reactiveRedisTemplate.opsForValue().get(CacheConstants.CATEGORY_CACHE_PREFIX + "all:stats")
-                .flatMapMany(jsonString -> deserializeCategoryStatsVOList(jsonString))
-                .switchIfEmpty(
-                        categoryRepository.findAllCategories()
-                                .flatMap(category -> {
-                                    return categoryRepository.countArticlesByCategoryId(category.getId())
-                                            .map(count -> {
-                                                category.setArticleCount(count);
-                                                return category;
-                                            });
-                                })
-                                .map(categoryMapper::toStatsVO)
-                                .collectList()
-                                .flatMap(categories -> 
-                                    // 更新缓存
-                                    serializeAndCache(
-                                            CacheConstants.CATEGORY_CACHE_PREFIX + "all:stats", 
-                                            categories, 
-                                            Duration.ofHours(1)
-                                    )
-                                        .thenReturn(categories)
-                                )
-                                .flatMapMany(Flux::fromIterable)
-                );
+        return categoryRepository.findAllCategories()
+                .flatMap(category -> {
+                    return categoryRepository.countArticlesByCategoryId(category.getId())
+                            .map(count -> {
+                                category.setArticleCount(count);
+                                return category;
+                            });
+                })
+                .map(categoryMapper::toStatsVO);
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_PAGE_KEY + "' + #categoryListDTO.currentPage + ':' + #categoryListDTO.pageSize + ':' + #categoryListDTO.keyword", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_PAGE_KEY + "' + #categoryListDTO.currentPage + ':' + #categoryListDTO.pageSize + ':' + #categoryListDTO.keyword")
     public Mono<PageResult<Category>> getCategoriesByPage(CategoryListDTO categoryListDTO) {
         // 创建分页请求
         int page = Math.max(0, categoryListDTO.getCurrentPage() - 1); // Spring Data页码从0开始
@@ -229,24 +186,20 @@ public class CategoryServiceImpl implements CategoryService {
         Pageable pageable = PageRequest.of(page, size);
         String keyword = categoryListDTO.getKeyword();
         
+        log.debug("分页查询分类, 当前页: {}, 每页条数: {}, 关键字: {}", 
+                 categoryListDTO.getCurrentPage(), size, keyword);
+        
         // 查询总记录数
         return categoryRepository.countByKeyword(keyword)
                 .flatMap(total -> {
                     if (total == 0) {
                         // 如果没有记录，返回空页
+                        log.debug("未找到匹配的分类记录");
                         return Mono.just(new PageResult<Category>());
                     }
                     
                     // 查询分页数据
                     return categoryRepository.findByKeyword(keyword, pageable)
-                            .flatMap(category -> {
-                                // 查询每个分类关联的文章数量
-                                return categoryRepository.countArticlesByCategoryId(category.getId())
-                                        .map(count -> {
-                                            category.setArticleCount(count);
-                                            return category;
-                                        });
-                            })
                             .collectList()
                             .map(categories -> {
                                 // 创建自定义分页结果
@@ -258,7 +211,8 @@ public class CategoryServiceImpl implements CategoryService {
                                 pageResult.setPages((total + size - 1) / size); // 计算总页数
                                 return pageResult;
                             });
-                });
+                })
+                .doOnError(e -> log.error("分页查询分类失败: {}", e.getMessage()));
     }
 
     @Override
@@ -267,31 +221,16 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     public Flux<CategoryVO> getCategoriesByArticleId(Long articleId) {
-        // 先尝试从缓存中获取
-        String cacheKey = CacheConstants.CATEGORY_CACHE_PREFIX + "article:" + articleId;
-        
-        return reactiveRedisTemplate.opsForValue().get(cacheKey)
-                .flatMapMany(jsonString -> deserializeCategoryVOList(jsonString))
-                .switchIfEmpty(
-                        // 从数据库中获取
-                        postCategoryRepository.findByPostId(articleId)
-                                .map(PostCategory::getCategoryId)
-                                .flatMap(categoryRepository::findById)
-                                .map(categoryMapper::toVO)
-                                .collectList()
-                                .flatMap(categories -> 
-                                    // 更新缓存
-                                    serializeAndCache(cacheKey, categories, Duration.ofHours(1))
-                                        .thenReturn(categories)
-                                )
-                                .flatMapMany(Flux::fromIterable)
-                );
+        return postCategoryRepository.findByPostId(articleId)
+                .map(PostCategory::getCategoryId)
+                .flatMap(categoryRepository::findById)
+                .map(categoryMapper::toVO);
     }
     
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
     public Flux<Long> getCategoryIdsByArticleId(Long articleId) {
         return postCategoryRepository.findByPostId(articleId)
                 .map(PostCategory::getCategoryId);
@@ -299,7 +238,10 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+    })
     public Mono<Void> addArticleCategory(Long articleId, Long categoryId) {
         // 检查分类是否存在
         return categoryRepository.findById(categoryId)
@@ -329,7 +271,10 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+    })
     public Mono<Void> removeArticleCategory(Long articleId, Long categoryId) {
         return postCategoryRepository.deleteByPostIdAndCategoryId(articleId, categoryId)
                 .doOnSuccess(result -> {
@@ -340,7 +285,10 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
+    @Caching(evict = {
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+    })
     public Mono<Void> removeAllArticleCategories(Long articleId) {
         return postCategoryRepository.deleteByPostId(articleId)
                 .doOnSuccess(result -> {
@@ -414,6 +362,23 @@ public class CategoryServiceImpl implements CategoryService {
                 .subscribe(
                         result -> log.debug("清除分类统计缓存成功"),
                         error -> log.error("清除分类统计缓存失败: {}", error.getMessage())
+                );
+                
+        // 清除分页缓存
+        clearCategoryPageCache();
+    }
+    
+    /**
+     * 清除分类分页缓存
+     */
+    private void clearCategoryPageCache() {
+        // 使用通配符删除所有分页缓存
+        String pageKeyPattern = CacheConstants.CATEGORY_CACHE_PREFIX + "page:*";
+        reactiveRedisTemplate.keys(pageKeyPattern)
+                .flatMap(key -> reactiveRedisTemplate.delete(key))
+                .subscribe(
+                        result -> log.debug("清除分类分页缓存成功"),
+                        error -> log.error("清除分类分页缓存失败: {}", error.getMessage())
                 );
     }
 

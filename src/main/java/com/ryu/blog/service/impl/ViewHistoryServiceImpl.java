@@ -1,6 +1,7 @@
 package com.ryu.blog.service.impl;
 
 import com.ryu.blog.constant.CacheConstants;
+import com.ryu.blog.dto.ViewHistoryDTO;
 import com.ryu.blog.entity.Posts;
 import com.ryu.blog.entity.ViewHistory;
 import com.ryu.blog.mapper.ViewHistoryMapper;
@@ -8,25 +9,33 @@ import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.repository.ViewHistoryRepository;
 import com.ryu.blog.service.ViewHistoryService;
+import com.ryu.blog.utils.IpUtil;
+import com.ryu.blog.utils.IPLocationUtil;
+import com.ryu.blog.utils.UserAgentAnalyzer;
 import com.ryu.blog.vo.ViewHistoryStatsVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
 import org.springframework.cache.Cache.ValueWrapper;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 浏览历史服务实现类
@@ -46,52 +55,234 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     // 设备和地区分布统计
     private final Map<String, Integer> deviceStats = new ConcurrentHashMap<>();
     private final Map<String, Integer> locationStats = new ConcurrentHashMap<>();
+    
+    // 记录同一用户访问同一文章的时间间隔（分钟）
+    private static final int VISIT_INTERVAL_MINUTES = 30;
+    // 浏览记录缓存键前缀
+    private static final String VISIT_RECORD_KEY_PREFIX = CacheConstants.VIEW_CACHE_PREFIX + "record:";
+    // 文章浏览量缓存键前缀
+    private static final String ARTICLE_VIEW_COUNT_KEY = CacheConstants.VIEW_COUNT_KEY;
+    // 访问记录缓存名称 - 使用常量
+    private static final String VISIT_RECORD_CACHE_NAME = CacheConstants.VISIT_RECORD_CACHE_NAME;
 
     @Override
     @Transactional
-    public Mono<Boolean> addViewHistory(Long articleId, Long userId) {
-        // 先检查是否已经有浏览记录
-        return viewHistoryRepository.findByVisitorIdAndPostId(userId, articleId)
-                .hasElement()
-                .flatMap(exists -> {
-                    if (exists) {
-                        // 如果已经有记录，则更新时间
-                        return viewHistoryRepository.findByVisitorIdAndPostId(userId, articleId)
-                                .flatMap(history -> {
-                                    history.setUpdateTime(LocalDateTime.now());
-                                    return viewHistoryRepository.save(history)
-                                            .flatMap(savedHistory -> updateArticleViewCount(articleId))
-                                            .thenReturn(true);
-                                });
+    public Mono<Boolean> addViewHistory(ViewHistoryDTO viewHistoryDTO) {
+        log.debug("添加浏览历史: {}", viewHistoryDTO);
+        
+        if (viewHistoryDTO == null || viewHistoryDTO.getPostId() == null) {
+            log.warn("添加浏览历史失败: 文章ID为空");
+            return Mono.just(false);
+        }
+        
+        Long articleId = viewHistoryDTO.getPostId();
+        String visitorId = viewHistoryDTO.getVisitorId();
+        
+        if (visitorId == null || visitorId.isEmpty()) {
+            log.warn("添加浏览历史失败: 访客ID为空");
+            return Mono.just(false);
+        }
+        
+        // 构建访问记录缓存键
+        String visitRecordKey = VISIT_RECORD_KEY_PREFIX + visitorId + ":" + articleId;
+        
+        // 从当前请求上下文获取IP地址、设备信息和地理位置
+        return Mono.deferContextual(contextView -> {
+            // 尝试从上下文中获取ServerWebExchange对象
+            Optional<ServerWebExchange> exchangeOptional = contextView.getOrEmpty(ServerWebExchange.class);
+            
+            // 获取IP地址
+            String ipAddress = "";
+            // 获取用户代理信息
+            String userAgent = "";
+            // 获取地理位置
+            String location = "";
+            // 设备信息
+            String deviceInfo = "";
+            
+            // 如果存在ServerWebExchange，则获取请求信息
+            if (exchangeOptional.isPresent()) {
+                ServerWebExchange exchange = exchangeOptional.get();
+                ServerHttpRequest request = exchange.getRequest();
+                
+                // 获取IP地址
+                ipAddress = IpUtil.getClientIp(exchange);
+                
+                // 获取用户代理信息
+                userAgent = request.getHeaders().getFirst("User-Agent");
+                
+                // 使用新的UserAgentAnalyzer解析设备信息
+                deviceInfo = UserAgentAnalyzer.formatDeviceInfo(userAgent);
+                
+                // 获取地理位置
+                location = IPLocationUtil.getIpLocation(ipAddress);
+            }
+            
+            final String finalIpAddress = ipAddress;
+            final String finalUserAgent = userAgent;
+            final String finalLocation = location;
+            final String finalDeviceInfo = deviceInfo;
+            
+            // 1. 首先检查缓存中是否存在访问记录以及访问时间是否在限定间隔内
+            return Mono.fromCallable(() -> {
+                Cache visitRecordCache = cacheManager.getCache(VISIT_RECORD_CACHE_NAME);
+                boolean isNewVisit = true;
+                
+                if (visitRecordCache != null) {
+                    ValueWrapper wrapper = visitRecordCache.get(visitRecordKey);
+                    if (wrapper != null) {
+                        // 如果记录存在，则不增加浏览量，但仍然记录浏览历史
+                        log.debug("短时间内重复访问: 文章ID={}, 访客ID={}, 不增加浏览量", articleId, visitorId);
+                        // 更新缓存中的时间戳
+                        visitRecordCache.put(visitRecordKey, System.currentTimeMillis());
+                        isNewVisit = false;
                     } else {
-                        // 如果没有记录，则添加新记录
-                        ViewHistory history = new ViewHistory();
-                        history.setPostId(articleId);
-                        history.setVisitorId(userId.toString());
-                        history.setViewTime(LocalDateTime.now());
-                        history.setCreateTime(LocalDateTime.now());
-                        history.setUpdateTime(LocalDateTime.now());
-                        
-                        // 更新缓存统计数据
-                        updateCacheStats(articleId, userId.toString());
-                        
-                        return viewHistoryRepository.save(history)
-                                .flatMap(savedHistory -> updateArticleViewCount(articleId))
-                                .thenReturn(true);
+                        // 如果记录不存在，则设置一个新的访问记录
+                        visitRecordCache.put(visitRecordKey, System.currentTimeMillis());
                     }
-                });
+                }
+                
+                return isNewVisit;
+            })
+            .subscribeOn(Schedulers.boundedElastic())
+            .flatMap(isNewVisit -> {
+                // 2. 创建新的浏览记录（无论是否存在历史记录）
+                ViewHistory history = new ViewHistory();
+                history.setPostId(articleId);
+                history.setVisitorId(visitorId);
+                history.setViewTime(LocalDateTime.now());
+                history.setCreateTime(LocalDateTime.now());
+                history.setUpdateTime(LocalDateTime.now());
+                
+                // 设置额外信息
+                history.setViewDuration(viewHistoryDTO.getViewDuration());
+                history.setReferer(viewHistoryDTO.getReferrer());
+                
+                // 设置IP地址、设备信息和地理位置
+                history.setIpAddress(finalIpAddress);
+                history.setAgent(finalDeviceInfo); // 使用格式化后的设备信息
+                history.setLocation(finalLocation);
+                
+                // 3. 保存浏览记录
+                return viewHistoryRepository.save(history)
+                    .flatMap(savedHistory -> {
+                        // 4. 如果是新访问（间隔超过30分钟），则增加文章浏览量
+                        if (isNewVisit) {
+                            // 更新缓存统计数据
+                            updateCacheStats(articleId, visitorId);
+                            
+                            // 更新设备和地区统计
+                            if (!finalUserAgent.isEmpty()) {
+                                updateDeviceStats(finalUserAgent);
+                            }
+                            
+                            if (!finalLocation.isEmpty()) {
+                                updateLocationStats(finalLocation);
+                            }
+                            
+                            return incrementArticleViewCount(articleId).thenReturn(true);
+                        }
+                        return Mono.just(false);
+                    });
+            });
+        })
+        .doOnSuccess(result -> {
+            if (result) {
+                log.debug("添加浏览历史成功并增加浏览量: 文章ID={}, 访客ID={}", articleId, visitorId);
+            } else {
+                log.debug("添加浏览历史成功但不增加浏览量: 文章ID={}, 访客ID={}", articleId, visitorId);
+            }
+        })
+        .doOnError(e -> log.error("添加浏览历史失败: 文章ID={}, 访客ID={}, 错误={}", 
+                articleId, visitorId, e.getMessage()));
     }
 
     /**
-     * 更新文章浏览量
+     * 更新设备统计信息
+     * 
+     * @param agent 设备信息
      */
-    private Mono<Posts> updateArticleViewCount(Long articleId) {
-        return postsRepository.findById(articleId)
-                .flatMap(article -> {
-                    Integer views = article.getViews() == null ? 0 : article.getViews();
-                    article.setViews(views + 1);
-                    return postsRepository.save(article);
-                });
+    private void updateDeviceStats(String agent) {
+        if (agent == null || agent.isEmpty()) {
+            return;
+        }
+        
+        // 使用UserAgentAnalyzer获取设备类型
+        String deviceType = UserAgentAnalyzer.getDeviceType(agent);
+        deviceStats.compute(deviceType, (k, v) -> (v == null) ? 1 : v + 1);
+    }
+    
+    /**
+     * 更新地区统计信息
+     * 
+     * @param location 地理位置信息
+     */
+    private void updateLocationStats(String location) {
+        if (location == null || location.isEmpty()) {
+            return;
+        }
+        
+        locationStats.compute(location, (k, v) -> (v == null) ? 1 : v + 1);
+    }
+
+    /**
+     * 增加文章浏览量 - 使用Caffeine缓存
+     * 采用缓存计数器，定期同步到数据库
+     */
+    private Mono<Integer> incrementArticleViewCount(Long articleId) {
+        if (articleId == null) {
+            return Mono.just(0);
+        }
+        
+        return Mono.fromCallable(() -> {
+            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+            if (viewCountCache != null) {
+                String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
+                AtomicInteger counter = viewCountCache.get(cacheKey, AtomicInteger.class);
+                
+                if (counter == null) {
+                    // 如果计数器不存在，创建一个新的计数器
+                    counter = new AtomicInteger(1);
+                    viewCountCache.put(cacheKey, counter);
+                    return 1;
+                } else {
+                    // 原子递增
+                    int newCount = counter.incrementAndGet();
+                    
+                    // 每10次浏览同步到数据库，减少数据库写入次数
+                    if (newCount % 10 == 0) {
+                        log.debug("同步浏览量到数据库: ID={}, 浏览量={}", articleId, newCount);
+                        // 异步更新数据库，使用updateViews而不是incrementViews
+                        // 这样可以一次性设置正确的值，避免并发问题
+                        postsRepository.updateViews(articleId, newCount)
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .subscribe(
+                                result -> {
+                                    if (result > 0) {
+                                        log.debug("数据库浏览量更新成功: ID={}, 新浏览量={}", articleId, newCount);
+                                    } else {
+                                        log.warn("数据库浏览量更新无影响: ID={}, 可能文章不存在", articleId);
+                                    }
+                                },
+                                error -> log.error("同步浏览量到数据库失败: ID={}, 错误={}", articleId, error.getMessage())
+                            );
+                    }
+                    
+                    return newCount;
+                }
+            }
+            
+            // 缓存不可用，直接更新数据库
+            // 但这种情况应该很少发生
+            return postsRepository.incrementViews(articleId)
+                .subscribeOn(Schedulers.boundedElastic())
+                .block();
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .onErrorResume(e -> {
+            log.error("增加文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
+            return Mono.just(0);
+        });
     }
 
     @Override
@@ -383,5 +574,121 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         Set<String> visitors = getCachedUvValue(key);
         visitors.add(visitorId);
         return visitors;
+    }
+
+    /**
+     * 获取文章当前浏览量（优先从缓存获取，缓存无数据则从数据库获取）
+     * 
+     * @param articleId 文章ID
+     * @return 浏览量
+     */
+    @Override
+    public Mono<Integer> getArticleCurrentViews(Long articleId) {
+        if (articleId == null) {
+            return Mono.just(0);
+        }
+        
+        return Mono.fromCallable(() -> {
+            // 首先从缓存获取
+            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+            if (viewCountCache != null) {
+                String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
+                AtomicInteger counter = viewCountCache.get(cacheKey, AtomicInteger.class);
+                if (counter != null) {
+                    return counter.get();
+                }
+            }
+            
+            // 缓存中没有，从数据库获取
+            return postsRepository.findById(articleId)
+                .map(article -> article.getViews() != null ? article.getViews() : 0)
+                .defaultIfEmpty(0)
+                .block();
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .doOnSuccess(views -> log.debug("获取文章当前浏览量: ID={}, 浏览量={}", articleId, views))
+        .onErrorResume(e -> {
+            log.error("获取文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
+            return Mono.just(0);
+        });
+    }
+
+    /**
+     * 批量同步缓存中的文章浏览量到数据库
+     * 用于定时任务调用，确保数据库中的浏览量与缓存保持同步
+     * 
+     * @return 同步的文章数量
+     */
+    @Override
+    public Mono<Integer> syncViewCountsToDatabase() {
+        log.info("开始同步缓存中的文章浏览量到数据库");
+        
+        return Mono.fromCallable(() -> {
+            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+            if (viewCountCache == null) {
+                return 0;
+            }
+            
+            Object nativeCache = viewCountCache.getNativeCache();
+            if (!(nativeCache instanceof com.github.benmanes.caffeine.cache.Cache)) {
+                return 0;
+            }
+            
+            @SuppressWarnings("unchecked")
+            Map<Object, Object> cacheMap = ((com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache).asMap();
+            
+            AtomicInteger syncCount = new AtomicInteger(0);
+            
+            // 使用批处理方式更新，减少数据库连接次数
+            List<Mono<Integer>> updateOperations = new ArrayList<>();
+            
+            cacheMap.forEach((key, value) -> {
+                if (key instanceof String && value instanceof AtomicInteger) {
+                    String cacheKey = (String) key;
+                    if (cacheKey.startsWith(ARTICLE_VIEW_COUNT_KEY)) {
+                        String articleIdStr = cacheKey.substring(ARTICLE_VIEW_COUNT_KEY.length());
+                        try {
+                            Long articleId = Long.parseLong(articleIdStr);
+                            int viewCount = ((AtomicInteger) value).get();
+                            
+                            // 添加到批处理操作列表
+                            updateOperations.add(
+                                postsRepository.updateViews(articleId, viewCount)
+                                    .doOnSuccess(result -> {
+                                        if (result > 0) {
+                                            syncCount.incrementAndGet();
+                                            log.debug("同步文章浏览量成功: ID={}, 浏览量={}", articleId, viewCount);
+                                        }
+                                    })
+                                    .onErrorResume(e -> {
+                                        log.error("同步文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
+                                        return Mono.just(0);
+                                    })
+                            );
+                        } catch (NumberFormatException e) {
+                            log.warn("无效的文章ID格式: {}", articleIdStr);
+                        }
+                    }
+                }
+            });
+            
+            // 执行批处理操作
+            if (!updateOperations.isEmpty()) {
+                Flux.merge(updateOperations)
+                    .collectList()
+                    .subscribe(
+                        results -> log.info("文章浏览量同步完成，成功同步 {} 篇文章", syncCount.get()),
+                        error -> log.error("批量同步文章浏览量失败: {}", error.getMessage())
+                    );
+            }
+            
+            return syncCount.get();
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .doOnSuccess(count -> log.info("文章浏览量同步任务完成，共同步 {} 篇文章", count))
+        .onErrorResume(e -> {
+            log.error("同步文章浏览量到数据库失败: {}", e.getMessage());
+            return Mono.just(0);
+        });
     }
 } 

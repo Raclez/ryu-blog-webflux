@@ -26,7 +26,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
-import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -228,15 +227,17 @@ public class PostsController {
     
     /**
      * 更新文章状态
+     * 使用Spring Cache注解自动管理缓存，确保数据一致性和性能最优
      * 
      * @param statusDTO 文章状态数据传输对象
      * @return 操作结果
      */
-    @Operation(summary = "更新文章状态", description = "更新文章状态")
+    @Operation(summary = "更新文章状态", description = "更新文章状态并自动清除相关缓存")
     @PutMapping("/status")
     public Mono<Result<Void>> updatePostStatus(@RequestBody @Validated PostStatusDTO statusDTO) {
         log.info("更新文章状态: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
         
+        // 使用服务层方法更新状态，服务层通过Spring Cache注解自动管理缓存
         return articleService.updateArticleStatus(statusDTO)
                 .then(Mono.defer(() -> {
                     log.info("更新文章状态成功: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
@@ -297,26 +298,16 @@ public class PostsController {
                     log.info("文章导出为Markdown成功: ID={}, 文件名={}", id, filename);
 
                     // 对文件名进行URL编码，以支持中文文件名
-                    try {
-                        String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8.name())
-                                .replaceAll("\\+", "%20"); // 将空格的+替换为%20
-                        
-                        // 设置两种Content-Disposition，兼容不同的浏览器
-                        return ResponseEntity.ok()
-                                .header(HttpHeaders.CONTENT_DISPOSITION, 
-                                        "attachment; filename=\"" + encodedFilename + "\"; filename*=UTF-8''" + encodedFilename)
-                                .contentType(MediaType.TEXT_MARKDOWN)
-                                .contentLength(content.length)
-                                .body(resource);
-                    } catch (UnsupportedEncodingException e) {
-                        log.error("文件名编码失败: {}", e.getMessage());
-                        // 如果编码失败，使用原始文件名
-                        return ResponseEntity.ok()
-                                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                                .contentType(MediaType.TEXT_MARKDOWN)
-                                .contentLength(content.length)
-                                .body(resource);
-                    }
+                    String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8)
+                            .replaceAll("\\+", "%20"); // 将空格的+替换为%20
+
+                    // 设置两种Content-Disposition，兼容不同的浏览器
+                    return ResponseEntity.ok()
+                            .header(HttpHeaders.CONTENT_DISPOSITION,
+                                    "attachment; filename=\"" + encodedFilename + "\"; filename*=UTF-8''" + encodedFilename)
+                            .contentType(MediaType.TEXT_MARKDOWN)
+                            .contentLength(content.length)
+                            .body(resource);
                 })
                 .onErrorResume(e -> {
                     log.error("文章导出为Markdown失败: ID={}, 错误: {}", id, e.getMessage(), e);

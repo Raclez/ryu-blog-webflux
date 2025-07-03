@@ -1,6 +1,7 @@
 package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.Permissions;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.stereotype.Repository;
@@ -62,6 +63,27 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
     Flux<Permissions> findByIdentityStartingWithAndIsDeletedOrderByIdAsc(String prefix, Integer isDeleted);
     
     /**
+     * 根据权限标识前缀查询权限（带分页）
+     *
+     * @param prefix 权限标识前缀，如 "system:", "content:"
+     * @param isDeleted 是否删除标志
+     * @param pageable 分页参数
+     * @return 权限列表
+     */
+    @Query("SELECT * FROM t_permissions WHERE identity LIKE CONCAT(:prefix, '%') AND is_deleted = :isDeleted ORDER BY id ASC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<Permissions> findByIdentityStartingWithAndIsDeletedOrderByIdAsc(String prefix, Integer isDeleted, Pageable pageable);
+    
+    /**
+     * 统计符合权限标识前缀的权限数量
+     *
+     * @param prefix 权限标识前缀
+     * @param isDeleted 是否删除标志
+     * @return 权限数量
+     */
+    @Query("SELECT COUNT(*) FROM t_permissions WHERE identity LIKE CONCAT(:prefix, '%') AND is_deleted = :isDeleted")
+    Mono<Long> countByIdentityStartingWithAndIsDeleted(String prefix, Integer isDeleted);
+    
+    /**
      * 根据权限标识前缀查询权限
      *
      * @param prefix 权限标识前缀
@@ -76,4 +98,23 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
      * @return 权限列表
      */
     Flux<Permissions> findByIsDeletedOrderByIdAsc(Integer isDeleted);
+    
+    /**
+     * 查询所有未删除的权限（带分页）
+     *
+     * @param isDeleted 是否删除标志
+     * @param pageable 分页参数
+     * @return 权限列表
+     */
+    @Query("SELECT * FROM t_permissions WHERE is_deleted = :isDeleted ORDER BY id ASC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
+    Flux<Permissions> findByIsDeletedOrderByIdAsc(Integer isDeleted, Pageable pageable);
+    
+    /**
+     * 统计所有未删除的权限数量
+     *
+     * @param isDeleted 是否删除标志
+     * @return 权限数量
+     */
+    @Query("SELECT COUNT(*) FROM t_permissions WHERE is_deleted = :isDeleted")
+    Mono<Long> countByIsDeleted(Integer isDeleted);
 } 

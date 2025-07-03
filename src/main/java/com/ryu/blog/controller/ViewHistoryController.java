@@ -1,6 +1,7 @@
 package com.ryu.blog.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.ryu.blog.dto.ViewHistoryDTO;
 import com.ryu.blog.entity.ViewHistory;
 import com.ryu.blog.service.ViewHistoryService;
 import com.ryu.blog.utils.Result;
@@ -31,12 +32,11 @@ public class ViewHistoryController {
     /**
      * 添加浏览记录
      */
-    @PostMapping("/record/{articleId}")
+    @PostMapping("/record")
     @Operation(summary = "添加浏览记录", description = "添加文章浏览记录")
     public Mono<Result<Boolean>> addViewHistory(
-            @Parameter(description = "文章ID") @PathVariable("articleId") Long articleId) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        return viewHistoryService.addViewHistory(articleId, userId)
+          @RequestBody  ViewHistoryDTO viewHistoryDTO) {
+        return viewHistoryService.addViewHistory(viewHistoryDTO)
                 .map(Result::success);
     }
 

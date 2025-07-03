@@ -9,8 +9,6 @@ import com.ryu.blog.vo.RolePermissionsVO;
 import com.ryu.blog.vo.RoleVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.Parameters;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -150,15 +148,6 @@ public class RoleController {
         if (roleListDTO == null) {
             log.warn("获取角色列表失败: 查询条件为空");
             return Mono.just(Result.error("查询条件不能为空"));
-        }
-        
-        // 设置默认值
-        if (roleListDTO.getCurrentPage() == null) {
-            roleListDTO.setCurrentPage(1L);
-        }
-        
-        if (roleListDTO.getPageSize() == null) {
-            roleListDTO.setPageSize(10L);
         }
         
         return roleService.getRolesByConditions(roleListDTO)

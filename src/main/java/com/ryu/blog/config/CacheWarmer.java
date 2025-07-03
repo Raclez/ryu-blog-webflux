@@ -28,23 +28,39 @@ public class CacheWarmer implements ApplicationListener<ApplicationStartedEvent>
     public void onApplicationEvent(ApplicationStartedEvent event) {
         log.info("开始预热系统缓存...");
         
-        // 预热分类数据
+        // 预热分类基本数据
+        log.info("正在预热分类基本数据...");
         categoryService.getAllCategories()
             .collectList()
-            .doOnSuccess(categories -> log.info("分类缓存预热完成，加载 {} 条数据", categories.size()))
+            .doOnSuccess(categories -> log.info("分类基本数据缓存预热完成，加载 {} 条数据", categories.size()))
+            .doOnError(e -> log.error("分类基本数据缓存预热失败: {}", e.getMessage()))
             .subscribe();
         
+        // 预热分类统计数据
+        log.info("正在预热分类统计数据...");
+        categoryService.getAllCategoriesWithArticleCount()
+            .collectList()
+            .doOnSuccess(stats -> log.info("分类统计数据缓存预热完成，加载 {} 条数据", stats.size()))
+            .doOnError(e -> log.error("分类统计数据缓存预热失败: {}", e.getMessage()))
+            .subscribe();
+        
+        // 注意：不要预热分页缓存，应该在实际需要时按需加载
+        
         // 预热标签数据
+        log.info("正在预热标签数据...");
         tagService.getAllTags(true)
             .collectList()
             .doOnSuccess(tags -> log.info("标签缓存预热完成，加载 {} 条数据", tags.size()))
+            .doOnError(e -> log.error("标签缓存预热失败: {}", e.getMessage()))
             .subscribe();
         
         // 预热系统配置数据
+        log.info("正在预热系统配置数据...");
         sysConfigService.getSysConfigPage(null, 1, 100)
             .doOnSuccess(config -> log.info("系统配置缓存预热完成，加载页面数据"))
+            .doOnError(e -> log.error("系统配置缓存预热失败: {}", e.getMessage()))
             .subscribe();
         
-        log.info("系统缓存预热任务已提交");
+        log.info("系统缓存预热任务已提交，将在后台完成");
     }
 } 

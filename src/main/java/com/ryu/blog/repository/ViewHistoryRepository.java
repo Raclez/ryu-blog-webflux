@@ -28,7 +28,7 @@ public interface ViewHistoryRepository extends R2dbcRepository<ViewHistory, Long
      * @param postId 文章ID
      * @return 浏览历史
      */
-    Mono<ViewHistory> findByVisitorIdAndPostId(Long visitorId, Long postId);
+    Mono<ViewHistory> findByVisitorIdAndPostId(String visitorId, Long postId);
 
     /**
      * 根据文章ID查询浏览历史

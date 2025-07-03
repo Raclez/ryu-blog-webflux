@@ -6,7 +6,6 @@ import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
-import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -14,9 +13,7 @@ import org.springframework.context.annotation.Primary;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,13 +47,7 @@ public class CacheConfig {
         
         // 注册所有缓存名称
         List<String> cacheNames = new ArrayList<>();
-        
-        // 已有缓存
-        cacheNames.add("storageConfig");
-        cacheNames.add("storageProperties");
-        cacheNames.add("accessUrl");
-        cacheNames.add("fileMetadata");
-        cacheNames.add("fileExists");
+
         
         // 系统配置缓存
         cacheNames.add(CacheConstants.SYS_CONFIG_CACHE_NAME);
@@ -72,6 +63,7 @@ public class CacheConfig {
         cacheNames.add(CacheConstants.VIEW_HISTORY_PV_CACHE_NAME);
         cacheNames.add(CacheConstants.VIEW_HISTORY_UV_CACHE_NAME);
         cacheNames.add(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+        cacheNames.add(CacheConstants.VISIT_RECORD_CACHE_NAME);
         
         // 内容相关缓存
         cacheNames.add(CacheConstants.POST_CACHE_NAME);
@@ -203,6 +195,14 @@ public class CacheConfig {
                 .maximumSize(100)
                 .recordStats()
                 .buildAsync());
+        
+        // 访问记录缓存 - 用于控制访问频率
+        cacheManager.registerCustomCache(CacheConstants.VISIT_RECORD_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(30, TimeUnit.MINUTES)  // 30分钟过期
+                .maximumSize(10000)  // 支持更多并发用户
+                .recordStats()
+                .build());
     }
     
     /**
@@ -250,8 +250,8 @@ public class CacheConfig {
             "thumbnails"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
-                .expireAfterWrite(Duration.ofMinutes(30))
-                .maximumSize(200)
+                .expireAfterWrite(Duration.ofHours(12))
+                .maximumSize(1000)
                 .recordStats());
         cacheManager.setAsyncCacheMode(true);
         return cacheManager;

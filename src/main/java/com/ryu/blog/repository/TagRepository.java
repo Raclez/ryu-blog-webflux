@@ -81,7 +81,8 @@ public interface TagRepository extends R2dbcRepository<Tag, Long> {
     @Query("SELECT * FROM t_tags WHERE is_deleted = 0 " +
            "AND (COALESCE(:keyword, '') = '' OR name LIKE CONCAT('%', :keyword, '%') " +
            "OR description LIKE CONCAT('%', :keyword, '%')) " +
-           "ORDER BY create_time DESC")
+           "ORDER BY create_time DESC " +
+           "LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
     Flux<Tag> findByKeyword(String keyword, Pageable pageable);
     
     /**

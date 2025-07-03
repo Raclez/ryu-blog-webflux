@@ -26,6 +26,8 @@ public interface ArticleService {
 
     /**
      * 使用DTO创建文章
+     * 使用Spring Cache注解自动清除前台、热门文章和后台列表缓存
+     * 
      * @param articleCreateDTO 文章创建DTO
      * @param userId 用户ID
      * @return 创建结果
@@ -35,6 +37,13 @@ public interface ArticleService {
     
     /**
      * 使用DTO更新文章
+     * 使用Spring Cache注解自动管理缓存，会清除以下缓存：
+     * 1. 文章详情缓存
+     * 2. 前台文章列表缓存
+     * 3. 热门文章缓存
+     * 4. 相关文章推荐缓存
+     * 5. 后台文章列表缓存
+     * 
      * @param articleUpdateDTO 文章更新DTO
      * @return 更新结果
      */
@@ -42,6 +51,13 @@ public interface ArticleService {
     
     /**
      * 更新文章状态
+     * 使用Spring Cache注解自动管理缓存，会清除以下缓存：
+     * 1. 文章详情缓存
+     * 2. 前台文章列表缓存
+     * 3. 热门文章缓存
+     * 4. 相关文章推荐缓存
+     * 5. 后台文章列表缓存
+     * 
      * @param statusDTO 文章状态DTO
      * @return 更新结果
      */
@@ -57,6 +73,8 @@ public interface ArticleService {
 
     /**
      * 删除文章
+     * 使用Spring Cache注解自动清除相关缓存
+     * 
      * @param id 文章ID
      * @return 删除结果
      */
@@ -64,6 +82,8 @@ public interface ArticleService {
 
     /**
      * 批量删除文章
+     * 使用Spring Cache注解自动清除所有相关缓存
+     * 
      * @param ids 文章ID列表
      * @return 删除结果
      */
@@ -170,14 +190,9 @@ public interface ArticleService {
     Mono<Long> countArticlesByUserId(Long userId);
 
     /**
-     * 增加文章浏览量
-     * @param id 文章ID
-     * @return 更新结果
-     */
-    Mono<Integer> incrementViews(Long id);
-
-    /**
      * 增加文章点赞数
+     * 使用Spring Cache注解自动清除文章详情、热门文章和前台列表缓存
+     * 
      * @param id 文章ID
      * @return 更新结果
      */
@@ -185,6 +200,8 @@ public interface ArticleService {
 
     /**
      * 增加文章评论数
+     * 使用Spring Cache注解自动清除文章详情、热门文章和前台列表缓存
+     * 
      * @param id 文章ID
      * @return 更新结果
      */
@@ -192,6 +209,8 @@ public interface ArticleService {
 
     /**
      * 减少文章评论数
+     * 使用Spring Cache注解自动清除文章详情、热门文章和前台列表缓存
+     * 
      * @param id 文章ID
      * @return 更新结果
      */
@@ -206,6 +225,7 @@ public interface ArticleService {
     
     /**
      * 添加文章分类关联
+     * 
      * @param articleId 文章ID
      * @param categoryId 分类ID
      * @return 关联结果
@@ -214,6 +234,7 @@ public interface ArticleService {
     
     /**
      * 删除文章分类关联
+     * 
      * @param articleId 文章ID
      * @param categoryId 分类ID
      * @return 删除结果
@@ -222,6 +243,7 @@ public interface ArticleService {
     
     /**
      * 删除文章的所有分类关联
+     * 
      * @param articleId 文章ID
      * @return 删除结果
      */
@@ -246,6 +268,8 @@ public interface ArticleService {
 
     /**
      * 导入Markdown文件创建文章
+     * 使用Spring Cache注解自动清除前台、热门文章和后台列表缓存
+     * 
      * @param file Markdown文件
      * @param categoryId 分类ID
      * @param userId 用户ID

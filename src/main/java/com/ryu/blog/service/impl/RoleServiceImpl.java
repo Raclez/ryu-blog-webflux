@@ -26,6 +26,7 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 角色服务实现类
@@ -106,32 +107,57 @@ public class RoleServiceImpl implements RoleService {
     public Mono<PageResult<Role>> getRolesByConditions(RoleListDTO roleListDTO) {
         log.info("查询角色列表: {}", roleListDTO);
         
+        // 获取分页参数
+        long currentPage = roleListDTO.getCurrentPage() != null ? roleListDTO.getCurrentPage() : 1;
+        long pageSize = roleListDTO.getPageSize() != null ? roleListDTO.getPageSize() : 10;
+        
+        // 计算分页参数
+        int skip = (int) ((currentPage - 1) * pageSize);
+        
         if (roleListDTO.getName() != null && !roleListDTO.getName().isEmpty()) {
             // 按名称模糊查询
             return roleRepository.findByNameContainingAndIsDeleted(roleListDTO.getName(), 0)
                     .collectList()
-                    .map(roles -> {
+                    .map(allRoles -> {
+                        // 计算总数
+                        long total = allRoles.size();
+                        
+                        // 手动分页
+                        List<Role> pageData = allRoles.stream()
+                                .skip(skip)
+                                .limit(pageSize)
+                                .collect(Collectors.toList());
+                        
+                        // 创建分页结果
                         PageResult<Role> pageResult = new PageResult<>();
-                        pageResult.setRecords(roles);
-                        pageResult.setTotal(roles.size());
-                        pageResult.setSize(roleListDTO.getPageSize() != null ? roleListDTO.getPageSize() : 10);
-                        pageResult.setCurrent(roleListDTO.getCurrentPage() != null ? roleListDTO.getCurrentPage() : 1);
-                        pageResult.setPages(pageResult.getSize() > 0 ? 
-                                (pageResult.getTotal() + pageResult.getSize() - 1) / pageResult.getSize() : 0);
+                        pageResult.setRecords(pageData);
+                        pageResult.setTotal(total);
+                        pageResult.setSize(pageSize);
+                        pageResult.setCurrent(currentPage);
+                        pageResult.setPages((total + pageSize - 1) / pageSize); // 计算总页数
                         return pageResult;
                     });
         } else {
             // 查询所有未删除的角色
             return roleRepository.findAllRoles()
                     .collectList()
-                    .map(roles -> {
+                    .map(allRoles -> {
+                        // 计算总数
+                        long total = allRoles.size();
+                        
+                        // 手动分页
+                        List<Role> pageData = allRoles.stream()
+                                .skip(skip)
+                                .limit(pageSize)
+                                .collect(Collectors.toList());
+                        
+                        // 创建分页结果
                         PageResult<Role> pageResult = new PageResult<>();
-                        pageResult.setRecords(roles);
-                        pageResult.setTotal(roles.size());
-                        pageResult.setSize(roleListDTO.getPageSize() != null ? roleListDTO.getPageSize() : 10);
-                        pageResult.setCurrent(roleListDTO.getCurrentPage() != null ? roleListDTO.getCurrentPage() : 1);
-                        pageResult.setPages(pageResult.getSize() > 0 ? 
-                                (pageResult.getTotal() + pageResult.getSize() - 1) / pageResult.getSize() : 0);
+                        pageResult.setRecords(pageData);
+                        pageResult.setTotal(total);
+                        pageResult.setSize(pageSize);
+                        pageResult.setCurrent(currentPage);
+                        pageResult.setPages((total + pageSize - 1) / pageSize); // 计算总页数
                         return pageResult;
                     });
         }
