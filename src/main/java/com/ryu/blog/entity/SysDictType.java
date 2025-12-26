@@ -1,27 +1,29 @@
 package com.ryu.blog.entity;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import org.springframework.format.annotation.DateTimeFormat;
+import jakarta.validation.constraints.Size;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
  * 系统字典类型实体类
+ * 
+ * 数据库索引：
+ * - uk_dict_type: 唯一索引 (dict_type)
  *
  * @author ryu 475118582@qq.com
  */
 @Data
+@Builder
 @AllArgsConstructor
-@EqualsAndHashCode
 @NoArgsConstructor
+@EqualsAndHashCode(of = {"id"})
 @Table("t_sys_dict_types")
 public class SysDictType implements Serializable {
 
@@ -35,14 +37,17 @@ public class SysDictType implements Serializable {
 
     /**
      * 字典编码，唯一
+     * 数据库应有唯一索引：uk_dict_type
      */
     @Column("dict_type")
+    @Size(max = 100)
     private String dictType;
     
     /**
      * 字典名称
      */
     @Column("type_name")
+    @Size(max = 100)
     private String typeName;
 
     /**
@@ -53,6 +58,7 @@ public class SysDictType implements Serializable {
     /**
      * 备注
      */
+    @Size(max = 500)
     private String remark;
     
     /**

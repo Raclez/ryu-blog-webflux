@@ -119,6 +119,10 @@ management:
   endpoint:
     health:
       show-details: always
+  metrics:
+    export:
+      simple:
+        enabled: true
 
 # 应用自定义配置
 app:

@@ -80,4 +80,18 @@ public interface PostVersionRepository extends ReactiveCrudRepository<PostVersio
      * @return 版本数量
      */
     Mono<Long> countByPostIdAndIsDeleted(Long postId, Integer isDeleted);
+
+    /**
+     * 使用游标分页查询文章版本列表
+     *
+     * @param postId 文章ID
+     * @param cursor 游标（上一页最后一条记录的ID，null表示首次查询）
+     * @param isDeleted 是否删除
+     * @param limit 每页数量
+     * @return 版本列表
+     */
+    @Query("SELECT * FROM t_post_versions WHERE post_id = :postId AND is_deleted = :isDeleted " +
+           "AND (:cursor IS NULL OR id < :cursor) " +
+           "ORDER BY id DESC LIMIT :limit")
+    Flux<PostVersion> findByPostIdWithCursor(Long postId, Long cursor, Integer isDeleted, int limit);
 } 

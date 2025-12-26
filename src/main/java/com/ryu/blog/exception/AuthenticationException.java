@@ -5,6 +5,8 @@ import com.ryu.blog.constant.MessageConstants;
 
 /**
  * 认证异常
+ * 用于认证失败场景，返回HTTP 401状态码
+ * 适用场景：JWT验证失败、Session过期、未登录访问受保护资源等
  * 
  * @author ryu
  */
@@ -29,12 +31,13 @@ public class AuthenticationException extends BaseException {
     }
     
     /**
-     * 用户名或密码错误异常
+     * 构造函数
      * 
-     * @return 认证异常实例
+     * @param message 错误消息
+     * @param cause 原始异常
      */
-    public static AuthenticationException invalidCredentials() {
-        return new AuthenticationException("用户名或密码错误");
+    public AuthenticationException(String message, Throwable cause) {
+        super(ErrorCodeConstants.UNAUTHORIZED, message, cause);
     }
     
     /**
@@ -56,20 +59,30 @@ public class AuthenticationException extends BaseException {
     }
     
     /**
-     * 账号被锁定异常
+     * 令牌缺失异常
      * 
      * @return 认证异常实例
      */
-    public static AuthenticationException accountLocked() {
-        return new AuthenticationException(MessageConstants.USER_ACCOUNT_LOCKED);
+    public static AuthenticationException missingToken() {
+        return new AuthenticationException("缺少认证令牌");
     }
     
     /**
-     * 账号被禁用异常
+     * 未登录异常
      * 
      * @return 认证异常实例
      */
-    public static AuthenticationException accountDisabled() {
-        return new AuthenticationException(MessageConstants.USER_ACCOUNT_DISABLED);
+    public static AuthenticationException notLogin() {
+        return new AuthenticationException(MessageConstants.UNAUTHORIZED);
+    }
+    
+    /**
+     * 认证失败异常（通用）
+     * 
+     * @param message 错误消息
+     * @return 认证异常实例
+     */
+    public static AuthenticationException authFailed(String message) {
+        return new AuthenticationException(message);
     }
 } 

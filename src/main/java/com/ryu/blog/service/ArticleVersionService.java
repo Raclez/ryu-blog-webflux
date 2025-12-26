@@ -22,22 +22,14 @@ public interface ArticleVersionService {
     Mono<PostVersion> createVersion(Posts article, String description);
 
     /**
-     * 获取文章版本列表
+     * 获取文章版本列表（游标分页）
      *
      * @param articleId 文章ID
+     * @param cursor 游标（上一页最后一条记录的ID）
+     * @param limit 每页数量
      * @return 版本列表
      */
-    Flux<PostVersion> getVersions(Long articleId);
-
-    /**
-     * 分页获取文章版本列表
-     *
-     * @param articleId 文章ID
-     * @param page      页码
-     * @param size      每页大小
-     * @return 版本列表和分页信息
-     */
-    Mono<Map<String, Object>> getVersionsPaged(Long articleId, int page, int size);
+    Flux<PostVersion> getVersions(Long articleId, Long cursor, Integer limit);
 
     /**
      * 获取文章指定版本

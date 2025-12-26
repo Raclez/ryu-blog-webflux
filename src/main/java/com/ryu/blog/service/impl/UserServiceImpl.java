@@ -1,10 +1,12 @@
 package com.ryu.blog.service.impl;
 
 import cn.hutool.crypto.SecureUtil;
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.UserDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
 import com.ryu.blog.entity.User;
 import com.ryu.blog.entity.UserRole;
+import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.mapper.UserMapper;
 import com.ryu.blog.repository.RoleRepository;
 import com.ryu.blog.repository.UserRepository;
@@ -13,12 +15,12 @@ import com.ryu.blog.service.UserService;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.UserInfoVO;
 import com.ryu.blog.vo.UserVO;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,13 +29,9 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
-
-import com.ryu.blog.constant.CacheConstants;
 
 /**
  * 用户服务实现类
@@ -41,7 +39,6 @@ import com.ryu.blog.constant.CacheConstants;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
@@ -50,9 +47,34 @@ public class UserServiceImpl implements UserService {
     private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
     private final UserMapper userMapper;
     
+    // 注入自己的代理对象，用于解决自调用导致的缓存失效问题
+    // 使用 setter 注入 + @Lazy 避免循环依赖
+    private UserService self;
+    
     private static final String USER_CACHE_KEY = "user:";
     private static final String USER_LIST_CACHE_KEY = "user:list:";
     private static final String USER_COUNT_CACHE_KEY = "user:count";
+    
+    // 构造函数注入其他依赖
+    public UserServiceImpl(
+            UserRepository userRepository,
+            RoleRepository roleRepository,
+            UserRoleRepository userRoleRepository,
+            ReactiveRedisTemplate<String, Object> reactiveRedisTemplate,
+            UserMapper userMapper) {
+        this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
+        this.userRoleRepository = userRoleRepository;
+        this.reactiveRedisTemplate = reactiveRedisTemplate;
+        this.userMapper = userMapper;
+    }
+    
+    // Setter 注入 self，使用 @Lazy 避免循环依赖
+    @Autowired
+    @Lazy
+    public void setSelf(UserService self) {
+        this.self = self;
+    }
 
     @Override
     @Transactional
@@ -61,7 +83,7 @@ public class UserServiceImpl implements UserService {
         return checkUsernameExists(user.getUsername())
                 .flatMap(exists -> {
                     if (Boolean.TRUE.equals(exists)) {
-                        return Mono.error(new RuntimeException("用户名已存在"));
+                        return Mono.error(BusinessException.usernameExists());
                     }
                     
                     // 检查邮箱是否存在（如果有）
@@ -69,7 +91,7 @@ public class UserServiceImpl implements UserService {
                         return checkEmailExists(user.getEmail())
                                 .flatMap(emailExists -> {
                                     if (Boolean.TRUE.equals(emailExists)) {
-                                        return Mono.error(new RuntimeException("邮箱已存在"));
+                                        return Mono.error(BusinessException.emailExists());
                                     }
                                     return createUserInternal(user);
                                 });
@@ -105,14 +127,14 @@ public class UserServiceImpl implements UserService {
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #user.id", condition = "#user.id != null")
     public Mono<User> updateUser(User user) {
         return userRepository.findById(user.getId())
-                .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                 .flatMap(existingUser -> {
                     // 如果用户名有变化，需要检查是否已存在
                     if (user.getUsername() != null && !user.getUsername().equals(existingUser.getUsername())) {
                         return checkUsernameExists(user.getUsername())
                                 .flatMap(exists -> {
                                     if (Boolean.TRUE.equals(exists)) {
-                                        return Mono.error(new RuntimeException("用户名已存在"));
+                                        return Mono.error(BusinessException.usernameExists());
                                     }
                                     return updateUserFields(existingUser, user);
                                 });
@@ -123,7 +145,7 @@ public class UserServiceImpl implements UserService {
                         return checkEmailExists(user.getEmail())
                                 .flatMap(exists -> {
                                     if (Boolean.TRUE.equals(exists)) {
-                                        return Mono.error(new RuntimeException("邮箱已存在"));
+                                        return Mono.error(BusinessException.emailExists());
                                     }
                                     return updateUserFields(existingUser, user);
                                 });
@@ -180,7 +202,7 @@ public class UserServiceImpl implements UserService {
                 .cast(User.class)
                 .switchIfEmpty(
                         userRepository.findById(id)
-                                .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
+                                .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                                 .flatMap(user -> {
                                     // 更新缓存
                                     return reactiveRedisTemplate.opsForValue().set(key, user, Duration.ofHours(1))
@@ -193,7 +215,7 @@ public class UserServiceImpl implements UserService {
     @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_USERNAME_KEY + "' + #username", unless = "#result == null")
     public Mono<User> getUserByUsername(String username) {
         return userRepository.findByUsername(username)
-                .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")));
+                .switchIfEmpty(Mono.error(BusinessException.userNotFound()));
     }
 
     @Override
@@ -201,7 +223,7 @@ public class UserServiceImpl implements UserService {
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Void> deleteUser(Long id) {
         return userRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                 .flatMap(user -> {
                     // 逻辑删除
                     user.setIsDeleted(1);
@@ -375,7 +397,7 @@ public class UserServiceImpl implements UserService {
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<String> resetPassword(Long id) {
         return userRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("用户不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                 .flatMap(user -> {
                     // 生成随机密码
                     String newPassword = generateRandomPassword();
@@ -424,34 +446,44 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public Mono<User> register(User user) {
-        return createUser(user);
+        // 使用 self 调用，确保事务和缓存生效
+        return self.createUser(user);
     }
 
     @Override
     public Mono<String> login(String username, String password) {
-        return getUserByUsername(username)
+        // 使用 self 调用，确保缓存生效
+        return self.validateUserCredentials(username, password)
+                .flatMap(user -> self.updateLastLogin(user.getId(), null)
+                        .thenReturn("登录成功"));
+    }
+    
+    @Override
+    public Mono<User> validateUserCredentials(String username, String password) {
+        // 使用 self 调用，确保 @Cacheable 生效
+        return self.getUserByUsername(username)
                 .flatMap(user -> {
                     // 检查用户状态
                     if (user.getStatus() != null && user.getStatus() == 0) {
-                        return Mono.error(new RuntimeException("账号已被禁用"));
+                        return Mono.error(BusinessException.accountDisabled());
                     }
                     
                     // 验证密码
                     String encryptedPassword = SecureUtil.md5(password);
                     if (!encryptedPassword.equals(user.getPassword())) {
-                        return Mono.error(new RuntimeException("用户名或密码错误"));
+                        return Mono.error(BusinessException.loginFailed());
                     }
                     
-                    // 更新最后登录时间和IP（这里IP为空，实际应用中可从请求中获取）
-                    return updateLastLogin(user.getId(), null)
-                            .thenReturn("登录成功");
+                    // 验证通过，返回用户对象
+                    return Mono.just(user);
                 });
     }
     
     @Override
     @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_INFO_KEY + "' + #userId", unless = "#result == null")
     public Mono<UserInfoVO> getCurrentUserInfo(Long userId) {
-        return getUserById(userId)
+        // 使用 self 调用，确保缓存生效
+        return self.getUserById(userId)
                 .flatMap(user -> roleRepository.findByUserId(userId)
                         .collectList()
                         .map(roles -> userMapper.toUserInfoVO(user, roles)));
@@ -460,7 +492,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_DETAIL_KEY + "' + #id", unless = "#result == null")
     public Mono<UserInfoVO> getUserDetailById(Long id) {
-        return getUserById(id)
+        // 使用 self 调用，确保缓存生效
+        return self.getUserById(id)
                 .flatMap(user -> roleRepository.findByUserId(id)
                         .collectList()
                         .map(roles -> userMapper.toUserInfoVO(user, roles)));
@@ -472,10 +505,11 @@ public class UserServiceImpl implements UserService {
     public Mono<User> createUserWithRoles(UserDTO userDTO) {
         User user = userMapper.toUser(userDTO);
         
-        return createUser(user)
+        // 使用 self 调用，确保事务和缓存生效
+        return self.createUser(user)
                 .flatMap(savedUser -> {
                     if (userDTO.getRoleIds() != null && !userDTO.getRoleIds().isEmpty()) {
-                        return updateUserRoles(savedUser.getId(), userDTO.getRoleIds())
+                        return self.updateUserRoles(savedUser.getId(), userDTO.getRoleIds())
                                 .thenReturn(savedUser);
                     }
                     return Mono.just(savedUser);
@@ -486,13 +520,14 @@ public class UserServiceImpl implements UserService {
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
     public Mono<User> updateUserWithRoles(UserDTO userDTO) {
-        return getUserById(userDTO.getId())
+        // 使用 self 调用，确保缓存生效
+        return self.getUserById(userDTO.getId())
                 .flatMap(existingUser -> {
                     User updatedUser = userMapper.updateUserFromDTO(userDTO, existingUser);
                     return userRepository.save(updatedUser)
                             .flatMap(savedUser -> {
                                 if (userDTO.getRoleIds() != null) {
-                                    return updateUserRoles(savedUser.getId(), userDTO.getRoleIds())
+                                    return self.updateUserRoles(savedUser.getId(), userDTO.getRoleIds())
                                             .thenReturn(savedUser);
                                 }
                                 return Mono.just(savedUser);
@@ -504,12 +539,13 @@ public class UserServiceImpl implements UserService {
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
     public Mono<Boolean> updatePassword(Long userId, UserPasswordDTO passwordDTO) {
-        return getUserById(userId)
+        // 使用 self 调用，确保缓存生效
+        return self.getUserById(userId)
                 .flatMap(user -> {
                     // 验证旧密码
                     String oldEncryptedPassword = SecureUtil.md5(passwordDTO.getOldPassword());
                     if (!oldEncryptedPassword.equals(user.getPassword())) {
-                        return Mono.error(new RuntimeException("旧密码不正确"));
+                        return Mono.error(BusinessException.oldPasswordError());
                     }
                     
                     // 设置新密码

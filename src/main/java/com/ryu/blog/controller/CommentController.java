@@ -22,7 +22,7 @@ import java.util.Map;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/content/comment")
+@RequestMapping("/comment")
 @RequiredArgsConstructor
 @Tag(name = "评论管理", description = "评论相关接口")
 public class CommentController {

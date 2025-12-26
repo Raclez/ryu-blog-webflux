@@ -13,12 +13,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * 文章版本控制器
  * 负责处理文章版本相关的HTTP请求，包括版本列表查询、版本详情、版本回滚和版本比较等功能
+ * @author ryu
  */
 @Slf4j
 @RestController
@@ -30,22 +31,36 @@ public class PostVersionController {
     private final ArticleVersionService articleVersionService;
 
     /**
-     * 获取文章版本列表
+     * 获取文章版本列表（游标分页）
      * 
      * @param postId 文章ID
-     * @return 版本列表
+     * @param cursor 游标（上一页最后一条记录的ID，首次查询传null）
+     * @param limit 每页数量，默认10条
+     * @return 版本列表及下一页游标
      */
     @GetMapping("/{postId}/versions")
-    @Operation(summary = "获取文章版本列表", description = "获取指定文章的全部版本列表")
-    public Mono<Result<List<PostVersion>>> getVersions(
-            @Parameter(description = "文章ID") @PathVariable("postId") Long postId) {
-        log.info("获取文章版本列表: 文章ID={}", postId);
+    @Operation(summary = "获取文章版本列表", description = "使用游标分页获取指定文章的版本列表")
+    public Mono<Result<Map<String, Object>>> getVersions(
+            @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
+            @Parameter(description = "游标（上一页最后一条记录的ID）") @RequestParam(required = false) Long cursor,
+            @Parameter(description = "每页数量") @RequestParam(defaultValue = "10") Integer limit) {
+        log.info("获取文章版本列表: 文章ID={}, 游标={}, 每页数量={}", postId, cursor, limit);
         
-        return articleVersionService.getVersions(postId)
+        return articleVersionService.getVersions(postId, cursor, limit)
                 .collectList()
                 .map(versions -> {
-                    log.info("获取文章版本列表成功: 文章ID={}, 版本数量={}", postId, versions.size());
-                    return Result.success(versions);
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("versions", versions);
+                    
+                    // 设置下一页游标（最后一条记录的ID）
+                    Long nextCursor = versions.isEmpty() ? null : 
+                            versions.get(versions.size() - 1).getId();
+                    result.put("nextCursor", nextCursor);
+                    result.put("hasMore", versions.size() == limit);
+                    
+                    log.info("获取文章版本列表成功: 文章ID={}, 版本数量={}, 下一页游标={}", 
+                            postId, versions.size(), nextCursor);
+                    return Result.success(result);
                 })
                 .onErrorResume(e -> {
                     log.error("获取文章版本列表失败: 文章ID={}, 错误信息={}", postId, e.getMessage(), e);

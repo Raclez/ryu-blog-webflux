@@ -103,19 +103,6 @@ public interface ArticleService {
      */
     Mono<Long> countPublishedArticles();
 
-    /**
-     * 分页条件查询文章列表
-     * @param page 页码
-     * @param size 每页大小
-     * @param title 文章标题
-     * @param status 文章状态
-     * @param categoryId 分类ID
-     * @param tagId 标签ID
-     * @param startTime 开始时间
-     * @param endTime 结束时间
-     * @return 文章分页数据
-     */
-    Mono<Map<String, Object>> getArticlePage(int page, int size, String title, Integer status, Long categoryId, Long tagId, String startTime, String endTime);
 
     /**
      * 分页条件查询文章列表并返回PostAdminListVO类型的PageResult

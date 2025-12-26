@@ -33,6 +33,7 @@ public class MessageConstants {
     public static final String USER_PHONE_EXISTS = "手机号已存在";
     public static final String USER_OLD_PASSWORD_ERROR = "原密码错误";
     public static final String USER_ROLE_NOT_EXISTS = "角色不存在";
+    public static final String USER_LOGIN_FAILED = "用户名或密码错误";
     public static final String USER_CREATE_SUCCESS = "用户创建成功";
     public static final String USER_UPDATE_SUCCESS = "用户信息更新成功";
     public static final String USER_DELETE_SUCCESS = "用户删除成功";

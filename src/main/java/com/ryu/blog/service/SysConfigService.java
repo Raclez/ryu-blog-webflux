@@ -130,9 +130,9 @@ public interface SysConfigService {
      * 删除配置
      *
      * @param id 配置ID
-     * @return 是否删除成功
+     * @return 被删除的配置对象
      */
-    Mono<Boolean> deleteConfig(Long id);
+    Mono<SysConfigVO> deleteConfig(Long id);
 
     /**
      * 批量获取配置

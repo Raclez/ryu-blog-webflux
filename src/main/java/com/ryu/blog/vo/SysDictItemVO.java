@@ -47,9 +47,6 @@ public class SysDictItemVO {
     @Schema(description = "状态：1 启用, 0 禁用")
     private Integer status;
     
-    @Schema(description = "语言标识")
-    private String lang;
-    
     @Schema(description = "备注")
     private String remark;
     

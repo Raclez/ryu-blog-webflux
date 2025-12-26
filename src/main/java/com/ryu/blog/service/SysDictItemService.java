@@ -6,7 +6,11 @@ import com.ryu.blog.dto.SysDictItemUpdateDTO;
 import com.ryu.blog.entity.SysDictItem;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictItemVO;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * 系统字典项服务接口
@@ -38,6 +42,49 @@ public interface SysDictItemService {
      * @return 字典项实体
      */
     Mono<SysDictItem> getDictItemEntityById(Long id);
+    
+    /**
+     * 根据字典类型编码获取字典项列表（最常用）
+     *
+     * @param dictType 字典类型编码
+     * @return 字典项列表
+     */
+    Flux<SysDictItemVO> getDictItemsByType(String dictType);
+    
+    /**
+     * 根据字典类型ID获取字典项列表
+     *
+     * @param dictTypeId 字典类型ID
+     * @return 字典项列表
+     */
+    Flux<SysDictItemVO> getDictItemsByTypeId(Long dictTypeId);
+    
+    /**
+     * 批量获取多个字典类型的字典项
+     *
+     * @param dictTypes 字典类型编码列表
+     * @return 字典类型编码 -> 字典项列表的映射
+     */
+    Mono<Map<String, List<SysDictItemVO>>> batchGetDictItems(List<String> dictTypes);
+    
+    /**
+     * 根据字典类型编码和键获取字典项值
+     *
+     * @param dictType 字典类型编码
+     * @param key 字典项键
+     * @return 字典项值
+     */
+    Mono<String> getDictItemValue(String dictType, String key);
+    
+    /**
+     * 根据字典类型编码和键获取字典项值，支持默认值
+     *
+     * @param dictType 字典类型编码
+     * @param key 字典项键
+     * @param defaultValue 默认值
+     * @return 字典项值
+     */
+    Mono<String> getDictItemValue(String dictType, String key, String defaultValue);
 
     /**
      * 创建字典项
@@ -71,4 +118,23 @@ public interface SysDictItemService {
      * @return 操作结果
      */
     Mono<Void> updateDictItemStatus(Long id, Boolean status);
+    
+    /**
+     * 缓存管理
+     */
+    
+    /**
+     * 清除所有字典项缓存
+     *
+     * @return 操作结果
+     */
+    Mono<Boolean> clearAllCache();
+    
+    /**
+     * 刷新指定字典类型的字典项缓存
+     *
+     * @param dictType 字典类型编码
+     * @return 操作结果
+     */
+    Mono<Boolean> refreshCache(String dictType);
 } 

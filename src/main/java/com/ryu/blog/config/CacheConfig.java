@@ -52,6 +52,10 @@ public class CacheConfig {
         // 系统配置缓存
         cacheNames.add(CacheConstants.SYS_CONFIG_CACHE_NAME);
         
+        // 字典相关缓存
+        cacheNames.add(CacheConstants.DICT_TYPE_CACHE_NAME);
+        cacheNames.add(CacheConstants.DICT_ITEM_CACHE_NAME);
+        
         // 存储相关缓存
         cacheNames.add(CacheConstants.STORAGE_CONFIG_CACHE_NAME);
         cacheNames.add(CacheConstants.STORAGE_PROPERTIES_CACHE_NAME);
@@ -105,6 +109,22 @@ public class CacheConfig {
             Caffeine.newBuilder()
                 .expireAfterWrite(12, TimeUnit.HOURS)
                 .maximumSize(200)
+                .recordStats()
+                .buildAsync());
+        
+        // 字典类型缓存 - 长期缓存
+        cacheManager.registerCustomCache(CacheConstants.DICT_TYPE_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(12, TimeUnit.HOURS)  // 字典类型变化很少，可以缓存12小时
+                .maximumSize(100)
+                .recordStats()
+                .buildAsync());
+        
+        // 字典项缓存 - 长期缓存
+        cacheManager.registerCustomCache(CacheConstants.DICT_ITEM_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(6, TimeUnit.HOURS)  // 字典项变化较少，可以缓存6小时
+                .maximumSize(500)
                 .recordStats()
                 .buildAsync());
         

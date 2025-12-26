@@ -1,6 +1,5 @@
 package com.ryu.blog.controller;
 
-import cn.hutool.crypto.SecureUtil;
 import com.ryu.blog.dto.LoginDTO;
 import com.ryu.blog.entity.User;
 import com.ryu.blog.service.UserService;
@@ -45,8 +44,7 @@ public class AuthController {
     @PostMapping("/register")
     public Mono<Result<User>> register(@RequestBody @Validated User user) {
         return userService.register(user)
-                .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .map(Result::success);
     }
 
     @Operation(summary = "用户登录", description = "用户登录")
@@ -59,7 +57,7 @@ public class AuthController {
                         return Mono.just(Result.error("验证码错误或已过期"));
                     }
                     
-                    // 验证用户身份
+                    // 验证用户身份并生成token
                     return authenticateUser(loginDTO, exchange);
                 });
     }
@@ -91,35 +89,28 @@ public class AuthController {
     }
     
     /**
-     * 验证用户身份
+     * 验证用户身份并生成登录响应
+     * 
+     * 职责：
+     * - 调用 Service 层验证用户凭证
+     * - 更新最后登录信息
+     * - 生成 JWT token
+     * - 构建登录响应对象
+     * 
      * @param loginDTO 登录DTO
      * @param exchange 服务器交换器
-     * @return 验证结果
+     * @return 登录响应
      */
     private Mono<Result<LoginVO>> authenticateUser(LoginDTO loginDTO, ServerWebExchange exchange) {
-        return userService.getUserByUsername(loginDTO.getUsername())
+        // 使用 Service 层的 validateUserCredentials 方法验证用户
+        return userService.validateUserCredentials(loginDTO.getUsername(), loginDTO.getPassword())
                 .flatMap(user -> {
-                    // 检查用户状态
-                    if (user.getStatus() == 0) {
-                        return Mono.<Result<LoginVO>>just(Result.error("账号已被禁用"));
-                    }
-                    
-                    // 验证密码
-                    String encryptedPassword = SecureUtil.md5(loginDTO.getPassword());
-                    if (!encryptedPassword.equals(user.getPassword())) {
-                        return Mono.<Result<LoginVO>>just(Result.error("用户名或密码错误"));
-                    }
-                    
                     // 获取客户端IP
                     String clientIp = getClientIp(exchange);
                     
-                    // 登录成功，更新最后登录时间和IP
+                    // 更新最后登录时间和IP，然后生成token
                     return userService.updateLastLogin(user.getId(), clientIp)
-                            .flatMap(result -> generateLoginResponse(user, exchange));
-                })
-                .onErrorResume(e -> {
-                    log.error("登录失败: {}", e);
-                    return Mono.<Result<LoginVO>>just(Result.error("登录失败，请稍后再试"));
+                            .then(generateLoginResponse(user, exchange));
                 });
     }
     
@@ -196,15 +187,13 @@ public class AuthController {
     @GetMapping("/check/username")
     public Mono<Result<Boolean>> checkUsername(@RequestParam String username) {
         return userService.checkUsernameExists(username)
-                .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .map(Result::success);
     }
 
     @Operation(summary = "检查邮箱", description = "检查邮箱是否已存在")
     @GetMapping("/check/email")
     public Mono<Result<Boolean>> checkEmail(@RequestParam String email) {
         return userService.checkEmailExists(email)
-                .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .map(Result::success);
     }
 } 

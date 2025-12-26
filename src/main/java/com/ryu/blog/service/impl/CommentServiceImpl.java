@@ -2,6 +2,7 @@ package com.ryu.blog.service.impl;
 
 import com.ryu.blog.entity.Comment;
 import com.ryu.blog.entity.User;
+import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.mapper.CommentMapper;
 import com.ryu.blog.repository.CommentRepository;
 import com.ryu.blog.repository.UserRepository;
@@ -84,7 +85,7 @@ public class CommentServiceImpl implements CommentService {
     })
     public Mono<Comment> updateComment(Comment comment) {
         return commentRepository.findById(comment.getId())
-                .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
                 .flatMap(existingComment -> {
                     // 更新基本信息
                     if (comment.getContent() != null) {
@@ -130,7 +131,7 @@ public class CommentServiceImpl implements CommentService {
     @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE_NAME, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<Comment> getCommentById(Long id) {
         return commentRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")));
+                .switchIfEmpty(Mono.error(BusinessException.commentNotFound()));
     }
 
     @Override
@@ -142,7 +143,7 @@ public class CommentServiceImpl implements CommentService {
     })
     public Mono<Void> deleteComment(Long id) {
         return commentRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
                 .flatMap(comment -> {
                     // 逻辑删除
                     comment.setIsDeleted(1);
@@ -251,7 +252,7 @@ public class CommentServiceImpl implements CommentService {
     })
     public Mono<Integer> updateCommentStatus(Long id, Integer status) {
         return commentRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("评论不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
                 .flatMap(comment -> {
                     // 如果状态没有变化，直接返回
                     if (comment.getStatus().equals(status)) {

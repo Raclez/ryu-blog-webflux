@@ -61,7 +61,7 @@ public interface CategoryService {
      * @param categoryListDTO 分类列表查询DTO
      * @return 分页结果
      */
-    Mono<PageResult<Category>> getCategoriesByPage(CategoryListDTO categoryListDTO);
+    Mono<PageResult<CategoryVO>> getCategoriesByPage(CategoryListDTO categoryListDTO);
 
     /**
      * 检查分类名称是否存在

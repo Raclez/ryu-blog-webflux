@@ -1,5 +1,7 @@
 package com.ryu.blog.repository;
 
+import com.ryu.blog.dto.PostCategoryProjection;
+import com.ryu.blog.dto.PostTagProjection;
 import com.ryu.blog.entity.Posts;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.repository.Modifying;
@@ -261,7 +263,7 @@ public interface PostsRepository extends R2dbcRepository<Posts, Long> {
            "FROM t_post_categories pc " +
            "JOIN t_categories c ON pc.category_id = c.id " +
            "WHERE pc.post_id IN (:postIds)")
-    Flux<Map<String, Object>> findPostsWithCategory(List<Long> postIds);
+    Flux<PostCategoryProjection> findPostsWithCategory(List<Long> postIds);
     
     /**
      * 批量查询文章的标签信息
@@ -272,7 +274,7 @@ public interface PostsRepository extends R2dbcRepository<Posts, Long> {
            "FROM t_post_tags pt " +
            "JOIN t_tags t ON pt.tag_id = t.id " +
            "WHERE pt.post_id IN (:postIds)")
-    Flux<Map<String, Object>> findPostsWithTags(List<Long> postIds);
+    Flux<PostTagProjection> findPostsWithTags(List<Long> postIds);
     
     /**
      * 批量查询文章的评论数
@@ -284,4 +286,13 @@ public interface PostsRepository extends R2dbcRepository<Posts, Long> {
            "WHERE post_id IN (:postIds) AND is_deleted = 0 " +
            "GROUP BY post_id")
     Flux<Map<String, Object>> countCommentsByPostIds(List<Long> postIds);
+    
+    /**
+     * 批量更新文章删除状态
+     * @param ids 文章ID列表
+     * @return 更新的行数
+     */
+    @Modifying
+    @Query("UPDATE t_posts SET is_deleted = 1, update_time = NOW() WHERE id IN (:ids) AND is_deleted = 0")
+    Mono<Integer> batchSoftDelete(List<Long> ids);
 } 

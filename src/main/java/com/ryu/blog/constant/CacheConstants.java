@@ -118,6 +118,21 @@ public class CacheConstants {
     public static final String CONFIG_ENTITY_BY_ID_KEY = "entityById:";
     public static final String CONFIG_GROUPS_KEY = "configGroups";
     
+    /** 字典缓存名称 */
+    public static final String DICT_TYPE_CACHE_NAME = "dictType";
+    public static final String DICT_ITEM_CACHE_NAME = "dictItem";
+    
+    /** 字典类型缓存键 */
+    public static final String DICT_TYPE_ALL_KEY = "all";
+    public static final String DICT_TYPE_BY_ID_KEY = "id:";
+    public static final String DICT_TYPE_BY_CODE_KEY = "code:";
+    
+    /** 字典项缓存键 */
+    public static final String DICT_ITEM_BY_ID_KEY = "id:";
+    public static final String DICT_ITEM_BY_TYPE_KEY = "type:";
+    public static final String DICT_ITEM_BY_TYPE_CODE_KEY = "typeCode:";
+    public static final String DICT_ITEM_VALUE_KEY = "value:";
+    
     /** 存储相关缓存名称 */
     public static final String STORAGE_CONFIG_CACHE_NAME = "storageConfig";
     public static final String STORAGE_PROPERTIES_CACHE_NAME = "storageProperties";

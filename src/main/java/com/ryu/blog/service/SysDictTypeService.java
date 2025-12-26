@@ -46,6 +46,14 @@ public interface SysDictTypeService {
     Mono<SysDictTypeVO> getDictTypeById(Long id);
     
     /**
+     * 根据字典类型编码获取字典类型
+     *
+     * @param dictType 字典类型编码
+     * @return 字典类型视图对象
+     */
+    Mono<SysDictTypeVO> getDictTypeByCode(String dictType);
+    
+    /**
      * 根据ID获取字典类型实体
      *
      * @param id 字典类型ID
@@ -88,4 +96,23 @@ public interface SysDictTypeService {
      * @return 操作结果
      */
     Mono<Void> batchDeleteDictTypes(List<String> ids);
+    
+    /**
+     * 缓存管理
+     */
+    
+    /**
+     * 清除所有字典类型缓存
+     *
+     * @return 操作结果
+     */
+    Mono<Boolean> clearAllCache();
+    
+    /**
+     * 刷新指定字典类型缓存
+     *
+     * @param dictType 字典类型编码
+     * @return 操作结果
+     */
+    Mono<Boolean> refreshCache(String dictType);
 } 

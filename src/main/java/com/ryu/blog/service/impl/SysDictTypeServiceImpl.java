@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.SysDictTypeAddDTO;
 import com.ryu.blog.dto.SysDictTypeUpdateDTO;
 import com.ryu.blog.dto.sysDictTypeQueryDTO;
@@ -13,6 +14,10 @@ import com.ryu.blog.vo.SysDictTypeVO;
 import com.ryu.blog.constant.SystemConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
@@ -23,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,6 +41,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@CacheConfig(cacheNames = CacheConstants.DICT_TYPE_CACHE_NAME)
 public class SysDictTypeServiceImpl implements SysDictTypeService {
 
     private final SysDictTypeRepository dictTypeRepository;
@@ -83,6 +90,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     }
     
     @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'")
     public Flux<SysDictTypeVO> getAllDictTypes() {
         log.debug("查询所有字典类型");
         return dictTypeRepository.findAllNotDeleted()
@@ -90,9 +98,18 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     }
 
     @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_TYPE_BY_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<SysDictTypeVO> getDictTypeById(Long id) {
         log.debug("根据ID查询字典类型: {}", id);
         return dictTypeRepository.findByIdAndNotDeleted(id)
+                .map(sysDictTypeMapper::toVO);
+    }
+    
+    @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #dictType", unless = "#result == null")
+    public Mono<SysDictTypeVO> getDictTypeByCode(String dictType) {
+        log.debug("根据编码查询字典类型: {}", dictType);
+        return dictTypeRepository.findByDictTypeAndNotDeleted(dictType)
                 .map(sysDictTypeMapper::toVO);
     }
     
@@ -107,6 +124,10 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
      */
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+    })
     public Mono<SysDictTypeVO> createDictType(SysDictTypeAddDTO dictTypeDTO) {
         log.debug("创建字典类型: {}", dictTypeDTO);
         
@@ -131,6 +152,11 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_ID_KEY + "' + #dictTypeDTO.id"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+    })
     public Mono<SysDictTypeVO> updateDictType(SysDictTypeUpdateDTO dictTypeDTO) {
         log.debug("更新字典类型: {}", dictTypeDTO);
         
@@ -159,6 +185,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
 
     @Override
     @Transactional
+    @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'")
     public Mono<Void> deleteDictType(Long id) {
         log.debug("删除字典类型, ID: {}", id);
         
@@ -177,6 +204,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     }
     
     @Override
+    @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'")
     public Mono<Void> batchDeleteDictTypes(List<String> ids) {
         log.debug("批量删除字典类型, IDs: {}", ids);
         
@@ -197,5 +225,30 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
                                     });
                         })))
                 .then();
+    }
+    
+    /**
+     * 缓存管理
+     */
+    
+    @Override
+    @CacheEvict(allEntries = true)
+    public Mono<Boolean> clearAllCache() {
+        return Mono.fromCallable(() -> {
+            log.info("清除所有字典类型缓存");
+            return true;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+    
+    @Override
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #dictType"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'")
+    })
+    public Mono<Boolean> refreshCache(String dictType) {
+        return Mono.fromCallable(() -> {
+            log.info("刷新字典类型缓存: {}", dictType);
+            return true;
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 } 

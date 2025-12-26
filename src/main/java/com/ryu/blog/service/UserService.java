@@ -73,6 +73,17 @@ public interface UserService {
      * @return 登录结果
      */
     Mono<String> login(String username, String password);
+    
+    /**
+     * 验证用户登录凭证
+     * 验证用户名、密码和账号状态，返回验证通过的用户对象
+     * 
+     * @param username 用户名
+     * @param password 密码（明文）
+     * @return 验证通过的用户对象
+     * @throws com.ryu.blog.exception.BusinessException 用户不存在、密码错误、账号被禁用等
+     */
+    Mono<User> validateUserCredentials(String username, String password);
 
     /**
      * 更新用户信息

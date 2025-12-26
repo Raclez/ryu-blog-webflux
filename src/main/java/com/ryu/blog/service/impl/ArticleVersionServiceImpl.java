@@ -3,6 +3,8 @@ package com.ryu.blog.service.impl;
 
 import com.ryu.blog.entity.PostVersion;
 import com.ryu.blog.entity.Posts;
+import com.ryu.blog.exception.BusinessException;
+import com.ryu.blog.exception.PermissionDeniedException;
 import com.ryu.blog.mapper.PostVersionMapper;
 import com.ryu.blog.repository.PostVersionRepository;
 import com.ryu.blog.repository.PostsRepository;
@@ -42,6 +44,28 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
             return Mono.error(new IllegalArgumentException("文章或文章ID不能为空"));
         }
         
+        // 检查内容是否与最新版本相同，避免创建重复版本
+        return postVersionRepository.findLatestVersionByPostId(article.getId(), 0)
+                .flatMap(latestVersion -> {
+                    // 比较内容是否相同
+                    if (latestVersion.getContent() != null && 
+                        latestVersion.getContent().equals(article.getContent())) {
+                        log.debug("内容未变化，跳过版本创建: 文章ID={}", article.getId());
+                        return Mono.just(latestVersion);
+                    }
+                    // 内容有变化，创建新版本
+                    return createNewVersion(article, description);
+                })
+                .switchIfEmpty(Mono.defer(() -> {
+                    // 没有历史版本，创建第一个版本
+                    return createNewVersion(article, description);
+                }));
+    }
+    
+    /**
+     * 创建新版本（内部方法）
+     */
+    private Mono<PostVersion> createNewVersion(Posts article, String description) {
         // 计算文章内容字数
         final int wordCount = article.getContent() != null ? article.getContent().length() : 0;
         
@@ -64,52 +88,95 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                     version.setWordCount(wordCount);
                     version.setIsLatest(true);
                     
-                    // 将之前的最新版本标记为非最新
-                    return (maxVersion > 0 ? 
-                            updatePreviousVersionsNotLatest(article.getId()) : 
-                            Mono.just(true))
+                    // 将之前的最新版本标记为非最新（只更新一条记录）
+                    return updatePreviousVersionsNotLatest(article.getId())
                         .then(postVersionRepository.save(version))
+                        .flatMap(savedVersion -> {
+                            // 保存成功后，检查并清理旧版本
+                            return cleanupOldVersions(article.getId())
+                                    .thenReturn(savedVersion);
+                        })
                         .doOnSuccess(savedVersion -> log.info("文章版本创建成功: 文章ID={}, 版本号={}", article.getId(), savedVersion.getVersion()))
                         .doOnError(e -> log.error("文章版本创建失败: 文章ID={}, 错误信息={}", article.getId(), e.getMessage()));
                 });
     }
     
     /**
-     * 将文章所有之前的版本标记为非最新
+     * 清理旧版本，保留最近的N个版本
+     * 
+     * @param postId 文章ID
+     * @return 完成信号
+     */
+    private Mono<Void> cleanupOldVersions(Long postId) {
+        final int MAX_VERSIONS = 50; // 最多保留50个版本
+        
+        return postVersionRepository.countByPostIdAndIsDeleted(postId, 0)
+                .flatMap(count -> {
+                    if (count <= MAX_VERSIONS) {
+                        log.debug("版本数量未超限: 文章ID={}, 当前版本数={}", postId, count);
+                        return Mono.empty();
+                    }
+                    
+                    // 计算需要删除的版本数量
+                    int toDelete = (int) (count - MAX_VERSIONS);
+                    log.info("版本数量超限，开始清理: 文章ID={}, 当前版本数={}, 需要删除={}", postId, count, toDelete);
+                    
+                    // 查询最旧的N个版本（按版本号升序，排除最新版本）
+                    return postVersionRepository.findByPostIdAndIsDeletedOrderByVersionDesc(postId, 0)
+                            .filter(version -> !version.getIsLatest()) // 不删除最新版本
+                            .sort((v1, v2) -> Integer.compare(v1.getVersion(), v2.getVersion())) // 按版本号升序
+                            .take(toDelete) // 取最旧的N个
+                            .flatMap(version -> {
+                                // 逻辑删除
+                                version.setIsDeleted(1);
+                                version.setUpdateTime(LocalDateTime.now());
+                                return postVersionRepository.save(version);
+                            })
+                            .then()
+                            .doOnSuccess(v -> log.info("旧版本清理完成: 文章ID={}, 删除数量={}", postId, toDelete))
+                            .doOnError(e -> log.error("旧版本清理失败: 文章ID={}, 错误={}", postId, e.getMessage()));
+                })
+                .then();
+    }
+    
+    /**
+     * 将文章当前的最新版本标记为非最新
      * 
      * @param postId 文章ID
      * @return 是否成功
      */
     private Mono<Boolean> updatePreviousVersionsNotLatest(Long postId) {
-        log.debug("更新文章之前的版本为非最新: 文章ID={}", postId);
+        log.debug("更新文章之前的最新版本为非最新: 文章ID={}", postId);
         
-        return postVersionRepository.findByPostIdAndIsDeletedOrderByVersionDesc(postId, 0)
-            .collectList()
-            .flatMap(versions -> {
-                if (versions.isEmpty()) {
-                    return Mono.just(true);
-                }
-                
-                List<PostVersion> updatedVersions = versions.stream()
-                    .map(version -> {
-                        version.setIsLatest(false);
-                        return version;
-                    })
-                    .collect(Collectors.toList());
-                
-                return Flux.fromIterable(updatedVersions)
-                    .flatMap(postVersionRepository::save)
-                    .then(Mono.just(true))
-                    .doOnSuccess(result -> log.debug("更新文章之前的版本为非最新成功: 文章ID={}, 更新数量={}", postId, versions.size()))
-                    .doOnError(e -> log.error("更新文章之前的版本为非最新失败: 文章ID={}, 错误信息={}", postId, e.getMessage()));
-            });
+        // 只查询并更新当前的最新版本，而不是所有版本
+        return postVersionRepository.findLatestVersionByPostId(postId, 0)
+            .flatMap(latestVersion -> {
+                latestVersion.setIsLatest(false);
+                latestVersion.setUpdateTime(LocalDateTime.now());
+                return postVersionRepository.save(latestVersion)
+                    .map(saved -> true)
+                    .doOnSuccess(result -> log.debug("更新文章之前的最新版本为非最新成功: 文章ID={}, 版本号={}", 
+                            postId, latestVersion.getVersion()))
+                    .doOnError(e -> log.error("更新文章之前的最新版本为非最新失败: 文章ID={}, 错误信息={}", postId, e.getMessage()));
+            })
+            .defaultIfEmpty(true); // 如果没有最新版本（第一次创建），直接返回true
     }
 
     @Override
-    public Flux<PostVersion> getVersions(Long articleId) {
-        log.debug("获取文章版本列表: 文章ID={}", articleId);
+    public Flux<PostVersion> getVersions(Long articleId, Long cursor, Integer limit) {
+        log.debug("获取文章版本列表: 文章ID={}, 游标={}, 每页数量={}", articleId, cursor, limit);
         
-        return postVersionRepository.findByPostIdAndIsDeletedOrderByVersionDesc(articleId, 0)
+        // 参数校验
+        if (limit == null || limit <= 0) {
+            limit = 10;
+        }
+        if (limit > 100) {
+            limit = 100; // 限制最大每页数量
+        }
+        final int finalLimit = limit;
+
+
+        return postVersionRepository.findByPostIdWithCursor(articleId, cursor, 0, finalLimit)
                 .flatMap(version -> {
                     // 获取用户信息用于展示，但不设置到实体中
                     return userRepository.findById(version.getEditor())
@@ -121,51 +188,11 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
     }
 
     @Override
-    public Mono<Map<String, Object>> getVersionsPaged(Long articleId, int page, int size) {
-        log.debug("分页获取文章版本列表: 文章ID={}, page={}, size={}", articleId, page, size);
-        
-        if (page < 1) page = 1;
-        if (size < 1) size = 10;
-
-        int finalPage = page;
-        int finalSize = size;
-
-        return postVersionRepository.countByPostIdAndIsDeleted(articleId, 0)
-                .flatMap(total -> {
-                    log.debug("文章版本总数: 文章ID={}, 总数={}", articleId, total);
-                    
-                    long offset = (finalPage - 1) * finalSize;
-                    return postVersionRepository.findByPostIdAndIsDeletedOrderByVersionDesc(articleId, 0, finalSize, offset)
-                            .flatMap(version -> {
-                                // 获取用户信息用于展示，但不设置到实体中
-                                return userRepository.findById(version.getEditor())
-                                        .map(user -> {
-                                            // 这里可以使用Mapper转换为VO，但为了保持接口一致，仍然返回实体
-                                            return version;
-                                        })
-                                        .defaultIfEmpty(version);
-                            })
-                            .collectList()
-                            .map(versions -> {
-                                Map<String, Object> result = new HashMap<>();
-                                result.put("records", versions);
-                                result.put("total", total);
-                                result.put("pages", (total + finalSize - 1) / finalSize);
-                                result.put("current", finalPage);
-                                return result;
-                            });
-                })
-                .doOnSuccess(result -> log.debug("分页获取文章版本列表成功: 文章ID={}, 返回记录数={}", 
-                        articleId, ((List<?>)result.get("records")).size()))
-                .doOnError(e -> log.error("分页获取文章版本列表失败: 文章ID={}, 错误信息={}", articleId, e.getMessage()));
-    }
-
-    @Override
     public Mono<PostVersion> getVersion(Long articleId, Integer version) {
         log.debug("获取文章指定版本: 文章ID={}, 版本号={}", articleId, version);
         
         return postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version, 0)
-                .switchIfEmpty(Mono.error(new RuntimeException("文章版本不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version)))
                 .flatMap(articleVersion -> {
                     // 获取用户信息用于展示，但不设置到实体中
                     return userRepository.findById(articleVersion.getEditor())
@@ -181,7 +208,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
         log.debug("获取文章最新版本: 文章ID={}", articleId);
         
         return postVersionRepository.findLatestVersionByPostId(articleId, 0)
-                .switchIfEmpty(Mono.error(new RuntimeException("文章没有版本记录")))
+                .switchIfEmpty(Mono.error(BusinessException.postNoVersionHistory()))
                 .flatMap(version -> {
                     // 获取用户信息用于展示，但不设置到实体中
                     return userRepository.findById(version.getEditor())
@@ -199,33 +226,28 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
         
         // 获取指定版本
         return postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version, 0)
-                .switchIfEmpty(Mono.error(new RuntimeException("指定的文章版本不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version)))
                 .flatMap(articleVersion -> {
                     // 获取当前文章
                     return postsRepository.findById(articleId)
-                            .switchIfEmpty(Mono.error(new RuntimeException("文章不存在")))
+                            .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
                             .flatMap(article -> {
                                 // 检查权限
                                 if (!article.getUserId().equals(userId)) {
                                     log.warn("无权限操作此文章: 文章ID={}, 文章所有者={}, 请求用户={}", articleId, article.getUserId(), userId);
-                                    return Mono.error(new RuntimeException("无权限操作此文章"));
+                                    return Mono.error(PermissionDeniedException.accessDenied("无权限操作此文章"));
                                 }
 
-                                // 先保存当前版本
-                                return createVersion(article, "回滚前自动保存")
-                                        .then(Mono.defer(() -> {
-                                            // 更新文章为历史版本
-                                            article.setContent(articleVersion.getContent());
-                                            article.setUpdateTime(LocalDateTime.now());
+                                // 更新文章内容为历史版本
+                                article.setContent(articleVersion.getContent());
+                                article.setUpdateTime(LocalDateTime.now());
 
-                                            // 保存更新后的文章
-                                            return postsRepository.save(article)
-                                                    // 创建新版本记录回滚操作
-                                                    .flatMap(savedArticle -> createVersion(
-                                                            savedArticle,
-                                                            "回滚到版本 " + version)
-                                                            .thenReturn(savedArticle));
-                                        }));
+                                // 保存更新后的文章，并创建回滚版本
+                                return postsRepository.save(article)
+                                        .flatMap(savedArticle -> 
+                                                createVersion(savedArticle, "回滚到版本 " + version)
+                                                        .thenReturn(savedArticle)
+                                        );
                             });
                 })
                 .doOnSuccess(article -> log.info("文章回滚成功: 文章ID={}, 版本号={}", article.getId(), version))
@@ -238,11 +260,11 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
         log.info("删除文章版本: 版本ID={}, 用户ID={}", id, userId);
         
         return postVersionRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("文章版本不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound()))
                 .flatMap(version -> {
                     // 获取文章
                     return postsRepository.findById(version.getPostId())
-                            .switchIfEmpty(Mono.error(new RuntimeException("文章不存在")))
+                            .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
                             .flatMap(article -> {
                                 // 检查权限
                                 if (!article.getUserId().equals(userId)) {
@@ -283,10 +305,10 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
         
         // 获取两个版本
         Mono<PostVersion> v1Mono = postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version1, 0)
-                .switchIfEmpty(Mono.error(new RuntimeException("版本 " + version1 + " 不存在")));
+                .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version1)));
         
         Mono<PostVersion> v2Mono = postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version2, 0)
-                .switchIfEmpty(Mono.error(new RuntimeException("版本 " + version2 + " 不存在")));
+                .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version2)));
 
         return Mono.zip(v1Mono, v2Mono)
                 .map(tuple -> {

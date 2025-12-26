@@ -4,6 +4,7 @@ import lombok.Getter;
 
 /**
  * 基础异常类
+ * 所有自定义异常的基类，提供统一的错误码和错误消息管理
  * 
  * @author ryu
  */
@@ -15,12 +16,12 @@ public class BaseException extends RuntimeException {
     /**
      * 错误码
      */
-    private Integer code;
+    private final Integer code;
     
     /**
      * 错误消息
      */
-    private String message;
+    private final String message;
     
     /**
      * 错误明细，内部调试错误
@@ -34,6 +35,7 @@ public class BaseException extends RuntimeException {
      * @param message 错误消息
      */
     public BaseException(Integer code, String message) {
+        super(message);
         this.code = code;
         this.message = message;
     }
@@ -46,6 +48,7 @@ public class BaseException extends RuntimeException {
      * @param detailMessage 错误详细信息
      */
     public BaseException(Integer code, String message, String detailMessage) {
+        super(message);
         this.code = code;
         this.message = message;
         this.detailMessage = detailMessage;
@@ -59,7 +62,7 @@ public class BaseException extends RuntimeException {
      * @param cause 原始异常
      */
     public BaseException(Integer code, String message, Throwable cause) {
-        super(cause);
+        super(message, cause);
         this.code = code;
         this.message = message;
     }
@@ -67,30 +70,26 @@ public class BaseException extends RuntimeException {
     /**
      * 构造函数
      * 
+     * @param code 错误码
      * @param message 错误消息
+     * @param detailMessage 错误详细信息
      * @param cause 原始异常
      */
-    public BaseException(String message, Throwable cause) {
+    public BaseException(Integer code, String message, String detailMessage, Throwable cause) {
         super(message, cause);
+        this.code = code;
         this.message = message;
+        this.detailMessage = detailMessage;
     }
     
     /**
-     * 构造函数
+     * 设置详细错误信息
      * 
-     * @param message 错误消息
+     * @param detailMessage 详细错误信息
+     * @return 当前异常实例
      */
-    public BaseException(String message) {
-        super(message);
-        this.message = message;
-    }
-    
-    /**
-     * 构造函数
-     * 
-     * @param cause 原始异常
-     */
-    public BaseException(Throwable cause) {
-        super(cause);
+    public BaseException withDetail(String detailMessage) {
+        this.detailMessage = detailMessage;
+        return this;
     }
 } 

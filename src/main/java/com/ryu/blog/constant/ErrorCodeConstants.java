@@ -29,6 +29,7 @@ public class ErrorCodeConstants {
     public static final int USER_PHONE_EXISTS = 10007;     // 手机号已存在
     public static final int USER_OLD_PASSWORD_ERROR = 10008; // 原密码错误
     public static final int USER_ROLE_NOT_EXISTS = 10009;  // 角色不存在
+    public static final int USER_LOGIN_FAILED = 10010;     // 登录失败
     
     /** 文章模块错误码：11001-11999 */
     public static final int POST_NOT_FOUND = 11001;        // 文章不存在
@@ -64,6 +65,12 @@ public class ErrorCodeConstants {
     /** 配置模块错误码：16001-16999 */
     public static final int CONFIG_NOT_FOUND = 16001;      // 配置不存在
     public static final int CONFIG_KEY_EXISTS = 16002;     // 配置键已存在
+    
+    /** 字典模块错误码：16501-16599 */
+    public static final int DICT_TYPE_NOT_FOUND = 16501;   // 字典类型不存在
+    public static final int DICT_TYPE_CODE_EXISTS = 16502; // 字典类型编码已存在
+    public static final int DICT_ITEM_NOT_FOUND = 16503;   // 字典项不存在
+    public static final int DICT_ITEM_KEY_EXISTS = 16504;  // 字典项键已存在
     
     /** 统计模块错误码：17001-17999 */
     public static final int STATS_PARAMETER_INVALID = 17001; // 统计参数无效

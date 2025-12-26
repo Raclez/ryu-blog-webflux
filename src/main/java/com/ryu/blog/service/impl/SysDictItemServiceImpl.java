@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.constant.SystemConstants;
 import com.ryu.blog.dto.SysDictItemDTO;
 import com.ryu.blog.dto.SysDictItemSaveDTO;
@@ -15,16 +16,24 @@ import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictItemVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 系统字典项服务实现类
@@ -34,6 +43,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@CacheConfig(cacheNames = CacheConstants.DICT_ITEM_CACHE_NAME)
 public class SysDictItemServiceImpl implements SysDictItemService {
 
     private final SysDictItemRepository dictItemRepository;
@@ -46,6 +56,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
      */
 
     @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<SysDictItemVO> getDictItemById(Long id) {
         log.debug("根据ID查询字典项: {}", id);
         return dictItemRepository.findByIdAndNotDeleted(id)
@@ -56,6 +67,65 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     public Mono<SysDictItem> getDictItemEntityById(Long id) {
         log.debug("根据ID查询字典项实体: {}", id);
         return dictItemRepository.findByIdAndNotDeleted(id);
+    }
+    
+    @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_CODE_KEY + "' + #dictType", unless = "#result == null")
+    public Flux<SysDictItemVO> getDictItemsByType(String dictType) {
+        log.debug("根据字典类型编码查询字典项: {}", dictType);
+        
+        return dictTypeRepository.findByDictTypeAndNotDeleted(dictType)
+                .flatMapMany(type -> 
+                    dictItemRepository.findByDictTypeIdAndNotDeletedOrderBySort(type.getId())
+                        .flatMap(item -> enrichWithDictType(item, type))
+                );
+    }
+    
+    @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_KEY + "' + #dictTypeId", unless = "#result == null")
+    public Flux<SysDictItemVO> getDictItemsByTypeId(Long dictTypeId) {
+        log.debug("根据字典类型ID查询字典项: {}", dictTypeId);
+        
+        return dictTypeService.getDictTypeEntityById(dictTypeId)
+                .flatMapMany(type ->
+                    dictItemRepository.findByDictTypeIdAndNotDeletedOrderBySort(dictTypeId)
+                        .flatMap(item -> enrichWithDictType(item, type))
+                );
+    }
+    
+    @Override
+    public Mono<Map<String, List<SysDictItemVO>>> batchGetDictItems(List<String> dictTypes) {
+        log.debug("批量获取字典项, 字典类型: {}", dictTypes);
+        
+        if (dictTypes == null || dictTypes.isEmpty()) {
+            return Mono.just(new HashMap<>());
+        }
+        
+        return Flux.fromIterable(dictTypes)
+                .flatMap(dictType -> 
+                    getDictItemsByType(dictType)
+                        .collectList()
+                        .map(items -> Map.entry(dictType, items))
+                )
+                .collectMap(Map.Entry::getKey, Map.Entry::getValue);
+    }
+    
+    @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_ITEM_VALUE_KEY + "' + #dictType + ':' + #key", unless = "#result == null")
+    public Mono<String> getDictItemValue(String dictType, String key) {
+        log.debug("获取字典项值, dictType: {}, key: {}", dictType, key);
+        
+        return dictTypeRepository.findByDictTypeAndNotDeleted(dictType)
+                .flatMap(type -> 
+                    dictItemRepository.findByDictTypeIdAndDictItemKeyAndNotDeleted(type.getId(), key)
+                        .map(SysDictItem::getDictItemValue)
+                );
+    }
+    
+    @Override
+    public Mono<String> getDictItemValue(String dictType, String key, String defaultValue) {
+        return getDictItemValue(dictType, key)
+                .defaultIfEmpty(defaultValue);
     }
 
     @Override
@@ -125,6 +195,10 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_KEY + "' + #saveDTO.dictTypeId"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+    })
     public Mono<SysDictItemVO> createDictItem(SysDictItemSaveDTO saveDTO) {
         log.debug("创建字典项: {}", saveDTO);
         SysDictItem dictItem = sysDictItemMapper.toEntity(saveDTO);
@@ -154,6 +228,11 @@ public class SysDictItemServiceImpl implements SysDictItemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #dictItemDTO.id"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_KEY + "' + #dictItemDTO.dictTypeId"),
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+    })
     public Mono<SysDictItemVO> updateDictItem(SysDictItemUpdateDTO dictItemDTO) {
         log.debug("更新字典项: {}", dictItemDTO);
         if (dictItemDTO.getId() == null) {
@@ -188,6 +267,9 @@ public class SysDictItemServiceImpl implements SysDictItemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id")
+    })
     public Mono<Void> deleteDictItem(Long id) {
         log.debug("删除字典项, ID: {}", id);
         return dictItemRepository.findByIdAndNotDeleted(id)
@@ -202,11 +284,38 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id")
+    })
     public Mono<Void> updateDictItemStatus(Long id, Boolean status) {
         log.debug("更新字典项状态, ID: {}, 状态: {}", id, status);
         // 将Boolean状态转换为Integer
         Integer statusValue = status ? SystemConstants.STATUS_NORMAL : SystemConstants.STATUS_DISABLED;
         return dictItemRepository.updateStatusById(id, statusValue).then();
+    }
+    
+    /**
+     * 缓存管理
+     */
+    
+    @Override
+    @CacheEvict(allEntries = true)
+    public Mono<Boolean> clearAllCache() {
+        return Mono.fromCallable(() -> {
+            log.info("清除所有字典项缓存");
+            return true;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+    
+    @Override
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_CODE_KEY + "' + #dictType")
+    })
+    public Mono<Boolean> refreshCache(String dictType) {
+        return Mono.fromCallable(() -> {
+            log.info("刷新字典项缓存: {}", dictType);
+            return true;
+        }).subscribeOn(Schedulers.boundedElastic());
     }
     
     /**
