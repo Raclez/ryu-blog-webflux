@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.lang.tree.Tree;
 import cn.hutool.core.lang.tree.TreeNode;
 import cn.hutool.core.lang.tree.TreeUtil;
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.MenusSaveDTO;
 import com.ryu.blog.dto.MenusUpdateDTO;
 import com.ryu.blog.entity.MenuPermission;
@@ -15,6 +16,8 @@ import com.ryu.blog.repository.PermissionsRepository;
 import com.ryu.blog.service.MenusService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
@@ -42,54 +45,64 @@ public class MenusServiceImpl implements MenusService {
     private final PermissionsRepository permissionsRepository;
 
     @Override
+    @Cacheable(value = CacheConstants.MENUS_CACHE_NAME, key = "'" + CacheConstants.MENUS_TREE_KEY + "'")
     public Mono<List<Tree<Long>>> getMenusByTree() {
         return menusRepository.findAllOrderByParentIdAndSort()
                 .collectList()
                 .map(menus -> {
                     // 构建节点列表
-                    List<TreeNode<Long>> nodeList = new ArrayList<>();
-                    
-                    for (Menus menu : menus) {
-                        TreeNode<Long> node = new TreeNode<>();
-                        node.setId(menu.getId());
-                        node.setName(menu.getName());
-                        node.setParentId(menu.getParentId());
-                        node.setWeight(menu.getSort());
-                        
-                        // 添加扩展属性
-                        Map<String, Object> extra = new HashMap<>();
-                        extra.put("icon", menu.getIcon());
-                        extra.put("path", menu.getPath());
-                        extra.put("component", menu.getComponent());
-                        extra.put("type", menu.getType());
-                        extra.put("hidden", menu.getHidden());
-                        extra.put("redirect", menu.getRedirect());
-                        
-                        node.setExtra(extra);
-                        nodeList.add(node);
-                    }
+                    List<TreeNode<Long>> nodeList = menus.stream()
+                            .map(this::convertToTreeNode)
+                            .toList();
                     
                     // 构建树形结构，默认父节点ID为0
                     return TreeUtil.build(nodeList, 0L);
                 });
     }
+    
+    /**
+     * 将菜单实体转换为树节点
+     */
+    private TreeNode<Long> convertToTreeNode(Menus menu) {
+        TreeNode<Long> node = new TreeNode<>();
+        node.setId(menu.getId());
+        node.setName(menu.getName());
+        node.setParentId(menu.getParentId());
+        node.setWeight(menu.getSort());
+        
+        // 添加扩展属性
+        Map<String, Object> extra = new HashMap<>();
+        extra.put("icon", menu.getIcon());
+        extra.put("path", menu.getPath());
+        extra.put("component", menu.getComponent());
+        extra.put("type", menu.getType());
+        extra.put("hidden", menu.getHidden());
+        extra.put("redirect", menu.getRedirect());
+        extra.put("isLink", menu.getIsLink());
+        
+        node.setExtra(extra);
+        return node;
+    }
 
     @Override
-    public Flux<Menus> listAll() {
-        return menusRepository.findAllOrderByParentIdAndSort();
+    @Cacheable(value = CacheConstants.MENUS_CACHE_NAME, key = "'" + CacheConstants.MENUS_ALL_KEY + "'")
+    public Mono<List<Menus>> listAll() {
+        return menusRepository.findAllOrderByParentIdAndSort()
+                .collectList();
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
     public Mono<Void> bindPermissions(List<Long> permissionIds, Long menuId) {
         log.info("绑定权限到菜单, menuId: {}, permissionIds: {}", menuId, permissionIds);
         
         // 先查询菜单是否存在
         return menusRepository.findById(menuId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("菜单不存在")))
-                .flatMap(menu -> {
+                .flatMap(menu -> 
                     // 删除原有的权限关联
-                    return menuPermissionRepository.deleteByMenuId(menuId)
+                    menuPermissionRepository.deleteByMenuId(menuId)
                             .then(Mono.defer(() -> {
                                 // 如果权限ID列表为空，直接返回
                                 if (permissionIds == null || permissionIds.isEmpty()) {
@@ -104,27 +117,21 @@ public class MenusServiceImpl implements MenusService {
                                                 return Mono.error(new IllegalArgumentException("部分权限不存在"));
                                             }
                                             
-                                            // 创建新的关联
-                                            List<MenuPermission> menuPermissions = new ArrayList<>();
+                                            // 创建新的关联并批量保存
                                             LocalDateTime now = LocalDateTime.now();
-                                            
-                                            for (Long permissionId : permissionIds) {
-                                                MenuPermission menuPermission = MenuPermission.builder()
-                                                        .menuId(menuId)
-                                                        .permissionId(permissionId)
-                                                        .createTime(now)
-                                                        .updateTime(now)
-                                                        .build();
-                                                menuPermissions.add(menuPermission);
-                                            }
-                                            
-                                            // 批量保存关联
-                                            return Flux.fromIterable(menuPermissions)
-                                                    .flatMap(menuPermissionRepository::save)
+                                            return Flux.fromIterable(permissionIds)
+                                                    .map(permissionId -> MenuPermission.builder()
+                                                            .menuId(menuId)
+                                                            .permissionId(permissionId)
+                                                            .createTime(now)
+                                                            .updateTime(now)
+                                                            .build())
+                                                    .collectList()
+                                                    .flatMapMany(menuPermissionRepository::saveAll)
                                                     .then();
                                         });
-                            }));
-                });
+                            }))
+                );
     }
 
     @Override
@@ -158,12 +165,17 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
     public Mono<Void> saveMenu(MenusSaveDTO menusSaveDTO) {
         log.info("保存菜单: {}", menusSaveDTO);
         
         // 创建菜单实体
         Menus menu = new Menus();
-        BeanUtil.copyProperties(menusSaveDTO, menu);
+        BeanUtil.copyProperties(menusSaveDTO, menu, "menuType", "url");
+        
+        // 字段映射
+        menu.setType(menusSaveDTO.getMenuType());
+        menu.setPath(menusSaveDTO.getUrl());
         
         // 设置默认值
         if (menu.getParentId() == null) {
@@ -172,11 +184,11 @@ public class MenusServiceImpl implements MenusService {
         if (menu.getSort() == null) {
             menu.setSort(0);
         }
+        if (menu.getHidden() == null) {
+            menu.setHidden(0);
+        }
         
-        // 类型转换
-        menu.setType(menusSaveDTO.getMenuType());
-        
-        // 其他属性设置
+        // 时间设置
         LocalDateTime now = LocalDateTime.now();
         menu.setCreateTime(now);
         menu.setUpdateTime(now);
@@ -187,20 +199,19 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
     public Mono<Void> updateMenu(MenusUpdateDTO menusUpdateDTO) {
         log.info("更新菜单: {}", menusUpdateDTO);
         
         return menusRepository.findById(menusUpdateDTO.getId())
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("菜单不存在")))
                 .flatMap(menu -> {
-                    // 更新属性
-                    menu.setName(menusUpdateDTO.getName());
-                    menu.setIcon(menusUpdateDTO.getIcon());
-                    menu.setParentId(menusUpdateDTO.getParentId());
-                    menu.setSort(menusUpdateDTO.getSort());
+                    // 使用 BeanUtil 复制属性，排除特殊字段
+                    BeanUtil.copyProperties(menusUpdateDTO, menu, "id", "menuType", "url");
+                    
+                    // 字段映射
                     menu.setType(menusUpdateDTO.getMenuType());
                     menu.setPath(menusUpdateDTO.getUrl());
-                    menu.setComponent(menusUpdateDTO.getComponent());
                     menu.setUpdateTime(LocalDateTime.now());
                     
                     // 保存更新
@@ -210,6 +221,7 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
     public Mono<Void> deleteMenu(Long id) {
         log.info("删除菜单, id: {}", id);
         

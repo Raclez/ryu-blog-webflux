@@ -71,16 +71,16 @@ public interface ViewHistoryService {
     Mono<ViewHistoryStatsVO> getViewHistoryStats();
 
     /**
-     * 获取文章当前浏览量（优先从Redis获取，Redis无数据则从数据库获取）
+     * 获取文章当前浏览量（优先从缓存获取，缓存无数据则从数据库获取）
      * 
      * @param articleId 文章ID
      * @return 浏览量
      */
-    Mono<Integer> getArticleCurrentViews(Long articleId);
+    Mono<Long> getArticleCurrentViews(Long articleId);
 
     /**
-     * 批量同步Redis中的文章浏览量到数据库
-     * 用于定时任务调用，确保数据库中的浏览量与Redis保持同步
+     * 批量同步缓存中的文章浏览量到数据库
+     * 用于定时任务调用，确保数据库中的浏览量与缓存保持同步
      * 
      * @return 同步的文章数量
      */

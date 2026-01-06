@@ -43,7 +43,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@CacheConfig(cacheNames = {CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, CacheConstants.VIEW_HISTORY_UV_CACHE_NAME, CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME})
 public class ViewHistoryServiceImpl implements ViewHistoryService {
 
     private final ViewHistoryRepository viewHistoryRepository;
@@ -52,9 +51,20 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     private final ViewHistoryMapper viewHistoryMapper;
     private final CacheManager cacheManager;
 
-    // 设备和地区分布统计
-    private final Map<String, Integer> deviceStats = new ConcurrentHashMap<>();
-    private final Map<String, Integer> locationStats = new ConcurrentHashMap<>();
+    // 设备和地区分布统计 - 使用LRU限制大小，防止内存泄漏
+    private final Map<String, Integer> deviceStats = Collections.synchronizedMap(new LinkedHashMap<String, Integer>(100, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
+            return size() > 100;
+        }
+    });
+    
+    private final Map<String, Integer> locationStats = Collections.synchronizedMap(new LinkedHashMap<String, Integer>(500, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
+            return size() > 500;
+        }
+    });
     
     // 记录同一用户访问同一文章的时间间隔（分钟）
     private static final int VISIT_INTERVAL_MINUTES = 30;
@@ -64,6 +74,8 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     private static final String ARTICLE_VIEW_COUNT_KEY = CacheConstants.VIEW_COUNT_KEY;
     // 访问记录缓存名称 - 使用常量
     private static final String VISIT_RECORD_CACHE_NAME = CacheConstants.VISIT_RECORD_CACHE_NAME;
+    // 同步到数据库的阈值
+    private static final int SYNC_THRESHOLD = 10;
 
     @Override
     @Transactional
@@ -236,53 +248,69 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         
         return Mono.fromCallable(() -> {
             Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
-            if (viewCountCache != null) {
-                String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
-                AtomicInteger counter = viewCountCache.get(cacheKey, AtomicInteger.class);
-                
-                if (counter == null) {
-                    // 如果计数器不存在，创建一个新的计数器
-                    counter = new AtomicInteger(1);
-                    viewCountCache.put(cacheKey, counter);
-                    return 1;
-                } else {
-                    // 原子递增
-                    int newCount = counter.incrementAndGet();
-                    
-                    // 每10次浏览同步到数据库，减少数据库写入次数
-                    if (newCount % 10 == 0) {
-                        log.debug("同步浏览量到数据库: ID={}, 浏览量={}", articleId, newCount);
-                        // 异步更新数据库，使用updateViews而不是incrementViews
-                        // 这样可以一次性设置正确的值，避免并发问题
-                        postsRepository.updateViews(articleId, newCount)
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .subscribe(
-                                result -> {
-                                    if (result > 0) {
-                                        log.debug("数据库浏览量更新成功: ID={}, 新浏览量={}", articleId, newCount);
-                                    } else {
-                                        log.warn("数据库浏览量更新无影响: ID={}, 可能文章不存在", articleId);
-                                    }
-                                },
-                                error -> log.error("同步浏览量到数据库失败: ID={}, 错误={}", articleId, error.getMessage())
-                            );
-                    }
-                    
-                    return newCount;
-                }
+            if (viewCountCache == null) {
+                log.warn("浏览量缓存不可用，将直接更新数据库");
+                return -1; // 标记缓存不可用
             }
             
-            // 缓存不可用，直接更新数据库
-            // 但这种情况应该很少发生
-            return postsRepository.incrementViews(articleId)
-                .subscribeOn(Schedulers.boundedElastic())
-                .block();
+            String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
+            
+            // 使用computeIfAbsent模式避免竞态条件
+            Object nativeCache = viewCountCache.getNativeCache();
+            if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
+                @SuppressWarnings("unchecked")
+                com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache = 
+                    (com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache;
+                
+                AtomicInteger counter = (AtomicInteger) caffeineCache.get(cacheKey, k -> new AtomicInteger(0));
+                int newCount = counter.incrementAndGet();
+                
+                // 每SYNC_THRESHOLD次浏览同步到数据库，减少数据库写入次数
+                if (newCount % SYNC_THRESHOLD == 0) {
+                    log.debug("同步浏览量到数据库: ID={}, 浏览量={}", articleId, newCount);
+                    // 异步更新数据库
+                    syncSingleArticleViewCount(articleId, newCount);
+                }
+                
+                return newCount;
+            }
+            
+            return -1; // 标记缓存类型不匹配
         })
         .subscribeOn(Schedulers.boundedElastic())
+        .flatMap(count -> {
+            if (count == -1) {
+                // 缓存不可用，直接更新数据库
+                return postsRepository.incrementViews(articleId)
+                    .defaultIfEmpty(0);
+            }
+            return Mono.just(count);
+        })
         .onErrorResume(e -> {
             log.error("增加文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
-            return Mono.just(0);
+            // 降级：尝试直接更新数据库
+            return postsRepository.incrementViews(articleId)
+                .defaultIfEmpty(0)
+                .onErrorReturn(0);
         });
+    }
+    
+    /**
+     * 异步同步单个文章的浏览量到数据库
+     */
+    private void syncSingleArticleViewCount(Long articleId, int viewCount) {
+        postsRepository.updateViews(articleId, viewCount)
+            .subscribeOn(Schedulers.boundedElastic())
+            .subscribe(
+                result -> {
+                    if (result > 0) {
+                        log.debug("数据库浏览量更新成功: ID={}, 新浏览量={}", articleId, viewCount);
+                    } else {
+                        log.warn("数据库浏览量更新无影响: ID={}, 可能文章不存在", articleId);
+                    }
+                },
+                error -> log.error("同步浏览量到数据库失败: ID={}, 错误={}", articleId, error.getMessage())
+            );
     }
 
     @Override
@@ -540,40 +568,78 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     }
     
     /**
-     * 更新PV值
+     * 更新PV值 - 线程安全的原子操作
      */
-    @CachePut(cacheNames = CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, key = "#key")
-    public Long updatePvValue(String key) {
-        Long currentValue = getCachedPvValue(key);
-        return currentValue + 1L;
-    }
-    
-    /**
-     * 更新文章PV值
-     */
-    @CachePut(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME, key = "#key")
-    public Long updatePostPvValue(String key) {
-        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
-        if (cache != null) {
-            ValueWrapper wrapper = cache.get(key);
-            if (wrapper != null) {
-                Object value = wrapper.get();
-                if (value instanceof Long) {
-                    return (Long) value + 1L;
-                }
-            }
+    private void updatePvValue(String key) {
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_PV_CACHE_NAME);
+        if (cache == null) {
+            log.warn("PV缓存不可用: {}", key);
+            return;
         }
-        return 1L;
+        
+        Object nativeCache = cache.getNativeCache();
+        if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
+            @SuppressWarnings("unchecked")
+            com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache = 
+                (com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache;
+            
+            caffeineCache.asMap().compute(key, (k, v) -> {
+                if (v instanceof Long) {
+                    return (Long) v + 1L;
+                }
+                return 1L;
+            });
+        }
     }
     
     /**
-     * 更新UV集合
+     * 更新文章PV值 - 线程安全的原子操作
      */
-    @CachePut(cacheNames = CacheConstants.VIEW_HISTORY_UV_CACHE_NAME, key = "#key")
-    public Set<String> updateUvValue(String key, String visitorId) {
-        Set<String> visitors = getCachedUvValue(key);
-        visitors.add(visitorId);
-        return visitors;
+    private void updatePostPvValue(String key) {
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+        if (cache == null) {
+            log.warn("文章PV缓存不可用: {}", key);
+            return;
+        }
+        
+        Object nativeCache = cache.getNativeCache();
+        if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
+            @SuppressWarnings("unchecked")
+            com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache = 
+                (com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache;
+            
+            caffeineCache.asMap().compute(key, (k, v) -> {
+                if (v instanceof Long) {
+                    return (Long) v + 1L;
+                }
+                return 1L;
+            });
+        }
+    }
+    
+    /**
+     * 更新UV集合 - 线程安全的操作
+     */
+    private void updateUvValue(String key, String visitorId) {
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_UV_CACHE_NAME);
+        if (cache == null) {
+            log.warn("UV缓存不可用: {}", key);
+            return;
+        }
+        
+        Object nativeCache = cache.getNativeCache();
+        if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
+            @SuppressWarnings("unchecked")
+            com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache = 
+                (com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache;
+            
+            caffeineCache.asMap().compute(key, (k, v) -> {
+                @SuppressWarnings("unchecked")
+                Set<String> visitors = (v instanceof Set) ? new HashSet<>((Set<String>) v) : new HashSet<>();
+                visitors.add(visitorId);
+                return visitors;
+            });
+        }
     }
 
     /**
@@ -583,9 +649,9 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * @return 浏览量
      */
     @Override
-    public Mono<Integer> getArticleCurrentViews(Long articleId) {
+    public Mono<Long> getArticleCurrentViews(Long articleId) {
         if (articleId == null) {
-            return Mono.just(0);
+            return Mono.just(0L);
         }
         
         return Mono.fromCallable(() -> {
@@ -595,21 +661,25 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                 String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
                 AtomicInteger counter = viewCountCache.get(cacheKey, AtomicInteger.class);
                 if (counter != null) {
-                    return counter.get();
+                    return (long) counter.get();
                 }
             }
-            
-            // 缓存中没有，从数据库获取
-            return postsRepository.findById(articleId)
-                .map(article -> article.getViews() != null ? article.getViews() : 0)
-                .defaultIfEmpty(0)
-                .block();
+            return null; // 标记需要从数据库获取
         })
         .subscribeOn(Schedulers.boundedElastic())
+        .flatMap(cachedValue -> {
+            if (cachedValue != null) {
+                return Mono.just(cachedValue);
+            }
+            // 缓存中没有，从数据库获取
+            return postsRepository.findById(articleId)
+                .map(article -> article.getViews() != null ? (long) article.getViews() : 0L)
+                .defaultIfEmpty(0L);
+        })
         .doOnSuccess(views -> log.debug("获取文章当前浏览量: ID={}, 浏览量={}", articleId, views))
         .onErrorResume(e -> {
             log.error("获取文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
-            return Mono.just(0);
+            return Mono.just(0L);
         });
     }
 
@@ -626,20 +696,20 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         return Mono.fromCallable(() -> {
             Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
             if (viewCountCache == null) {
-                return 0;
+                log.warn("浏览量缓存不可用，跳过同步");
+                return Collections.<Mono<Integer>>emptyList();
             }
             
             Object nativeCache = viewCountCache.getNativeCache();
             if (!(nativeCache instanceof com.github.benmanes.caffeine.cache.Cache)) {
-                return 0;
+                log.warn("缓存类型不匹配，跳过同步");
+                return Collections.<Mono<Integer>>emptyList();
             }
             
             @SuppressWarnings("unchecked")
             Map<Object, Object> cacheMap = ((com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache).asMap();
             
-            AtomicInteger syncCount = new AtomicInteger(0);
-            
-            // 使用批处理方式更新，减少数据库连接次数
+            // 收集所有需要更新的操作
             List<Mono<Integer>> updateOperations = new ArrayList<>();
             
             cacheMap.forEach((key, value) -> {
@@ -656,8 +726,9 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                                 postsRepository.updateViews(articleId, viewCount)
                                     .doOnSuccess(result -> {
                                         if (result > 0) {
-                                            syncCount.incrementAndGet();
                                             log.debug("同步文章浏览量成功: ID={}, 浏览量={}", articleId, viewCount);
+                                        } else {
+                                            log.warn("文章浏览量更新无影响: ID={}", articleId);
                                         }
                                     })
                                     .onErrorResume(e -> {
@@ -672,22 +743,24 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                 }
             });
             
-            // 执行批处理操作
-            if (!updateOperations.isEmpty()) {
-                Flux.merge(updateOperations)
-                    .collectList()
-                    .subscribe(
-                        results -> log.info("文章浏览量同步完成，成功同步 {} 篇文章", syncCount.get()),
-                        error -> log.error("批量同步文章浏览量失败: {}", error.getMessage())
-                    );
-            }
-            
-            return syncCount.get();
+            return updateOperations;
         })
         .subscribeOn(Schedulers.boundedElastic())
-        .doOnSuccess(count -> log.info("文章浏览量同步任务完成，共同步 {} 篇文章", count))
+        .flatMap(updateOperations -> {
+            if (updateOperations.isEmpty()) {
+                log.info("没有需要同步的文章浏览量");
+                return Mono.just(0);
+            }
+            
+            // 并发执行所有更新操作，并等待完成
+            return Flux.merge(updateOperations)
+                .filter(result -> result > 0) // 只统计成功的更新
+                .count()
+                .map(Long::intValue);
+        })
+        .doOnSuccess(count -> log.info("文章浏览量同步任务完成，成功同步 {} 篇文章", count))
         .onErrorResume(e -> {
-            log.error("同步文章浏览量到数据库失败: {}", e.getMessage());
+            log.error("同步文章浏览量到数据库失败: {}", e.getMessage(), e);
             return Mono.just(0);
         });
     }

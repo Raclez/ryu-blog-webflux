@@ -25,7 +25,12 @@ public class SysDictItemDTO {
     private Long pageSize = 10L;
     
     /**
-     * 字典类型
+     * 字典类型ID
+     */
+    private Long dictTypeId;
+    
+    /**
+     * 字典类型编码
      */
     private String dictType;
     

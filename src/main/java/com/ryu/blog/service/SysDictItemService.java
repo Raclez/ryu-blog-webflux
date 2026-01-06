@@ -44,7 +44,7 @@ public interface SysDictItemService {
     Mono<SysDictItem> getDictItemEntityById(Long id);
     
     /**
-     * 根据字典类型编码获取字典项列表（最常用）
+     * 根据字典类型编码获取字典项列表
      *
      * @param dictType 字典类型编码
      * @return 字典项列表
@@ -60,12 +60,20 @@ public interface SysDictItemService {
     Flux<SysDictItemVO> getDictItemsByTypeId(Long dictTypeId);
     
     /**
-     * 批量获取多个字典类型的字典项
+     * 批量获取多个字典类型的字典项（按编码）
      *
      * @param dictTypes 字典类型编码列表
      * @return 字典类型编码 -> 字典项列表的映射
      */
     Mono<Map<String, List<SysDictItemVO>>> batchGetDictItems(List<String> dictTypes);
+    
+    /**
+     * 批量获取多个字典类型的字典项（按ID）
+     *
+     * @param dictTypeIds 字典类型ID列表
+     * @return 字典类型ID -> 字典项列表的映射
+     */
+    Mono<Map<Long, List<SysDictItemVO>>> batchGetDictItemsByIds(List<Long> dictTypeIds);
     
     /**
      * 根据字典类型编码和键获取字典项值
@@ -85,6 +93,25 @@ public interface SysDictItemService {
      * @return 字典项值
      */
     Mono<String> getDictItemValue(String dictType, String key, String defaultValue);
+    
+    /**
+     * 根据字典类型ID和键获取字典项值
+     *
+     * @param dictTypeId 字典类型ID
+     * @param key 字典项键
+     * @return 字典项值
+     */
+    Mono<String> getDictItemValueById(Long dictTypeId, String key);
+    
+    /**
+     * 根据字典类型ID和键获取字典项值，支持默认值
+     *
+     * @param dictTypeId 字典类型ID
+     * @param key 字典项键
+     * @param defaultValue 默认值
+     * @return 字典项值
+     */
+    Mono<String> getDictItemValueById(Long dictTypeId, String key, String defaultValue);
 
     /**
      * 创建字典项
@@ -131,10 +158,18 @@ public interface SysDictItemService {
     Mono<Boolean> clearAllCache();
     
     /**
-     * 刷新指定字典类型的字典项缓存
+     * 刷新指定字典类型的字典项缓存（按编码）
      *
      * @param dictType 字典类型编码
      * @return 操作结果
      */
     Mono<Boolean> refreshCache(String dictType);
+    
+    /**
+     * 刷新指定字典类型的字典项缓存（按ID）
+     *
+     * @param dictTypeId 字典类型ID
+     * @return 操作结果
+     */
+    Mono<Boolean> refreshCacheById(Long dictTypeId);
 } 

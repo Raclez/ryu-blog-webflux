@@ -12,11 +12,13 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 
 /**
@@ -31,6 +33,7 @@ import java.util.List;
 @Tag(name="角色管理接口")
 @AllArgsConstructor
 @Slf4j
+@Validated
 public class RoleController {
     private final RoleService roleService;
 
@@ -43,30 +46,12 @@ public class RoleController {
      */
     @PostMapping("/add")
     @Operation(summary = "保存角色", description = "添加新的角色")
-    public Mono<Result<String>> saveRole(@RequestBody RoleDTO roleDTO) {
+    public Mono<Result<String>> saveRole(@Valid @RequestBody RoleDTO roleDTO) {
         log.info("请求保存角色: {}", roleDTO);
         
-        // 参数校验
-        if (roleDTO == null) {
-            log.error("保存角色失败: 参数为空");
-            return Mono.just(Result.error("参数不能为空"));
-        }
-        
-        if (StringUtils.isBlank(roleDTO.getName())) {
-            log.error("保存角色失败: 角色名称为空");
-            return Mono.just(Result.error("角色名称不能为空"));
-        }
-        
-        if (StringUtils.isBlank(roleDTO.getCode())) {
-            log.error("保存角色失败: 角色编码为空");
-            return Mono.just(Result.error("角色编码不能为空"));
-        }
-        
         return roleService.saveRole(roleDTO)
-                .then(Mono.fromCallable(() -> {
-                    log.info("成功保存角色: {}", roleDTO.getName());
-                    return Result.success("角色保存成功");
-                }));
+                .thenReturn(Result.success("角色保存成功"))
+                .doOnSuccess(result -> log.info("成功保存角色: {}", roleDTO.getName()));
     }
 
     /**
@@ -78,23 +63,16 @@ public class RoleController {
      */
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除角色", description = "删除指定ID的角色")
-    public Mono<Result<String>> deleteRole(@PathVariable("id") @Parameter(description = "角色ID") Long id) {
+    public Mono<Result<String>> deleteRole(
+            @PathVariable("id") 
+            @Parameter(description = "角色ID") 
+            @NotNull(message = "角色ID不能为空") 
+            Long id) {
         log.info("请求删除角色, ID: {}", id);
         
-        if (id == null) {
-            log.error("删除角色失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
-        
         return roleService.removeById(id)
-                .then(Mono.fromCallable(() -> {
-                    log.info("成功删除角色, ID: {}", id);
-                    return Result.success("角色删除成功");
-                }))
-                .onErrorResume(e -> {
-                    log.error("删除角色失败, ID: {}, 错误: {}", id, e.getMessage());
-                    return Mono.just(Result.error("角色删除失败: " + e.getMessage()));
-                });
+                .thenReturn(Result.success("角色删除成功"))
+                .doOnSuccess(result -> log.info("成功删除角色, ID: {}", id));
     }
 
     /**
@@ -106,31 +84,13 @@ public class RoleController {
      */
     @PostMapping("/assign-permissions")
     @Operation(summary = "分配角色权限", description = "为角色分配权限")
-    public Mono<Result<String>> assignPermissions(@RequestBody PermissionsAssignDTO permissionsAssignDTO) {
+    public Mono<Result<String>> assignPermissions(@Valid @RequestBody PermissionsAssignDTO permissionsAssignDTO) {
         log.info("请求为角色分配权限: {}", permissionsAssignDTO);
         
-        // 参数校验
-        if (permissionsAssignDTO == null) {
-            log.error("分配角色权限失败: 参数为空");
-            return Mono.just(Result.error("参数不能为空"));
-        }
-        
-        if (permissionsAssignDTO.getRoleId() == null) {
-            log.error("分配角色权限失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
-        
-        if (permissionsAssignDTO.getPermissionIds() == null || permissionsAssignDTO.getPermissionIds().isEmpty()) {
-            log.error("分配角色权限失败: 权限ID列表为空");
-            return Mono.just(Result.error("权限ID列表不能为空"));
-        }
-        
         return roleService.assignPermissions(permissionsAssignDTO)
-                .then(Mono.fromCallable(() -> {
-                    log.info("成功为角色分配权限, roleId: {}, 权限数量: {}", 
-                            permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds().size());
-                    return Result.success("角色权限分配成功");
-                }));
+                .thenReturn(Result.success("角色权限分配成功"))
+                .doOnSuccess(result -> log.info("成功为角色分配权限, roleId: {}, 权限数量: {}", 
+                        permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds().size()));
     }
 
     /**
@@ -146,7 +106,6 @@ public class RoleController {
         log.info("请求获取角色列表: {}", roleListDTO);
         
         if (roleListDTO == null) {
-            log.warn("获取角色列表失败: 查询条件为空");
             return Mono.just(Result.error("查询条件不能为空"));
         }
         
@@ -168,13 +127,12 @@ public class RoleController {
      */
     @GetMapping("/get/{id}")
     @Operation(summary = "获取角色详情", description = "获取指定角色的详细信息（包含权限）")
-    public Mono<Result<RoleVO>> getRoleDetails(@PathVariable("id") @Parameter(description = "角色ID") Long id) {
+    public Mono<Result<RoleVO>> getRoleDetails(
+            @PathVariable("id") 
+            @Parameter(description = "角色ID") 
+            @NotNull(message = "角色ID不能为空") 
+            Long id) {
         log.info("请求获取角色详情, ID: {}", id);
-        
-        if (id == null) {
-            log.error("获取角色详情失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
         
         return roleService.getRoleDetails(id)
                 .map(roleVO -> {
@@ -193,31 +151,13 @@ public class RoleController {
      */
     @PostMapping("/removePermission")
     @Operation(summary = "删除角色权限", description = "删除角色的权限")
-    public Mono<Result<String>> removePermission(@RequestBody PermissionsAssignDTO permissionsAssignDTO) {
+    public Mono<Result<String>> removePermission(@Valid @RequestBody PermissionsAssignDTO permissionsAssignDTO) {
         log.info("请求删除角色权限: {}", permissionsAssignDTO);
         
-        // 参数校验
-        if (permissionsAssignDTO == null) {
-            log.error("删除角色权限失败: 参数为空");
-            return Mono.just(Result.error("参数不能为空"));
-        }
-        
-        if (permissionsAssignDTO.getRoleId() == null) {
-            log.error("删除角色权限失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
-        
-        if (permissionsAssignDTO.getPermissionIds() == null || permissionsAssignDTO.getPermissionIds().isEmpty()) {
-            log.error("删除角色权限失败: 权限ID列表为空");
-            return Mono.just(Result.error("权限ID列表不能为空"));
-        }
-        
         return roleService.removePermission(permissionsAssignDTO)
-                .then(Mono.fromCallable(() -> {
-                    log.info("成功删除角色权限, roleId: {}, 权限数量: {}", 
-                            permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds().size());
-                    return Result.success("角色权限删除成功");
-                }));
+                .thenReturn(Result.success("角色权限删除成功"))
+                .doOnSuccess(result -> log.info("成功删除角色权限, roleId: {}, 权限数量: {}", 
+                        permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds().size()));
     }
 
     /**
@@ -229,13 +169,12 @@ public class RoleController {
      */
     @GetMapping("/{id}/permissions")
     @Operation(summary = "获取角色权限", description = "获取指定角色的所有权限")
-    public Mono<Result<RolePermissionsVO>> getRolePermissions(@PathVariable("id") @Parameter(description = "角色ID") Long id) {
+    public Mono<Result<RolePermissionsVO>> getRolePermissions(
+            @PathVariable("id") 
+            @Parameter(description = "角色ID") 
+            @NotNull(message = "角色ID不能为空") 
+            Long id) {
         log.info("请求获取角色的所有权限, ID: {}", id);
-        
-        if (id == null) {
-            log.error("获取角色权限失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
         
         return roleService.getRolePermissions(id)
                 .map(permissions -> {
@@ -274,13 +213,11 @@ public class RoleController {
     @GetMapping("/user/{userId}")
     @Operation(summary = "获取用户角色", description = "获取用户拥有的所有角色")
     public Mono<Result<List<Role>>> getUserRoles(
-            @PathVariable("userId") @Parameter(description = "用户ID") Long userId) {
+            @PathVariable("userId") 
+            @Parameter(description = "用户ID") 
+            @NotNull(message = "用户ID不能为空") 
+            Long userId) {
         log.info("请求获取用户角色, userId: {}", userId);
-        
-        if (userId == null) {
-            log.error("获取用户角色失败: 用户ID为空");
-            return Mono.just(Result.error("用户ID不能为空"));
-        }
         
         return roleService.getUserRoles(userId)
                 .collectList()
@@ -299,35 +236,13 @@ public class RoleController {
      */
     @PostMapping("/changeStatus")
     @Operation(summary = "更改角色状态", description = "启用或禁用角色")
-    public Mono<Result<String>> changeRoleStatus(@RequestBody RoleStatusDTO roleStatusDTO) {
+    public Mono<Result<String>> changeRoleStatus(@Valid @RequestBody RoleStatusDTO roleStatusDTO) {
         log.info("请求更改角色状态: {}", roleStatusDTO);
         
-        if (roleStatusDTO == null) {
-            log.error("更改角色状态失败: 参数为空");
-            return Mono.just(Result.error("参数不能为空"));
-        }
-        
-        if (roleStatusDTO.getRoleId() == null) {
-            log.error("更改角色状态失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
-        
-        if (roleStatusDTO.getIsActive() == null) {
-            log.error("更改角色状态失败: 状态为空");
-            return Mono.just(Result.error("状态不能为空"));
-        }
-        
         return roleService.changeRoleStatus(roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive())
-                .map(success -> {
-                    if (success) {
-                        log.info("成功更改角色状态, roleId: {}, isActive: {}", 
-                                roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive());
-                        return Result.success("角色状态更改成功");
-                    } else {
-                        log.error("更改角色状态失败, roleId: {}", roleStatusDTO.getRoleId());
-                        return Result.error("角色状态更改失败");
-                    }
-                });
+                .thenReturn(Result.success("角色状态更改成功"))
+                .doOnSuccess(result -> log.info("成功更改角色状态, roleId: {}, isActive: {}", 
+                        roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive()));
     }
     
     /**
@@ -339,39 +254,17 @@ public class RoleController {
      */
     @PostMapping("/batchAssign")
     @Operation(summary = "批量分配用户角色", description = "为多个用户分配同一个角色")
-    public Mono<Result<String>> batchAssignUserRoles(@RequestBody BatchAssignRoleDTO batchAssignRoleDTO) {
+    public Mono<Result<String>> batchAssignUserRoles(@Valid @RequestBody BatchAssignRoleDTO batchAssignRoleDTO) {
         log.info("请求批量分配用户角色: {}", batchAssignRoleDTO);
-        
-        if (batchAssignRoleDTO == null) {
-            log.error("批量分配用户角色失败: 参数为空");
-            return Mono.just(Result.error("参数不能为空"));
-        }
-        
-        if (batchAssignRoleDTO.getRoleId() == null) {
-            log.error("批量分配用户角色失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
-        
-        if (batchAssignRoleDTO.getUserIds() == null || batchAssignRoleDTO.getUserIds().isEmpty()) {
-            log.error("批量分配用户角色失败: 用户ID列表为空");
-            return Mono.just(Result.error("用户ID列表不能为空"));
-        }
         
         return roleService.batchAssignUserRoles(
                     batchAssignRoleDTO.getUserIds(), 
                     batchAssignRoleDTO.getRoleId(), 
                     batchAssignRoleDTO.getAssignBy()
                 )
-                .map(success -> {
-                    if (success) {
-                        log.info("成功批量分配用户角色, roleId: {}, 用户数量: {}", 
-                                batchAssignRoleDTO.getRoleId(), batchAssignRoleDTO.getUserIds().size());
-                        return Result.success("批量分配用户角色成功");
-                    } else {
-                        log.error("批量分配用户角色失败, roleId: {}", batchAssignRoleDTO.getRoleId());
-                        return Result.error("批量分配用户角色失败");
-                    }
-                });
+                .thenReturn(Result.success("批量分配用户角色成功"))
+                .doOnSuccess(result -> log.info("成功批量分配用户角色, roleId: {}, 用户数量: {}", 
+                        batchAssignRoleDTO.getRoleId(), batchAssignRoleDTO.getUserIds().size()));
     }
     
     /**
@@ -402,27 +295,13 @@ public class RoleController {
      */
     @PutMapping("/edit")
     @Operation(summary = "更新角色信息", description = "使用DTO中的ID修改角色信息")
-    public Mono<Result<Role>> updateRoleWithDTO(@RequestBody RoleUpdateDTO roleUpdateDTO) {
+    public Mono<Result<Role>> updateRoleWithDTO(@Valid @RequestBody RoleUpdateDTO roleUpdateDTO) {
         log.info("请求更新角色信息, 更新信息: {}", roleUpdateDTO);
-        
-        if (roleUpdateDTO == null) {
-            log.error("更新角色信息失败: 更新信息为空");
-            return Mono.just(Result.error("更新信息不能为空"));
-        }
-        
-        if (roleUpdateDTO.getId() == null) {
-            log.error("更新角色信息失败: 角色ID为空");
-            return Mono.just(Result.error("角色ID不能为空"));
-        }
         
         return roleService.updateRole(roleUpdateDTO)
                 .map(updatedRole -> {
                     log.info("成功更新角色信息, ID: {}, 名称: {}", roleUpdateDTO.getId(), updatedRole.getName());
                     return Result.success(updatedRole);
-                })
-                .onErrorResume(e -> {
-                    log.error("更新角色信息失败, ID: {}, 错误: {}", roleUpdateDTO.getId(), e.getMessage());
-                    return Mono.just(Result.error("更新角色信息失败: " + e.getMessage()));
                 });
     }
 } 

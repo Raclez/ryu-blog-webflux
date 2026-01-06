@@ -44,7 +44,8 @@ public class SaTokenConfig {
                         "/webjars/**",
                         "/swagger-ui.html",
                         "/swagger-ui/**",
-                        "/v3/api-docs/**"
+                        "/v3/api-docs/**",
+                        "/posts/front"
                 )
                 // 鉴权方法：每次访问进入
                 .setAuth(obj -> {

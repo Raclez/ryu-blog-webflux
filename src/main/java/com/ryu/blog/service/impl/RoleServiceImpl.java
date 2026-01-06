@@ -76,31 +76,29 @@ public class RoleServiceImpl implements RoleService {
         Long roleId = permissionsAssignDTO.getRoleId();
         List<Long> permissionIds = permissionsAssignDTO.getPermissionIds();
         
-        // 先查询角色是否存在
         return roleRepository.findById(roleId)
+                .filter(role -> !role.getIsDeleted())
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
-                .flatMap(role -> {
-                    // 删除原有权限
-                    return rolePermissionRepository.deleteByRoleId(roleId)
-                            .then(Mono.defer(() -> {
-                                // 保存新权限
-                                List<RolePermission> rolePermissions = new ArrayList<>();
-                                LocalDateTime now = LocalDateTime.now();
-                                
-                                for (Long permissionId : permissionIds) {
-                                    RolePermission rolePermission = new RolePermission();
-                                    rolePermission.setRoleId(roleId);
-                                    rolePermission.setPermissionId(permissionId);
-                                    rolePermission.setCreateTime(now);
-                                    rolePermission.setUpdateTime(now);
-                                    rolePermissions.add(rolePermission);
-                                }
-                                
-                                return Flux.fromIterable(rolePermissions)
-                                        .flatMap(rolePermissionRepository::save)
-                                        .then();
-                            }));
-                });
+                .flatMap(role -> 
+                    rolePermissionRepository.deleteByRoleId(roleId)
+                        .then(Mono.defer(() -> {
+                            LocalDateTime now = LocalDateTime.now();
+                            List<RolePermission> rolePermissions = permissionIds.stream()
+                                    .map(permissionId -> {
+                                        RolePermission rp = new RolePermission();
+                                        rp.setRoleId(roleId);
+                                        rp.setPermissionId(permissionId);
+                                        rp.setCreateTime(now);
+                                        rp.setUpdateTime(now);
+                                        return rp;
+                                    })
+                                    .collect(Collectors.toList());
+                            
+                            return Flux.fromIterable(rolePermissions)
+                                    .flatMap(rolePermissionRepository::save)
+                                    .then();
+                        }))
+                );
     }
 
     @Override
@@ -110,69 +108,46 @@ public class RoleServiceImpl implements RoleService {
         // 获取分页参数
         long currentPage = roleListDTO.getCurrentPage() != null ? roleListDTO.getCurrentPage() : 1;
         long pageSize = roleListDTO.getPageSize() != null ? roleListDTO.getPageSize() : 10;
-        
-        // 计算分页参数
         int skip = (int) ((currentPage - 1) * pageSize);
         
-        if (roleListDTO.getName() != null && !roleListDTO.getName().isEmpty()) {
-            // 按名称模糊查询
-            return roleRepository.findByNameContainingAndIsDeleted(roleListDTO.getName(), 0)
-                    .collectList()
-                    .map(allRoles -> {
-                        // 计算总数
-                        long total = allRoles.size();
-                        
-                        // 手动分页
-                        List<Role> pageData = allRoles.stream()
-                                .skip(skip)
-                                .limit(pageSize)
-                                .collect(Collectors.toList());
-                        
-                        // 创建分页结果
-                        PageResult<Role> pageResult = new PageResult<>();
-                        pageResult.setRecords(pageData);
-                        pageResult.setTotal(total);
-                        pageResult.setSize(pageSize);
-                        pageResult.setCurrent(currentPage);
-                        pageResult.setPages((total + pageSize - 1) / pageSize); // 计算总页数
-                        return pageResult;
-                    });
-        } else {
-            // 查询所有未删除的角色
-            return roleRepository.findAllRoles()
-                    .collectList()
-                    .map(allRoles -> {
-                        // 计算总数
-                        long total = allRoles.size();
-                        
-                        // 手动分页
-                        List<Role> pageData = allRoles.stream()
-                                .skip(skip)
-                                .limit(pageSize)
-                                .collect(Collectors.toList());
-                        
-                        // 创建分页结果
-                        PageResult<Role> pageResult = new PageResult<>();
-                        pageResult.setRecords(pageData);
-                        pageResult.setTotal(total);
-                        pageResult.setSize(pageSize);
-                        pageResult.setCurrent(currentPage);
-                        pageResult.setPages((total + pageSize - 1) / pageSize); // 计算总页数
-                        return pageResult;
-                    });
-        }
+        // 选择查询方法
+        Flux<Role> roleFlux = (roleListDTO.getName() != null && !roleListDTO.getName().isEmpty())
+                ? roleRepository.findByNameContainingAndIsDeleted(roleListDTO.getName(), 0)
+                : roleRepository.findAllRoles();
+        
+        // 统一的分页处理
+        return roleFlux
+                .collectList()
+                .map(allRoles -> buildPageResult(allRoles, currentPage, pageSize, skip));
+    }
+    
+    /**
+     * 构建分页结果
+     */
+    private PageResult<Role> buildPageResult(List<Role> allRoles, long currentPage, long pageSize, int skip) {
+        long total = allRoles.size();
+        List<Role> pageData = allRoles.stream()
+                .skip(skip)
+                .limit(pageSize)
+                .collect(Collectors.toList());
+        
+        PageResult<Role> pageResult = new PageResult<>();
+        pageResult.setRecords(pageData);
+        pageResult.setTotal(total);
+        pageResult.setSize(pageSize);
+        pageResult.setCurrent(currentPage);
+        pageResult.setPages((total + pageSize - 1) / pageSize);
+        return pageResult;
     }
 
     @Override
     public Mono<RoleVO> getRoleDetails(Long id) {
         log.info("获取角色详情, id: {}", id);
         
-        // 查询角色
         return roleRepository.findById(id)
-                .filter(role -> role.getIsDeleted() == false)
+                .filter(role -> !role.getIsDeleted())
                 .switchIfEmpty(Mono.empty())
                 .flatMap(role -> {
-                    // 转换为VO
                     RoleVO roleVO = new RoleVO();
                     BeanUtil.copyProperties(role, roleVO);
                     
@@ -184,13 +159,10 @@ public class RoleServiceImpl implements RoleService {
                                     roleVO.setPermissions(new ArrayList<>());
                                     return Mono.just(roleVO);
                                 }
-                                
                                 return permissionsRepository.findByIdIn(permissionIds)
                                         .collectList()
-                                        .map(permissions -> {
-                                            roleVO.setPermissions(permissions);
-                                            return roleVO;
-                                        });
+                                        .doOnNext(roleVO::setPermissions)
+                                        .thenReturn(roleVO);
                             });
                 });
     }
@@ -211,12 +183,10 @@ public class RoleServiceImpl implements RoleService {
     public Mono<RolePermissionsVO> getRolePermissions(Long id) {
         log.info("获取角色权限, id: {}", id);
         
-        // 查询角色
         return roleRepository.findById(id)
-                .filter(role -> role.getIsDeleted() == false)
+                .filter(role -> !role.getIsDeleted())
                 .switchIfEmpty(Mono.empty())
                 .flatMap(role -> {
-                    // 创建返回对象
                     RolePermissionsVO rolePermissionsVO = new RolePermissionsVO();
                     rolePermissionsVO.setRole(role);
                     
@@ -228,13 +198,10 @@ public class RoleServiceImpl implements RoleService {
                                     rolePermissionsVO.setPermissions(new ArrayList<>());
                                     return Mono.just(rolePermissionsVO);
                                 }
-                                
                                 return permissionsRepository.findByIdIn(permissionIds)
                                         .collectList()
-                                        .map(permissions -> {
-                                            rolePermissionsVO.setPermissions(permissions);
-                                            return rolePermissionsVO;
-                                        });
+                                        .doOnNext(rolePermissionsVO::setPermissions)
+                                        .thenReturn(rolePermissionsVO);
                             });
                 });
     }
@@ -260,15 +227,13 @@ public class RoleServiceImpl implements RoleService {
         log.info("变更角色状态, roleId: {}, isActive: {}", roleId, isActive);
         
         return roleRepository.findById(roleId)
-                .filter(role -> role.getIsDeleted() == false)
+                .filter(role -> !role.getIsDeleted())
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
                 .flatMap(role -> {
-                    role.setIsActive(true);
+                    role.setIsActive(isActive == 1);
                     role.setUpdateTime(LocalDateTime.now());
-                    return roleRepository.save(role)
-                            .map(savedRole -> true);
-                })
-                .defaultIfEmpty(false);
+                    return roleRepository.save(role).thenReturn(true);
+                });
     }
 
     @Override
@@ -276,32 +241,29 @@ public class RoleServiceImpl implements RoleService {
     public Mono<Boolean> batchAssignUserRoles(List<Long> userIds, Long roleId, String assignBy) {
         log.info("批量分配用户角色, userIds: {}, roleId: {}, assignBy: {}", userIds, roleId, assignBy);
         
-        // 检查角色是否存在
         return roleRepository.findById(roleId)
-                .filter(role -> role.getIsDeleted() == false)
+                .filter(role -> !role.getIsDeleted())
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
                 .flatMap(role -> {
-                    // 为每个用户创建角色关联
-                    List<UserRole> userRoles = new ArrayList<>();
                     LocalDateTime now = LocalDateTime.now();
                     
-                    for (Long userId : userIds) {
-                        UserRole userRole = new UserRole();
-                        userRole.setUserId(userId);
-                        userRole.setRoleId(roleId);
-                        userRole.setCreateTime(now);
-                        userRole.setUpdateTime(now);
-                        userRoles.add(userRole);
-                    }
+                    List<UserRole> userRoles = userIds.stream()
+                            .map(userId -> {
+                                UserRole userRole = new UserRole();
+                                userRole.setUserId(userId);
+                                userRole.setRoleId(roleId);
+                                userRole.setCreateTime(now);
+                                userRole.setUpdateTime(now);
+                                return userRole;
+                            })
+                            .collect(Collectors.toList());
                     
-                    // 先删除已有的角色关联
                     return Flux.fromIterable(userIds)
                             .flatMap(userId -> userRoleRepository.deleteByUserIdAndRoleId(userId, roleId))
                             .then(Flux.fromIterable(userRoles)
                                     .flatMap(userRoleRepository::save)
                                     .then(Mono.just(true)));
-                })
-                .defaultIfEmpty(false);
+                });
     }
 
     @Override
@@ -316,18 +278,15 @@ public class RoleServiceImpl implements RoleService {
     public Mono<Void> removeById(Long id) {
         log.info("删除角色, id: {}", id);
         
-        // 查询角色
         return roleRepository.findById(id)
-                .filter(role -> role.getIsDeleted() == false)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
+                .filter(role -> !role.getIsDeleted())
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在或已删除")))
                 .flatMap(role -> {
                     // 逻辑删除
                     role.setIsDeleted(true);
                     role.setUpdateTime(LocalDateTime.now());
                     return roleRepository.save(role)
-                            // 删除角色权限关联
                             .then(rolePermissionRepository.deleteByRoleId(id))
-                            // 删除用户角色关联
                             .then(userRoleRepository.deleteByRoleId(id));
                 });
     }
@@ -337,34 +296,17 @@ public class RoleServiceImpl implements RoleService {
     public Mono<Role> updateRole(RoleUpdateDTO roleUpdateDTO) {
         log.info("更新角色信息, roleUpdateDTO: {}", roleUpdateDTO);
         
-        if (roleUpdateDTO.getId() == null) {
-            return Mono.error(new IllegalArgumentException("角色ID不能为空"));
-        }
-        
         return roleRepository.findById(roleUpdateDTO.getId())
-                .filter(role -> role.getIsDeleted() == false)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
+                .filter(role -> !role.getIsDeleted())
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在或已删除")))
                 .flatMap(role -> {
-                    // 更新角色信息
-                    if (roleUpdateDTO.getName() != null) {
-                        role.setName(roleUpdateDTO.getName());
-                    }
-                    if (roleUpdateDTO.getCode() != null) {
-                        role.setCode(roleUpdateDTO.getCode());
-                    }
-                    if (roleUpdateDTO.getDescription() != null) {
-                        role.setDescription(roleUpdateDTO.getDescription());
-                    }
-                    if (roleUpdateDTO.getSort() != null) {
-                        role.setSort(roleUpdateDTO.getSort());
-                    }
-                    if (roleUpdateDTO.getIsActive() != null) {
-                        role.setIsActive(roleUpdateDTO.getIsActive());
-                    }
+                    if (roleUpdateDTO.getName() != null) role.setName(roleUpdateDTO.getName());
+                    if (roleUpdateDTO.getCode() != null) role.setCode(roleUpdateDTO.getCode());
+                    if (roleUpdateDTO.getDescription() != null) role.setDescription(roleUpdateDTO.getDescription());
+                    if (roleUpdateDTO.getSort() != null) role.setSort(roleUpdateDTO.getSort());
+                    if (roleUpdateDTO.getIsActive() != null) role.setIsActive(roleUpdateDTO.getIsActive());
                     
-                    // 更新时间
                     role.setUpdateTime(LocalDateTime.now());
-                    
                     return roleRepository.save(role);
                 });
     }

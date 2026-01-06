@@ -30,7 +30,7 @@ public interface MenusService {
      * 
      * @return 菜单列表
      */
-    Flux<Menus> listAll();
+    Mono<List<Menus>> listAll();
 
     /**
      * 绑定权限到菜单

@@ -3,6 +3,8 @@ package com.ryu.blog.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 
 /**
@@ -16,9 +18,11 @@ import java.util.List;
 @Schema(description = "权限分配数据传输对象")
 public class PermissionsAssignDTO {
     
-    @Schema(description = "角色ID")
+    @NotNull(message = "角色ID不能为空")
+    @Schema(description = "角色ID", required = true)
     private Long roleId;
     
-    @Schema(description = "权限ID列表")
+    @NotEmpty(message = "权限ID列表不能为空")
+    @Schema(description = "权限ID列表", required = true)
     private List<Long> permissionIds;
 }

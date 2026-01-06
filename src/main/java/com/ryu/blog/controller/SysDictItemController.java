@@ -60,6 +60,16 @@ public class SysDictItemController {
                 .map(Result::success);
     }
     
+    @GetMapping("/typeId/{dictTypeId}")
+    @Operation(summary = "根据字典类型ID获取字典项", description = "获取指定字典类型的所有启用字典项")
+    public Mono<Result<List<SysDictItemVO>>> getDictItemsByTypeId(
+            @Parameter(description = "字典类型ID", example = "1") @PathVariable Long dictTypeId) {
+        log.info("根据字典类型ID获取字典项，dictTypeId={}", dictTypeId);
+        return dictItemService.getDictItemsByTypeId(dictTypeId)
+                .collectList()
+                .map(Result::success);
+    }
+    
     @GetMapping("/type/{dictType}")
     @Operation(summary = "根据字典类型编码获取字典项", description = "获取指定字典类型的所有启用字典项")
     public Mono<Result<List<SysDictItemVO>>> getDictItemsByType(
@@ -71,22 +81,43 @@ public class SysDictItemController {
     }
     
     @PostMapping("/batch")
-    @Operation(summary = "批量获取字典项", description = "一次性获取多个字典类型的字典项")
-    public Mono<Result<Map<String, List<SysDictItemVO>>>> batchGetDictItems(
+    @Operation(summary = "批量获取字典项（按ID）", description = "一次性获取多个字典类型的字典项")
+    public Mono<Result<Map<Long, List<SysDictItemVO>>>> batchGetDictItems(
+            @Parameter(description = "字典类型ID列表") 
+            @RequestBody @NotEmpty(message = "字典类型ID列表不能为空") List<Long> dictTypeIds) {
+        log.info("批量获取字典项，dictTypeIds={}", dictTypeIds);
+        return dictItemService.batchGetDictItemsByIds(dictTypeIds)
+                .map(Result::success);
+    }
+    
+    @PostMapping("/batchByCode")
+    @Operation(summary = "批量获取字典项（按编码）", description = "一次性获取多个字典类型的字典项")
+    public Mono<Result<Map<String, List<SysDictItemVO>>>> batchGetDictItemsByCode(
             @Parameter(description = "字典类型编码列表") 
-            @RequestBody @NotEmpty(message = "字典类型列表不能为空") List<String> dictTypes) {
-        log.info("批量获取字典项，dictTypes={}", dictTypes);
+            @RequestBody @NotEmpty(message = "字典类型编码列表不能为空") List<String> dictTypes) {
+        log.info("批量获取字典项（按编码），dictTypes={}", dictTypes);
         return dictItemService.batchGetDictItems(dictTypes)
                 .map(Result::success);
     }
     
     @GetMapping("/value")
-    @Operation(summary = "获取字典项值", description = "根据字典类型和键获取字典项值")
+    @Operation(summary = "获取字典项值（按ID）", description = "根据字典类型ID和键获取字典项值")
     public Mono<Result<String>> getDictItemValue(
+            @Parameter(description = "字典类型ID") @RequestParam Long dictTypeId,
+            @Parameter(description = "字典项键") @RequestParam String key,
+            @Parameter(description = "默认值") @RequestParam(required = false) String defaultValue) {
+        log.info("获取字典项值，dictTypeId={}, key={}, defaultValue={}", dictTypeId, key, defaultValue);
+        return dictItemService.getDictItemValueById(dictTypeId, key, defaultValue)
+                .map(Result::success);
+    }
+    
+    @GetMapping("/valueByCode")
+    @Operation(summary = "获取字典项值（按编码）", description = "根据字典类型编码和键获取字典项值")
+    public Mono<Result<String>> getDictItemValueByCode(
             @Parameter(description = "字典类型编码") @RequestParam String dictType,
             @Parameter(description = "字典项键") @RequestParam String key,
             @Parameter(description = "默认值") @RequestParam(required = false) String defaultValue) {
-        log.info("获取字典项值，dictType={}, key={}, defaultValue={}", dictType, key, defaultValue);
+        log.info("获取字典项值（按编码），dictType={}, key={}, defaultValue={}", dictType, key, defaultValue);
         return dictItemService.getDictItemValue(dictType, key, defaultValue)
                 .map(Result::success);
     }
@@ -142,11 +173,20 @@ public class SysDictItemController {
                 .map(Result::success);
     }
     
-    @DeleteMapping("/cache/refresh/{dictType}")
-    @Operation(summary = "刷新指定字典类型的字典项缓存", description = "刷新指定字典类型的字典项缓存")
+    @DeleteMapping("/cache/refresh/{dictTypeId}")
+    @Operation(summary = "刷新指定字典类型的字典项缓存（按ID）", description = "刷新指定字典类型的字典项缓存")
     public Mono<Result<Boolean>> refreshCache(
+            @Parameter(description = "字典类型ID") @PathVariable Long dictTypeId) {
+        log.info("刷新字典项缓存: {}", dictTypeId);
+        return dictItemService.refreshCacheById(dictTypeId)
+                .map(Result::success);
+    }
+    
+    @DeleteMapping("/cache/refreshByCode/{dictType}")
+    @Operation(summary = "刷新指定字典类型的字典项缓存（按编码）", description = "刷新指定字典类型的字典项缓存")
+    public Mono<Result<Boolean>> refreshCacheByCode(
             @Parameter(description = "字典类型编码") @PathVariable String dictType) {
-        log.info("刷新字典项缓存: {}", dictType);
+        log.info("刷新字典项缓存（按编码）: {}", dictType);
         return dictItemService.refreshCache(dictType)
                 .map(Result::success);
     }

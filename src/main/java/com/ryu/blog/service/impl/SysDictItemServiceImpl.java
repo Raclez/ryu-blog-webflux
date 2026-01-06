@@ -95,7 +95,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     
     @Override
     public Mono<Map<String, List<SysDictItemVO>>> batchGetDictItems(List<String> dictTypes) {
-        log.debug("批量获取字典项, 字典类型: {}", dictTypes);
+        log.debug("批量获取字典项（按编码）, 字典类型: {}", dictTypes);
         
         if (dictTypes == null || dictTypes.isEmpty()) {
             return Mono.just(new HashMap<>());
@@ -111,9 +111,26 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     }
     
     @Override
+    public Mono<Map<Long, List<SysDictItemVO>>> batchGetDictItemsByIds(List<Long> dictTypeIds) {
+        log.debug("批量获取字典项（按ID）, 字典类型ID: {}", dictTypeIds);
+        
+        if (dictTypeIds == null || dictTypeIds.isEmpty()) {
+            return Mono.just(new HashMap<>());
+        }
+        
+        return Flux.fromIterable(dictTypeIds)
+                .flatMap(dictTypeId -> 
+                    getDictItemsByTypeId(dictTypeId)
+                        .collectList()
+                        .map(items -> Map.entry(dictTypeId, items))
+                )
+                .collectMap(Map.Entry::getKey, Map.Entry::getValue);
+    }
+    
+    @Override
     @Cacheable(key = "'" + CacheConstants.DICT_ITEM_VALUE_KEY + "' + #dictType + ':' + #key", unless = "#result == null")
     public Mono<String> getDictItemValue(String dictType, String key) {
-        log.debug("获取字典项值, dictType: {}, key: {}", dictType, key);
+        log.debug("获取字典项值（按编码）, dictType: {}, key: {}", dictType, key);
         
         return dictTypeRepository.findByDictTypeAndNotDeleted(dictType)
                 .flatMap(type -> 
@@ -127,6 +144,21 @@ public class SysDictItemServiceImpl implements SysDictItemService {
         return getDictItemValue(dictType, key)
                 .defaultIfEmpty(defaultValue);
     }
+    
+    @Override
+    @Cacheable(key = "'" + CacheConstants.DICT_ITEM_VALUE_KEY + "' + #dictTypeId + ':' + #key", unless = "#result == null")
+    public Mono<String> getDictItemValueById(Long dictTypeId, String key) {
+        log.debug("获取字典项值（按ID）, dictTypeId: {}, key: {}", dictTypeId, key);
+        
+        return dictItemRepository.findByDictTypeIdAndDictItemKeyAndNotDeleted(dictTypeId, key)
+                .map(SysDictItem::getDictItemValue);
+    }
+    
+    @Override
+    public Mono<String> getDictItemValueById(Long dictTypeId, String key, String defaultValue) {
+        return getDictItemValueById(dictTypeId, key)
+                .defaultIfEmpty(defaultValue);
+    }
 
     @Override
     public Mono<PageResult<SysDictItemVO>> getDictItemPage(SysDictItemDTO dictItemDTO) {
@@ -136,33 +168,15 @@ public class SysDictItemServiceImpl implements SysDictItemService {
         int size = dictItemDTO.getPageSize().intValue();
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "sort"));
         
-        // 根据字典类型编码查询
-        if (StringUtils.hasText(dictItemDTO.getDictType())) {
+        // 优先使用 dictTypeId，其次使用 dictType
+        if (dictItemDTO.getDictTypeId() != null) {
+            return queryByDictTypeId(dictItemDTO, pageable);
+        } else if (StringUtils.hasText(dictItemDTO.getDictType())) {
+            // 使用字典类型编码查询，需要先转换为ID
             return dictTypeRepository.findByDictType(dictItemDTO.getDictType())
                     .flatMap(dictType -> {
-                        Long dictTypeId = dictType.getId();
-                        Mono<List<SysDictItemVO>> itemsListMono;
-                        Mono<Long> countMono;
-                        
-                        if (StringUtils.hasText(dictItemDTO.getItemLabel())) {
-                            // 按字典类型ID和标签查询
-                            itemsListMono = dictItemRepository.findByDictTypeIdAndDictItemValueLike(
-                                    dictTypeId, dictItemDTO.getItemLabel(), pageable)
-                                    .flatMap(item -> enrichWithDictType(item, dictType))
-                                    .collectList();
-                            countMono = dictItemRepository.countByDictTypeIdAndDictItemValueLike(
-                                    dictTypeId, dictItemDTO.getItemLabel());
-                        } else {
-                            // 只按字典类型ID查询
-                            itemsListMono = dictItemRepository.findByDictTypeId(dictTypeId, pageable)
-                                    .flatMap(item -> enrichWithDictType(item, dictType))
-                                    .collectList();
-                            countMono = dictItemRepository.countByDictTypeId(dictTypeId);
-                        }
-                        
-                        // 组合查询结果
-                        return Mono.zip(itemsListMono, countMono)
-                                .map(tuple -> createPageResult(tuple.getT1(), tuple.getT2(), dictItemDTO));
+                        dictItemDTO.setDictTypeId(dictType.getId());
+                        return queryByDictTypeId(dictItemDTO, pageable);
                     })
                     .switchIfEmpty(Mono.just(new PageResult<>()));
         } else if (StringUtils.hasText(dictItemDTO.getItemLabel())) {
@@ -187,6 +201,40 @@ public class SysDictItemServiceImpl implements SysDictItemService {
             return Mono.zip(itemsListMono, countMono)
                     .map(tuple -> createPageResult(tuple.getT1(), tuple.getT2(), dictItemDTO));
         }
+    }
+    
+    /**
+     * 根据字典类型ID查询（内部方法）
+     */
+    private Mono<PageResult<SysDictItemVO>> queryByDictTypeId(SysDictItemDTO dictItemDTO, Pageable pageable) {
+        Long dictTypeId = dictItemDTO.getDictTypeId();
+        
+        return dictTypeService.getDictTypeEntityById(dictTypeId)
+                .flatMap(dictType -> {
+                    Mono<List<SysDictItemVO>> itemsListMono;
+                    Mono<Long> countMono;
+                    
+                    if (StringUtils.hasText(dictItemDTO.getItemLabel())) {
+                        // 按字典类型ID和标签查询
+                        itemsListMono = dictItemRepository.findByDictTypeIdAndDictItemValueLike(
+                                dictTypeId, dictItemDTO.getItemLabel(), pageable)
+                                .flatMap(item -> enrichWithDictType(item, dictType))
+                                .collectList();
+                        countMono = dictItemRepository.countByDictTypeIdAndDictItemValueLike(
+                                dictTypeId, dictItemDTO.getItemLabel());
+                    } else {
+                        // 只按字典类型ID查询
+                        itemsListMono = dictItemRepository.findByDictTypeId(dictTypeId, pageable)
+                                .flatMap(item -> enrichWithDictType(item, dictType))
+                                .collectList();
+                        countMono = dictItemRepository.countByDictTypeId(dictTypeId);
+                    }
+                    
+                    // 组合查询结果
+                    return Mono.zip(itemsListMono, countMono)
+                            .map(tuple -> createPageResult(tuple.getT1(), tuple.getT2(), dictItemDTO));
+                })
+                .switchIfEmpty(Mono.just(new PageResult<>()));
     }
 
     /**
@@ -313,7 +361,18 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     })
     public Mono<Boolean> refreshCache(String dictType) {
         return Mono.fromCallable(() -> {
-            log.info("刷新字典项缓存: {}", dictType);
+            log.info("刷新字典项缓存（按编码）: {}", dictType);
+            return true;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+    
+    @Override
+    @Caching(evict = {
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_KEY + "' + #dictTypeId")
+    })
+    public Mono<Boolean> refreshCacheById(Long dictTypeId) {
+        return Mono.fromCallable(() -> {
+            log.info("刷新字典项缓存（按ID）: {}", dictTypeId);
             return true;
         }).subscribeOn(Schedulers.boundedElastic());
     }

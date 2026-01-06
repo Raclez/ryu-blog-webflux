@@ -17,6 +17,7 @@ import java.util.Map;
 
 /**
  * 收藏控制器
+ * @author ryu
  */
 @Slf4j
 @RestController

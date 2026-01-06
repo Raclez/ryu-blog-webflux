@@ -2,6 +2,8 @@ package com.ryu.blog.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
@@ -11,12 +13,14 @@ public class MenusUpdateDTO {
     /**
      * 菜单ID
      */
+    @NotNull(message = "菜单ID不能为空")
     @Schema(description = "菜单ID", required = true)
     private Long id;
     
     /**
      * 菜单名称
      */
+    @NotBlank(message = "菜单名称不能为空")
     @Schema(description = "菜单名称", required = true)
     private String name;
 
@@ -47,6 +51,7 @@ public class MenusUpdateDTO {
     /**
      * 菜单类型：0：目录, 1：菜单, 2: 按钮
      */
+    @NotNull(message = "菜单类型不能为空")
     @Schema(description = "菜单类型：0：目录, 1：菜单, 2: 按钮", required = true)
     private Integer menuType;
     
@@ -57,17 +62,21 @@ public class MenusUpdateDTO {
     private String component;
 
     /**
-     * 是否激活：0-禁用，1-启用
+     * 是否隐藏：0-显示，1-隐藏
      */
-    @Schema(description = "是否激活：0-禁用，1-启用")
-    private Integer isActive;
+    @Schema(description = "是否隐藏：0-显示，1-隐藏")
+    private Integer hidden;
 
     /**
      * 是否外链：0-否，1-是
      */
     @JsonFormat(shape = JsonFormat.Shape.NUMBER)
     @Schema(description = "是否外链：0-否，1-是")
-    private Boolean isExternal;
-
-    private String permission;
+    private Boolean isLink;
+    
+    /**
+     * 重定向地址
+     */
+    @Schema(description = "重定向地址")
+    private String redirect;
 }

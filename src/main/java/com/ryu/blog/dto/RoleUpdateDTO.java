@@ -3,6 +3,8 @@ package com.ryu.blog.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import jakarta.validation.constraints.NotNull;
+
 /**
  * 角色更新 DTO
  *
@@ -16,7 +18,8 @@ public class RoleUpdateDTO {
     /**
      * 角色ID
      */
-    @Schema(description = "角色ID")
+    @NotNull(message = "角色ID不能为空")
+    @Schema(description = "角色ID", required = true)
     private Long id;
     
     /**

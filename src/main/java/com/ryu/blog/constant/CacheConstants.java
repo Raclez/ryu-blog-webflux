@@ -86,6 +86,11 @@ public class CacheConstants {
     public static final String STATS_DAILY_KEY = STATS_CACHE_PREFIX + "daily:";
     public static final String STATS_TOTAL_KEY = STATS_CACHE_PREFIX + "total";
     
+    /** 菜单相关缓存 */
+    public static final String MENUS_CACHE_NAME = "menus";
+    public static final String MENUS_TREE_KEY = "tree";
+    public static final String MENUS_ALL_KEY = "all";
+    
     /** 系统配置相关缓存 */
     public static final String CONFIG_CACHE_PREFIX = CACHE_PREFIX + "config:";
     public static final String CONFIG_ALL_KEY = CONFIG_CACHE_PREFIX + "all";
