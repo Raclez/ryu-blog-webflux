@@ -171,4 +171,17 @@ public class CacheConstants {
     public static final String FILE_DETAIL_KEY = CACHE_PREFIX + "file:detail:";
     public static final String FILE_URL_KEY = CACHE_PREFIX + "file:url:";
     public static final String FILE_DOWNLOAD_KEY = CACHE_PREFIX + "file:download:";
+    
+    /** AI相关缓存名称 */
+    public static final String AI_GENERATION_CACHE_NAME = "aiGeneration";
+    public static final String AI_TEMPLATE_CACHE_NAME = "aiTemplate";
+    public static final String AI_QUOTA_CACHE_NAME = "aiQuota";
+    public static final String AI_PROVIDER_CONFIG_CACHE_NAME = "aiProviderConfig";
+    
+    /** AI相关缓存键 */
+    public static final String AI_GENERATION_KEY = "generation:";
+    public static final String AI_TEMPLATE_KEY = "template:";
+    public static final String AI_QUOTA_KEY = "quota:user:";
+    public static final String AI_PROVIDER_CONFIG_KEY = "provider:";
+    public static final String AI_RATE_LIMIT_KEY = CACHE_PREFIX + "ai:ratelimit:";
 } 

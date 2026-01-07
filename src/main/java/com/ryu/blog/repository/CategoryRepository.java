@@ -60,4 +60,12 @@ public interface CategoryRepository extends R2dbcRepository<Category, Long> {
            "AND (:keyword IS NULL OR :keyword = '' OR name LIKE CONCAT('%', :keyword, '%') " +
            "OR description LIKE CONCAT('%', :keyword, '%'))")
     Mono<Long> countByKeyword(String keyword);
+
+    /**
+     * 根据名称查询分类
+     * @param name 分类名称
+     * @return 分类信息
+     */
+    @Query("SELECT * FROM t_categories WHERE name = :name AND is_deleted = 0 LIMIT 1")
+    Mono<Category> findByNameAndIsDeleted(String name, Integer isDeleted);
 } 

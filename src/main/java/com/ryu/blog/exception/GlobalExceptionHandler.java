@@ -140,6 +140,77 @@ public class GlobalExceptionHandler {
     }
     
     /**
+     * 处理AI提供商异常
+     * 
+     * @param e AI提供商异常
+     * @param exchange 请求交换对象
+     * @return 响应结果
+     */
+    @ExceptionHandler(AiProviderException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public Mono<Result<Void>> handleAiProviderException(AiProviderException e, ServerWebExchange exchange) {
+        log.error("AI提供商异常：provider={}, message={}, 路径: {}", 
+                e.getProviderName(), e.getMessage(), exchange.getRequest().getPath(), e);
+        return Mono.just(Result.error(e.getCode(), e.getMessage()));
+    }
+    
+    /**
+     * 处理AI配置异常
+     * 
+     * @param e AI配置异常
+     * @param exchange 请求交换对象
+     * @return 响应结果
+     */
+    @ExceptionHandler(AiConfigurationException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Mono<Result<Void>> handleAiConfigurationException(AiConfigurationException e, ServerWebExchange exchange) {
+        log.error("AI配置异常：{}, 路径: {}", e.getMessage(), exchange.getRequest().getPath(), e);
+        return Mono.just(Result.error(e.getCode(), e.getMessage()));
+    }
+    
+    /**
+     * 处理AI生成异常
+     * 
+     * @param e AI生成异常
+     * @param exchange 请求交换对象
+     * @return 响应结果
+     */
+    @ExceptionHandler(AiGenerationException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Mono<Result<Void>> handleAiGenerationException(AiGenerationException e, ServerWebExchange exchange) {
+        log.error("AI生成异常：{}, 路径: {}", e.getMessage(), exchange.getRequest().getPath(), e);
+        return Mono.just(Result.error(e.getCode(), e.getMessage()));
+    }
+    
+    /**
+     * 处理AI超时异常
+     * 
+     * @param e AI超时异常
+     * @param exchange 请求交换对象
+     * @return 响应结果
+     */
+    @ExceptionHandler(AiTimeoutException.class)
+    @ResponseStatus(HttpStatus.REQUEST_TIMEOUT)
+    public Mono<Result<Void>> handleAiTimeoutException(AiTimeoutException e, ServerWebExchange exchange) {
+        log.warn("AI请求超时：timeout={}ms, 路径: {}", e.getTimeoutMillis(), exchange.getRequest().getPath());
+        return Mono.just(Result.error(e.getCode(), "请求超时，请稍后重试"));
+    }
+    
+    /**
+     * 处理速率限制超出异常
+     * 
+     * @param e 速率限制超出异常
+     * @param exchange 请求交换对象
+     * @return 响应结果
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    public Mono<Result<Void>> handleRateLimitExceededException(RateLimitExceededException e, ServerWebExchange exchange) {
+        log.warn("速率限制超出：{}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
+        return Mono.just(Result.error(ErrorCodeConstants.TOO_MANY_REQUESTS, e.getMessage()));
+    }
+    
+    /**
      * 处理WebExchange绑定异常（@Valid注解校验失败）
      * 
      * @param e WebExchange绑定异常

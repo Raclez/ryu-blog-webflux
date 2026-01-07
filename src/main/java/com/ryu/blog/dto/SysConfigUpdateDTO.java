@@ -32,9 +32,6 @@ public class SysConfigUpdateDTO {
     @Schema(description = "备注")
     private String remark;
     
-    @Schema(description = "状态：true 启用, false 禁用")
-    private Boolean status;
-    
     @Schema(description = "用户ID，0表示全局配置")
     private Long userId;
     

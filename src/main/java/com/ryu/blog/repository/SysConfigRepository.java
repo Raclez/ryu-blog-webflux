@@ -2,7 +2,6 @@ package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.SysConfig;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -139,11 +138,4 @@ public interface SysConfigRepository extends ReactiveCrudRepository<SysConfig, L
      */
     Mono<SysConfig> findByUserIdAndConfigKey(Long userId, String configKey);
 
-    /**
-     * 根据状态查询配置列表
-     *
-     * @param status 状态
-     * @return 配置列表
-     */
-    Flux<SysConfig> findByStatus(Boolean status);
 } 

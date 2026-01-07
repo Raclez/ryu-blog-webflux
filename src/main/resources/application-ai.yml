@@ -1,0 +1,120 @@
+# AI功能配置文件
+# 此文件仅包含AI功能的基础开关和业务配置
+# AI提供商的具体配置（API密钥、模型等）存储在数据库的 t_sys_config 表中
+
+# ============================================
+# Spring AI 占位符配置
+# ============================================
+# 为 Spring AI 自动配置提供占位符，避免启动时报错
+# 实际使用时，我们从数据库加载真实配置
+spring:
+  ai:
+    openai:
+      api-key: placeholder
+      base-url: https://api.openai.com
+    azure:
+      openai:
+        api-key: placeholder
+        endpoint: https://placeholder.openai.azure.com
+    anthropic:
+      api-key: placeholder
+
+# ============================================
+# AI功能总开关（可插拔设计）
+# ============================================
+blog:
+  ai:
+    # 是否启用AI功能模块
+    # true: 启用AI功能，加载所有AI相关Bean（默认）
+    # false: 禁用AI功能，不加载任何AI相关Bean，节省资源
+    # 注意：启用后具体使用哪个AI提供商由数据库 t_sys_config 表配置决定
+    enabled: true
+
+# ============================================
+# AI功能业务配置
+# ============================================
+ai:
+  # 速率限制配置
+  rate-limit:
+    # 默认每小时限制
+    default-hourly-limit: 10
+    # 默认每日限制
+    default-daily-limit: 50
+    # 默认每月限制
+    default-monthly-limit: 1000
+  
+  # 内容生成配置
+  generation:
+    # 生成超时时间（秒）
+    timeout: 60
+    # 是否启用结果缓存（用于幂等性）
+    cache-enabled: true
+    # 缓存过期时间（分钟）
+    cache-ttl: 5
+    # 默认语言
+    default-language: zh
+    # 默认语气
+    default-tone: professional
+  
+  # 内容安全配置
+  safety:
+    # 是否启用内容安全检查
+    enabled: true
+    # 敏感词过滤
+    keyword-filter-enabled: true
+  
+  # 成本控制配置
+  cost:
+    # 是否启用成本追踪
+    tracking-enabled: true
+  
+  # 重试配置
+  retry:
+    # 是否启用重试
+    enabled: true
+    # 最大重试次数
+    max-attempts: 3
+    # 初始退避时间（毫秒）
+    initial-backoff: 1000
+    # 最大退避时间（毫秒）
+    max-backoff: 10000
+    # 退避倍数
+    backoff-multiplier: 2.0
+    # 请求超时时间（毫秒）
+    timeout: 60000
+
+# ============================================
+# AI提供商配置说明
+# ============================================
+# AI提供商的配置存储在数据库 t_sys_config 表中
+#
+# 配置格式（充分利用表设计）：
+# - config_key: ai.provider.{providerName}  (如: ai.provider.openai)
+# - config_value: true/false                 (启用状态)
+# - extra: JSON格式的详细配置                (API密钥、模型参数等)
+#
+# 示例配置：
+# INSERT INTO t_sys_config (config_key, config_value, extra, remark, user_id, status)
+# VALUES (
+#     'ai.provider.openai',
+#     'true',
+#     '{"apiKey":"sk-xxx","modelName":"gpt-4","temperature":0.7,"maxTokens":2000}',
+#     'OpenAI提供商配置',
+#     0,
+#     true
+# );
+#
+# 默认提供商配置：
+# INSERT INTO t_sys_config (config_key, config_value, remark, user_id, status)
+# VALUES ('ai.default.provider', 'openai', '默认AI提供商', 0, true);
+#
+# 优势：
+# - 一条记录包含所有信息，避免配置碎片化
+# - config_value 存储简单的启用状态
+# - extra 存储复杂的JSON配置
+# - 管理员可通过管理界面动态配置，无需重启服务
+# - API密钥加密存储在数据库中，更安全
+# - 支持多租户场景（user_id字段）
+# - 配置变更可实时生效（通过缓存刷新）
+#
+# 详细使用说明请参考：src/main/java/com/ryu/blog/service/ai/README.md

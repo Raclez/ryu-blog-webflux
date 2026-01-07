@@ -94,4 +94,12 @@ public interface TagRepository extends R2dbcRepository<Tag, Long> {
            "AND (COALESCE(:keyword, '') = '' OR name LIKE CONCAT('%', :keyword, '%') " +
            "OR description LIKE CONCAT('%', :keyword, '%'))")
     Mono<Long> countByKeyword(String keyword);
+
+    /**
+     * 根据名称查询标签
+     * @param name 标签名称
+     * @return 标签信息
+     */
+    @Query("SELECT * FROM t_tags WHERE name = :name AND is_deleted = 0 LIMIT 1")
+    Mono<Tag> findByNameAndIsDeleted(String name, Integer isDeleted);
 } 

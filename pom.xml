@@ -20,6 +20,7 @@
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springboot>3.2.8</springboot>
+        <spring-ai.version>1.0.0-M5</spring-ai.version>
         <mysql.version>8.0.33</mysql.version>
         <mybatis-plus-spring-boot3>3.5.7</mybatis-plus-spring-boot3>
         <jackson.version>2.15.3</jackson.version>
@@ -29,6 +30,19 @@
         <profiles.active>local</profiles.active>
         <log.level>info</log.level>
     </properties>
+
+    <!-- Spring AI BOM for dependency management -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <!-- 多环境配置 -->
     <profiles>
@@ -78,6 +92,21 @@
             <groupId>net.coobird</groupId>
             <artifactId>thumbnailator</artifactId>
             <version>0.4.20</version>
+        </dependency>
+
+        <!-- Spring AI - 使用核心库而非 starter，避免自动配置 -->
+        <!-- 这样可以完全控制 AI 客户端的创建，实现真正的可插拔设计 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-azure-openai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-anthropic</artifactId>
         </dependency>
 
         <!-- WebFlux -->
@@ -147,6 +176,13 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
+        </dependency>
+        
+        <!-- OSHI - Operating System and Hardware Information -->
+        <dependency>
+            <groupId>com.github.oshi</groupId>
+            <artifactId>oshi-core</artifactId>
+            <version>6.4.11</version>
         </dependency>
         
         <!-- Caffeine Cache -->
@@ -283,6 +319,21 @@
             <scope>test</scope>
         </dependency>
         
+        <!-- Reactor Test -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        
+        <!-- jqwik for Property-Based Testing -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>1.8.2</version>
+            <scope>test</scope>
+        </dependency>
+        
         <!-- ZXing -->
         <dependency>
             <groupId>com.google.zxing</groupId>
@@ -316,6 +367,18 @@
             <version>5.6.155</version>
         </dependency>
     </dependencies>
+
+    <!-- Spring Milestone Repository for Spring AI -->
+    <repositories>
+        <repository>
+            <id>spring-milestones</id>
+            <name>Spring Milestones</name>
+            <url>https://repo.spring.io/milestone</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
     <build>
         <plugins>

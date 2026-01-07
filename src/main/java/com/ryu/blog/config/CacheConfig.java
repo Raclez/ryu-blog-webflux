@@ -247,6 +247,38 @@ public class CacheConfig {
                 .maximumSize(10000)  // 支持更多并发用户
                 .recordStats()
                 .buildAsync());  // 修复：改为异步缓存
+        
+        // AI生成结果缓存 - 短期缓存（用于幂等性）
+        cacheManager.registerCustomCache(CacheConstants.AI_GENERATION_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)  // 5分钟内相同请求返回缓存
+                .maximumSize(100)
+                .recordStats()
+                .buildAsync());
+        
+        // AI模板缓存 - 长期缓存
+        cacheManager.registerCustomCache(CacheConstants.AI_TEMPLATE_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(6, TimeUnit.HOURS)  // 模板变化较少
+                .maximumSize(50)
+                .recordStats()
+                .buildAsync());
+        
+        // AI配额缓存 - 短期缓存
+        cacheManager.registerCustomCache(CacheConstants.AI_QUOTA_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(10, TimeUnit.MINUTES)  // 配额需要较新数据
+                .maximumSize(500)
+                .recordStats()
+                .buildAsync());
+        
+        // AI提供商配置缓存 - 长期缓存
+        cacheManager.registerCustomCache(CacheConstants.AI_PROVIDER_CONFIG_CACHE_NAME, 
+            Caffeine.newBuilder()
+                .expireAfterWrite(12, TimeUnit.HOURS)  // 配置变化很少
+                .maximumSize(20)
+                .recordStats()
+                .buildAsync());
     }
     
     /**

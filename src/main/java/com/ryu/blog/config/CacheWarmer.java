@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.ApplicationListener;
-import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -19,7 +18,7 @@ import java.time.Duration;
  * @author ryu
  */
 @Slf4j
-@Component
+//@Component
 @RequiredArgsConstructor
 public class CacheWarmer implements ApplicationListener<ApplicationStartedEvent> {
 

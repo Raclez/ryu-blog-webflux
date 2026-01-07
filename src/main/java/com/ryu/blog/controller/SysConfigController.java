@@ -2,10 +2,10 @@ package com.ryu.blog.controller;
 
 import com.ryu.blog.dto.SysConfigDTO;
 import com.ryu.blog.dto.SysConfigUpdateDTO;
+import com.ryu.blog.entity.SysConfig;
 import com.ryu.blog.service.SysConfigService;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.PageResult;
-import com.ryu.blog.vo.SysConfigVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,7 +40,7 @@ public class SysConfigController {
      */
     @GetMapping("/page")
     @Operation(summary = "分页获取系统配置信息", description = "支持按配置键模糊查询")
-    public Mono<Result<PageResult<SysConfigVO>>> getSysConfig(
+    public Mono<Result<PageResult<SysConfig>>> getSysConfig(
             @Parameter(description = "配置键（模糊查询）") @RequestParam(required = false) String configKey,
             @Parameter(description = "当前页码") @RequestParam(defaultValue = "1") @Min(1) int currentPage,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") @Min(1) @Max(100) int pageSize) {
@@ -54,7 +54,7 @@ public class SysConfigController {
      */
     @GetMapping("/{id}")
     @Operation(summary = "根据ID获取配置信息")
-    public Mono<Result<SysConfigVO>> getConfigById(
+    public Mono<Result<SysConfig>> getConfigById(
             @Parameter(description = "配置ID") @PathVariable("id") Long id) {
         log.info("根据ID获取配置信息，id={}", id);
         return sysConfigService.getConfigById(id)
@@ -67,7 +67,7 @@ public class SysConfigController {
      */
     @GetMapping("/key/{configKey}")
     @Operation(summary = "根据配置键获取配置信息")
-    public Mono<Result<SysConfigVO>> getConfigByKey(
+    public Mono<Result<SysConfig>> getConfigByKey(
             @Parameter(description = "配置键") @PathVariable("configKey") String configKey) {
         log.info("根据配置键获取配置信息，key={}", configKey);
         return sysConfigService.getConfig(configKey)
@@ -76,24 +76,11 @@ public class SysConfigController {
     }
 
     /**
-     * 根据配置键获取配置值
-     */
-    @GetMapping("/value/{configKey}")
-    @Operation(summary = "根据配置键获取配置值")
-    public Mono<Result<String>> getConfigValue(
-            @Parameter(description = "配置键") @PathVariable("configKey") String configKey,
-            @Parameter(description = "默认值") @RequestParam(required = false) String defaultValue) {
-        log.info("根据配置键获取配置值，key={}, defaultValue={}", configKey, defaultValue);
-        return sysConfigService.getConfigValue(configKey, defaultValue)
-                .map(Result::success);
-    }
-
-    /**
      * 添加配置
      */
     @PostMapping("/save")
     @Operation(summary = "添加系统配置信息", description = "配置键格式：分组.子分组.配置名")
-    public Mono<Result<SysConfigVO>> addConfig(@Valid @RequestBody SysConfigDTO configDTO) {
+    public Mono<Result<SysConfig>> addConfig(@Valid @RequestBody SysConfigDTO configDTO) {
         log.info("添加系统配置，配置信息：{}", configDTO);
         return sysConfigService.addConfig(configDTO)
                 .map(Result::success);
@@ -104,7 +91,7 @@ public class SysConfigController {
      */
     @PutMapping("/edit")
     @Operation(summary = "修改系统配置信息")
-    public Mono<Result<SysConfigVO>> updateConfig(@Valid @RequestBody SysConfigUpdateDTO configDTO) {
+    public Mono<Result<SysConfig>> updateConfig(@Valid @RequestBody SysConfigUpdateDTO configDTO) {
         log.info("修改系统配置，配置ID：{}", configDTO.getId());
         return sysConfigService.updateConfig(configDTO)
                 .map(Result::success);
@@ -115,7 +102,7 @@ public class SysConfigController {
      */
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除系统配置信息", description = "删除配置并返回被删除的配置信息")
-    public Mono<Result<SysConfigVO>> deleteConfig(
+    public Mono<Result<SysConfig>> deleteConfig(
             @Parameter(description = "配置ID") @PathVariable("id") Long id) {
         log.info("删除系统配置，配置ID：{}", id);
         return sysConfigService.deleteConfig(id)
@@ -165,7 +152,7 @@ public class SysConfigController {
      */
     @GetMapping("/list")
     @Operation(summary = "根据分组前缀获取配置列表")
-    public Mono<Result<List<SysConfigVO>>> getConfigList(
+    public Mono<Result<List<SysConfig>>> getConfigList(
             @Parameter(description = "分组前缀") @RequestParam(required = false) String groupPrefix) {
         log.info("获取配置列表，groupPrefix={}", groupPrefix);
         return sysConfigService.getConfigList(groupPrefix)
@@ -178,7 +165,7 @@ public class SysConfigController {
      */
     @GetMapping("/search")
     @Operation(summary = "搜索配置", description = "根据配置键或备注模糊搜索")
-    public Mono<Result<List<SysConfigVO>>> searchConfig(
+    public Mono<Result<List<SysConfig>>> searchConfig(
             @Parameter(description = "搜索关键字") @RequestParam String keyword) {
         log.info("搜索配置，keyword={}", keyword);
         return sysConfigService.searchConfig(keyword)
@@ -196,4 +183,4 @@ public class SysConfigController {
         return sysConfigService.clearAllCache()
                 .map(Result::success);
     }
-} 
+}
