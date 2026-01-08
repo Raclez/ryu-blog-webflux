@@ -50,5 +50,5 @@ public class RoleUpdateDTO {
      * 是否激活：0-禁用，1-启用
      */
     @Schema(description = "是否激活：0-禁用，1-启用")
-    private Boolean isActive;
+    private Integer isActive;
 } 

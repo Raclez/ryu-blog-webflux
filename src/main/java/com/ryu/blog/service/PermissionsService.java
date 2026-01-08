@@ -115,5 +115,5 @@ public interface PermissionsService {
      * @param isActive 激活状态
      * @return 操作结果
      */
-    Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive);
+    Mono<Boolean> updatePermissionStatus(List<Long> ids, Integer isActive);
 } 

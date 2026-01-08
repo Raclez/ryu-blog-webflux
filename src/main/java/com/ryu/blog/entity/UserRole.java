@@ -8,6 +8,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -21,8 +22,9 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table("t_user_roles")
-public class UserRole {
+@Table("t_user_role")
+public class UserRole implements Serializable {
+    private static final long serialVersionUID = 1L;
     
     /**
      * 主键ID

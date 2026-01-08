@@ -4,6 +4,7 @@ import com.ryu.blog.dto.AiUsageStatistics;
 import com.ryu.blog.entity.AiUsageQuota;
 import com.ryu.blog.service.AiUsageStatisticsService;
 import com.ryu.blog.service.RateLimitService;
+import com.ryu.blog.utils.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -47,10 +48,11 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "404", description = "配额不存在"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiUsageQuota> getQuota(
+    public Mono<Result<AiUsageQuota>> getQuota(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("获取用户配额: userId={}", userId);
-        return rateLimitService.getQuota(userId);
+        return rateLimitService.getQuota(userId)
+                .map(Result::success);
     }
 
     @GetMapping("/quota/remaining")
@@ -59,10 +61,11 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "200", description = "查询成功"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<RateLimitService.QuotaRemaining> getRemainingQuota(
+    public Mono<Result<RateLimitService.QuotaRemaining>> getRemainingQuota(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("获取剩余配额: userId={}", userId);
-        return rateLimitService.getRemainingQuota(userId);
+        return rateLimitService.getRemainingQuota(userId)
+                .map(Result::success);
     }
 
     @GetMapping("/usage")
@@ -72,7 +75,7 @@ public class AiQuotaController {
                     content = @Content(schema = @Schema(implementation = AiUsageStatistics.class))),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiUsageStatistics> getUsageStatistics(
+    public Mono<Result<AiUsageStatistics>> getUsageStatistics(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId,
             @Parameter(description = "开始日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String startDate,
             @Parameter(description = "结束日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String endDate) {
@@ -81,7 +84,8 @@ public class AiQuotaController {
         LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().minusDays(30);
         LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
         
-        return statisticsService.getStatistics(userId, start.atStartOfDay(), end.atTime(23, 59, 59));
+        return statisticsService.getStatistics(userId, start.atStartOfDay(), end.atTime(23, 59, 59))
+                .map(Result::success);
     }
 
     @GetMapping("/usage/today")
@@ -104,10 +108,11 @@ public class AiQuotaController {
                     content = @Content(schema = @Schema(implementation = AiUsageStatistics.class))),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiUsageStatistics> getMonthUsage(
+    public Mono<Result<AiUsageStatistics>> getMonthUsage(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("获取本月使用统计: userId={}", userId);
-        return statisticsService.getMonthlyStatistics(userId);
+        return statisticsService.getMonthlyStatistics(userId)
+                .map(Result::success);
     }
 
     @GetMapping("/usage/cost")
@@ -116,7 +121,7 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "200", description = "查询成功"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Double> getTotalCost(
+    public Mono<Result<Double>> getTotalCost(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId,
             @Parameter(description = "开始日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String startDate,
             @Parameter(description = "结束日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String endDate) {
@@ -126,6 +131,7 @@ public class AiQuotaController {
         LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
         
         return statisticsService.getStatistics(userId, start.atStartOfDay(), end.atTime(23, 59, 59))
-                .map(AiUsageStatistics::getTotalCost);
+                .map(AiUsageStatistics::getTotalCost)
+                .map(Result::success);
     }
 }

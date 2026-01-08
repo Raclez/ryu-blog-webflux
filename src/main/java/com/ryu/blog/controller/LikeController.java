@@ -7,8 +7,8 @@ import com.ryu.blog.utils.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -22,10 +22,10 @@ import java.util.Map;
 //@RestController
 @RequestMapping("/api/like")
 @Tag(name = "点赞管理", description = "点赞相关接口")
+@RequiredArgsConstructor
 public class LikeController {
 
-    @Autowired
-    private LikeService likeService;
+    private final LikeService likeService;
 
     /**
      * 点赞或取消点赞

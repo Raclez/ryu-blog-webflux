@@ -35,7 +35,7 @@ public class StorageConfigUpdateDTO {
     /**
      * 是否启用此策略
      */
-    private Boolean isEnable;
+    private Integer isEnable;
 
 
     private  String accessUrl;

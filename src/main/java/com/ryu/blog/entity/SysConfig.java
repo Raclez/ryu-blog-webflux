@@ -1,17 +1,16 @@
 package com.ryu.blog.entity;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
-import lombok.*;
-import org.springframework.data.annotation.Id;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-
-import java.time.LocalDateTime;
 
 /**
  * 系统配置实体类
@@ -24,21 +23,13 @@ import java.time.LocalDateTime;
  * - idx_key_deleted: 复合索引 (config_key, is_deleted)
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(of = {"id"})
+@EqualsAndHashCode(callSuper = true, of = {"id"})
 @Table("t_sys_config")
 @Schema(description = "系统配置")
-public class SysConfig {
-
-    /**
-     * 配置ID
-     */
-    @Id
-    @Schema(description = "配置ID")
-    @JsonSerialize(using = ToStringSerializer.class)
-    private Long id;
+public class SysConfig extends BaseEntity {
 
     /**
      * 配置键，格式为"分组.子分组.配置名"
@@ -66,14 +57,6 @@ public class SysConfig {
     private String remark;
 
     /**
-     * 创建时间
-     */
-    @Column("create_time")
-    @Schema(description = "创建时间")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime createTime;
-
-    /**
      * 扩展信息（JSON格式）
      */
     @Size(max = 1000, message = "扩展信息长度不能超过1000")
@@ -89,20 +72,4 @@ public class SysConfig {
     @Schema(description = "用户ID，0表示全局配置")
     @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
-
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    @Schema(description = "更新时间")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime updateTime;
-
-    /**
-     * 是否删除：0-未删除，1-已删除
-     * 不暴露给前端
-     */
-    @Column("is_deleted")
-    @JsonIgnore
-    private Integer isDeleted;
 } 

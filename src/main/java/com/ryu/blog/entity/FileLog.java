@@ -1,16 +1,15 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import org.springframework.format.annotation.DateTimeFormat;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -19,19 +18,12 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_file_logs")
-public class FileLog implements Serializable {
-
-    private static final long serialVersionUID = 1L;
-
-    /**
-     * 日志记录的唯一标识
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class FileLog extends BaseEntity {
 
     /**
      * 对应文件ID

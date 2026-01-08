@@ -1,6 +1,7 @@
 package com.ryu.blog.strategy.impl;
 
 import com.ryu.blog.entity.StorageConfig;
+import com.ryu.blog.strategy.StorageConfigManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -32,6 +33,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class LocalStorageStrategy extends AbstractFileStorageStrategy {
 
     private final DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+
+    public LocalStorageStrategy(StorageConfigManager configManager) {
+        super(configManager);
+    }
 
     @Override
     public String getStrategyKey() {

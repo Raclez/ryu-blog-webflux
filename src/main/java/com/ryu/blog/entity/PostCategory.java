@@ -1,6 +1,7 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
@@ -16,14 +17,15 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
+@Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @Table("t_post_categories")
 public class PostCategory implements Serializable {
-    private static final long serialVersionUID = -3329894548771268592L;
+    private static final long serialVersionUID = 1L;
     
     /**
-     * 关联ID
+     * 主键ID
      */
     @Id
     private Long id;
@@ -39,10 +41,10 @@ public class PostCategory implements Serializable {
      */
     @Column("category_id")
     private Long categoryId;
-
+    
     /**
-     * 关联时间
+     * 创建时间
      */
     @Column("create_time")
     private LocalDateTime createTime;
-} 
+}

@@ -55,9 +55,9 @@ public class RoleServiceImpl implements RoleService {
         role.setCode(roleDTO.getCode());
         role.setDescription(roleDTO.getDescription());
         role.setSort(roleDTO.getSort() != null ? roleDTO.getSort() : 0);
-        role.setIsActive(true);  // 默认激活
-        role.setIsDefault(false); // 默认非默认角色
-        role.setIsDeleted(false); // 未删除
+        role.setIsActive(1);  // 默认激活
+        role.setIsDefault(0); // 默认非默认角色
+        role.setIsDeleted(0); // 未删除
         
         // 设置时间
         LocalDateTime now = LocalDateTime.now();
@@ -77,7 +77,7 @@ public class RoleServiceImpl implements RoleService {
         List<Long> permissionIds = permissionsAssignDTO.getPermissionIds();
         
         return roleRepository.findById(roleId)
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
                 .flatMap(role -> 
                     rolePermissionRepository.deleteByRoleId(roleId)
@@ -145,7 +145,7 @@ public class RoleServiceImpl implements RoleService {
         log.info("获取角色详情, id: {}", id);
         
         return roleRepository.findById(id)
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.empty())
                 .flatMap(role -> {
                     RoleVO roleVO = new RoleVO();
@@ -184,7 +184,7 @@ public class RoleServiceImpl implements RoleService {
         log.info("获取角色权限, id: {}", id);
         
         return roleRepository.findById(id)
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.empty())
                 .flatMap(role -> {
                     RolePermissionsVO rolePermissionsVO = new RolePermissionsVO();
@@ -227,10 +227,10 @@ public class RoleServiceImpl implements RoleService {
         log.info("变更角色状态, roleId: {}, isActive: {}", roleId, isActive);
         
         return roleRepository.findById(roleId)
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
                 .flatMap(role -> {
-                    role.setIsActive(isActive == 1);
+                    role.setIsActive(isActive);
                     role.setUpdateTime(LocalDateTime.now());
                     return roleRepository.save(role).thenReturn(true);
                 });
@@ -242,7 +242,7 @@ public class RoleServiceImpl implements RoleService {
         log.info("批量分配用户角色, userIds: {}, roleId: {}, assignBy: {}", userIds, roleId, assignBy);
         
         return roleRepository.findById(roleId)
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
                 .flatMap(role -> {
                     LocalDateTime now = LocalDateTime.now();
@@ -279,11 +279,11 @@ public class RoleServiceImpl implements RoleService {
         log.info("删除角色, id: {}", id);
         
         return roleRepository.findById(id)
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在或已删除")))
                 .flatMap(role -> {
                     // 逻辑删除
-                    role.setIsDeleted(true);
+                    role.setIsDeleted(1);
                     role.setUpdateTime(LocalDateTime.now());
                     return roleRepository.save(role)
                             .then(rolePermissionRepository.deleteByRoleId(id))
@@ -297,14 +297,16 @@ public class RoleServiceImpl implements RoleService {
         log.info("更新角色信息, roleUpdateDTO: {}", roleUpdateDTO);
         
         return roleRepository.findById(roleUpdateDTO.getId())
-                .filter(role -> !role.getIsDeleted())
+                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在或已删除")))
                 .flatMap(role -> {
                     if (roleUpdateDTO.getName() != null) role.setName(roleUpdateDTO.getName());
                     if (roleUpdateDTO.getCode() != null) role.setCode(roleUpdateDTO.getCode());
                     if (roleUpdateDTO.getDescription() != null) role.setDescription(roleUpdateDTO.getDescription());
                     if (roleUpdateDTO.getSort() != null) role.setSort(roleUpdateDTO.getSort());
-                    if (roleUpdateDTO.getIsActive() != null) role.setIsActive(roleUpdateDTO.getIsActive());
+                    if (roleUpdateDTO.getIsActive() != null) {
+                        role.setIsActive(Boolean.TRUE.equals(roleUpdateDTO.getIsActive()) ? 1 : 0);
+                    }
                     
                     role.setUpdateTime(LocalDateTime.now());
                     return roleRepository.save(role);

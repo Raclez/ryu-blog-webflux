@@ -4,6 +4,7 @@ import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.AiGenerationHistory;
 import com.ryu.blog.service.AiBlogService;
+import com.ryu.blog.utils.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -23,6 +24,7 @@ import reactor.core.publisher.Mono;
 
 import javax.validation.Valid;
 import javax.validation.constraints.NotNull;
+import java.util.List;
 
 /**
  * AI博客控制器
@@ -52,10 +54,11 @@ public class AiBlogController {
             @ApiResponse(responseCode = "429", description = "超出速率限制"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiGenerationResult> generateBlogContent(
+    public Mono<Result<AiGenerationResult>> generateBlogContent(
             @Valid @RequestBody AiGenerationRequest request) {
         log.info("收到博客生成请求: userId={}, topic={}", request.getUserId(), request.getTopic());
-        return aiBlogService.generateBlogContent(request);
+        return aiBlogService.generateBlogContent(request)
+                .map(Result::success);
     }
 
     @PostMapping(value = "/generate/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -88,11 +91,12 @@ public class AiBlogController {
             @ApiResponse(responseCode = "429", description = "超出速率限制"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiGenerationResult> refineContent(
+    public Mono<Result<AiGenerationResult>> refineContent(
             @Valid @RequestBody AiGenerationRequest request) {
         log.info("收到内容优化请求: userId={}, operation={}", 
                 request.getUserId(), request.getRefinementOperation());
-        return aiBlogService.refineContent(request);
+        return aiBlogService.refineContent(request)
+                .map(Result::success);
     }
 
     @GetMapping("/history")
@@ -102,12 +106,14 @@ public class AiBlogController {
             @ApiResponse(responseCode = "400", description = "请求参数错误"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Flux<AiGenerationHistory> getGenerationHistory(
+    public Mono<Result<List<AiGenerationHistory>>> getGenerationHistory(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId,
             @Parameter(description = "页码（从0开始）") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "20") int size) {
         log.info("获取生成历史: userId={}, page={}, size={}", userId, page, size);
-        return aiBlogService.getGenerationHistory(userId, PageRequest.of(page, size));
+        return aiBlogService.getGenerationHistory(userId, PageRequest.of(page, size))
+                .collectList()
+                .map(Result::success);
     }
 
     @GetMapping("/history/{id}")
@@ -117,11 +123,12 @@ public class AiBlogController {
             @ApiResponse(responseCode = "404", description = "记录不存在"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiGenerationHistory> getHistoryById(
+    public Mono<Result<AiGenerationHistory>> getHistoryById(
             @Parameter(description = "历史记录ID") @PathVariable Long id,
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("获取历史记录详情: id={}, userId={}", id, userId);
-        return aiBlogService.getHistoryById(id, userId);
+        return aiBlogService.getHistoryById(id, userId)
+                .map(Result::success);
     }
 
     @DeleteMapping("/history/{id}")
@@ -131,11 +138,12 @@ public class AiBlogController {
             @ApiResponse(responseCode = "404", description = "记录不存在"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Boolean> deleteHistory(
+    public Mono<Result<Boolean>> deleteHistory(
             @Parameter(description = "历史记录ID") @PathVariable Long id,
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("删除历史记录: id={}, userId={}", id, userId);
-        return aiBlogService.deleteHistory(id, userId);
+        return aiBlogService.deleteHistory(id, userId)
+                .map(Result::success);
     }
 
     @PostMapping("/history/{id}/regenerate")
@@ -147,11 +155,12 @@ public class AiBlogController {
             @ApiResponse(responseCode = "429", description = "超出速率限制"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiGenerationResult> regenerate(
+    public Mono<Result<AiGenerationResult>> regenerate(
             @Parameter(description = "历史记录ID") @PathVariable Long id,
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("重新生成内容: historyId={}, userId={}", id, userId);
-        return aiBlogService.regenerate(id, userId);
+        return aiBlogService.regenerate(id, userId)
+                .map(Result::success);
     }
 
     @GetMapping("/history/count")
@@ -160,10 +169,11 @@ public class AiBlogController {
             @ApiResponse(responseCode = "200", description = "查询成功"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Long> countGenerations(
+    public Mono<Result<Long>> countGenerations(
             @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
         log.info("统计生成次数: userId={}", userId);
-        return aiBlogService.countGenerations(userId);
+        return aiBlogService.countGenerations(userId)
+                .map(Result::success);
     }
 
     @PostMapping("/save-draft")
@@ -173,7 +183,7 @@ public class AiBlogController {
             @ApiResponse(responseCode = "400", description = "请求参数错误"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<com.ryu.blog.entity.Posts> saveToDraft(
+    public Mono<Result<com.ryu.blog.entity.Posts>> saveToDraft(
             @Valid @RequestBody SaveDraftRequest request) {
         log.info("保存AI内容为草稿: userId={}, historyId={}", request.getUserId(), request.getHistoryId());
         return aiBlogService.getHistoryById(request.getHistoryId(), request.getUserId())
@@ -204,7 +214,8 @@ public class AiBlogController {
                         log.error("解析生成结果失败", e);
                         return Mono.error(new com.ryu.blog.exception.BusinessException("解析生成结果失败"));
                     }
-                });
+                })
+                .map(Result::success);
     }
 
     /**

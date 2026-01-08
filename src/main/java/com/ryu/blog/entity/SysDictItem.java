@@ -1,15 +1,13 @@
 package com.ryu.blog.entity;
 
-import lombok.*;
-import org.springframework.data.annotation.Id;
+import jakarta.validation.constraints.Size;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import org.springframework.format.annotation.DateTimeFormat;
-import jakarta.validation.constraints.Size;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
 
 /**
  * 系统字典项实体类
@@ -22,20 +20,12 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
-@EqualsAndHashCode(of = {"id"})
+@EqualsAndHashCode(callSuper = true, of = {"id"})
 @Table("t_sys_dict_items")
-public class SysDictItem implements Serializable {
-
-    private static final long serialVersionUID = 1L;
-    
-    /**
-     * 字典项唯一标识
-     */
-    @Id
-    private Long id;
+public class SysDictItem extends BaseEntity {
     
     /**
      * 所属字典类型ID
@@ -74,26 +64,4 @@ public class SysDictItem implements Serializable {
      */
     @Size(max = 500)
     private String remark;
-    
-    /**
-     * 创建时间
-     */
-    @Column("create_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime createTime;
-    
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime updateTime;
-    
-    /**
-     * 是否删除：1 已删除，0 未删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
 } 

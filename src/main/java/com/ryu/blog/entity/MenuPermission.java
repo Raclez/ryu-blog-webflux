@@ -1,13 +1,11 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
-
-import java.time.LocalDateTime;
 
 /**
  * 菜单权限关联实体
@@ -17,17 +15,12 @@ import java.time.LocalDateTime;
  * @since 1.0.0 2024-08-27
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_menu_permissions")
-public class MenuPermission {
-    
-    /**
-     * 主键ID
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class MenuPermission extends BaseEntity {
     
     /**
      * 菜单ID
@@ -38,14 +31,4 @@ public class MenuPermission {
      * 权限ID
      */
     private Long permissionId;
-    
-    /**
-     * 创建时间
-     */
-    private LocalDateTime createTime;
-    
-    /**
-     * 更新时间
-     */
-    private LocalDateTime updateTime;
 } 

@@ -7,8 +7,8 @@ import com.ryu.blog.utils.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -23,10 +23,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/favorite")
 @Tag(name = "收藏管理", description = "收藏相关接口")
+@RequiredArgsConstructor
 public class FavoriteController {
 
-    @Autowired
-    private FavoriteService favoriteService;
+    private final FavoriteService favoriteService;
 
     /**
      * 添加或取消收藏

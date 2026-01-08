@@ -1,16 +1,15 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import org.springframework.format.annotation.DateTimeFormat;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -19,18 +18,12 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_comments")
-public class Comment implements Serializable {
-    private static final long serialVersionUID = -2651673892943466771L;
-
-    /**
-     * 评论的唯一标识
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class Comment extends BaseEntity {
 
     /**
      * 被评论文章的唯一标识
@@ -70,7 +63,7 @@ public class Comment implements Serializable {
      * 是否编辑过，0-否，1-是
      */
     @Column("is_edited")
-    private Byte isEdited;
+    private Integer isEdited;
     
     /**
      * 编辑时间
@@ -79,26 +72,4 @@ public class Comment implements Serializable {
     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime editTime;
-
-    /**
-     * 评论创建的时间
-     */
-    @Column("create_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime createTime;
-
-    /**
-     * 评论的最后更新时间
-     */
-    @Column("update_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime updateTime;
-
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
 } 

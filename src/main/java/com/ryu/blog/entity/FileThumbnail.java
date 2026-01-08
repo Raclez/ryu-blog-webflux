@@ -1,17 +1,12 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import org.springframework.format.annotation.DateTimeFormat;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
 
 /**
  * 文件缩略图表，存储文件的缩略图信息
@@ -19,19 +14,12 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_file_thumbnails")
-public class FileThumbnail implements Serializable {
-
-    private static final long serialVersionUID = 1L;
-
-    /**
-     * 缩略图记录的唯一标识
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class FileThumbnail extends BaseEntity {
 
     /**
      * 对应的文件ID
@@ -76,20 +64,4 @@ public class FileThumbnail implements Serializable {
      * 缩略图格式(例如 jpg, png)
      */
     private String format;
-
-    /**
-     * 创建时间
-     */
-    @Column("create_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime createTime;
-
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime updateTime;
 } 

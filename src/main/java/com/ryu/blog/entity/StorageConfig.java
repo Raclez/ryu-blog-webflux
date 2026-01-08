@@ -8,17 +8,15 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-import org.springframework.format.annotation.DateTimeFormat;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,20 +27,13 @@ import java.util.Map;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_storage_config")
 @Slf4j
-public class StorageConfig implements Serializable {
-
-    private static final long serialVersionUID = 1L;
-
-    /**
-     * 配置ID
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class StorageConfig extends BaseEntity {
 
     /**
      * 策略名称 - 对应数据库字段 strategy_name
@@ -68,7 +59,7 @@ public class StorageConfig implements Serializable {
      * 是否启用
      */
     @Column("is_enable")
-    private Boolean isEnable;
+    private Integer isEnable;
 
     /**
      * 最大文件大小限制(字节)
@@ -103,28 +94,6 @@ public class StorageConfig implements Serializable {
      */
     @Column("description")
     private String description;
-
-    /**
-     * 创建时间
-     */
-    @Column("create_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime createTime;
-
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime updateTime;
-    
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
 
     /**
      * 获取配置属性Map

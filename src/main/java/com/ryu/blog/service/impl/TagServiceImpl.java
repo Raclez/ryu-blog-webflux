@@ -95,7 +95,7 @@ public class TagServiceImpl implements TagService {
                     LocalDateTime now = LocalDateTime.now();
                     tag.setCreateTime(now);
                     tag.setUpdateTime(now);
-                    tag.setIsDeleted(false);
+                    tag.setIsDeleted(0);
                     
                     log.debug("[标签服务] 保存标签到数据库 - 标签名称: {}", tag.getName());
                     return tagRepository.save(tag)
@@ -246,7 +246,7 @@ public class TagServiceImpl implements TagService {
                             .collectList()
                             .flatMap(articleTags -> {
                                 // 准备标签进行逻辑删除
-                                tag.setIsDeleted(true);
+                                tag.setIsDeleted(1);
                                 tag.setUpdateTime(LocalDateTime.now());
                                 
                                 if (!articleTags.isEmpty()) {

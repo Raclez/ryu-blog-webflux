@@ -7,8 +7,8 @@ import com.ryu.blog.strategy.FileStorageStrategy;
 import com.ryu.blog.strategy.StorageConfigManager;
 import com.ryu.blog.utils.FileUtils;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.codec.multipart.FilePart;
@@ -30,13 +30,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author ryu 475118582@qq.com
  */
 @Slf4j
+@RequiredArgsConstructor
 public abstract class AbstractFileStorageStrategy implements ConfigurableStorageStrategy, FileStorageStrategy {
     
     // 分片上传缓存
     protected final Map<String, Map<String, Object>> multipartUploadCache = new ConcurrentHashMap<>();
     
-    @Autowired
-    protected StorageConfigManager configManager;
+    protected final StorageConfigManager configManager;
     
     /**
      * 初始化配置
@@ -66,14 +66,21 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
     
     /**
      * 监听配置变更事件
+     * 防止重入：如果配置正在加载中，忽略事件
      * @param event 配置变更事件
      */
     @EventListener
     public void onConfigChange(ConfigChangeEvent event) {
         if ("storage".equals(event.getConfigType()) && 
             (getStrategyKey().equals(event.getConfigKey()) || "*".equals(event.getConfigKey()))) {
+            
             log.info("[{}] 检测到配置变更，重新加载配置", getStrategyKey());
-            loadConfig().subscribe();
+            
+            // 异步加载配置，避免阻塞事件处理
+            loadConfig()
+                .doOnSuccess(v -> log.info("[{}] 配置重新加载完成", getStrategyKey()))
+                .doOnError(e -> log.error("[{}] 配置重新加载失败: {}", getStrategyKey(), e.getMessage(), e))
+                .subscribe();
         }
     }
     

@@ -41,6 +41,9 @@ public class StorageConfigManager {
     // 当前激活的策略键
     private final AtomicReference<String> activeStrategyKey = new AtomicReference<>();
     
+    // 防止事件循环的标志
+    private final ThreadLocal<Boolean> isReloading = ThreadLocal.withInitial(() -> false);
+    
     // 默认策略键
     private static final String DEFAULT_STRATEGY_KEY = "local";
     
@@ -68,6 +71,12 @@ public class StorageConfigManager {
     @EventListener
     public void onConfigChange(ConfigChangeEvent event) {
         if (event.getConfigType().equals("storage")) {
+            // 防止事件循环：如果正在重新加载配置，则忽略此事件
+            if (isReloading.get()) {
+                log.debug("正在重新加载配置，忽略配置变更事件: strategyKey={}", event.getConfigKey());
+                return;
+            }
+            
             log.info("检测到存储配置变更: strategyKey={}", event.getConfigKey());
             
             // 根据事件更新当前活跃策略键
@@ -77,12 +86,8 @@ public class StorageConfigManager {
                 log.info("更新当前活跃策略: {} (原策略: {})", newStrategyKey, oldKey);
             }
             
-            // 清除配置缓存并重新加载
+            // 清除配置缓存（不重新加载，避免循环）
             clearConfigCache();
-            reloadConfig().subscribe(
-                unused -> log.info("存储配置已重新加载"),
-                error -> log.error("重新加载存储配置失败: {}", error.getMessage(), error)
-            );
         }
     }
     
@@ -91,8 +96,16 @@ public class StorageConfigManager {
      * @return 完成信号
      */
     public Mono<Void> reloadConfig() {
+        // 防止重入
+        if (isReloading.get()) {
+            log.warn("配置正在重新加载中，跳过本次请求");
+            return Mono.empty();
+        }
+        
         log.debug("开始重新加载存储配置");
-        return storageConfigRepository.findOneByIsEnableAndIsDeleted(true, 0)
+        isReloading.set(true);
+        
+        return storageConfigRepository.findOneByIsEnableAndIsDeleted(1, 0)
                 .switchIfEmpty(Mono.defer((Supplier<Mono<StorageConfig>>) () -> {
                     log.warn("未找到启用的存储配置，尝试获取任意可用配置");
                     return storageConfigRepository.findAllByIsDeleted(0)
@@ -117,6 +130,10 @@ public class StorageConfigManager {
                     log.info("加载存储配置成功: strategyKey={}, strategyName={}", key, config.getStrategyName());
                 })
                 .doOnError(e -> log.error("加载存储配置失败: {}", e.getMessage(), e))
+                .doFinally(signalType -> {
+                    // 无论成功还是失败，都要清除重入标志
+                    isReloading.set(false);
+                })
                 .then();
     }
     

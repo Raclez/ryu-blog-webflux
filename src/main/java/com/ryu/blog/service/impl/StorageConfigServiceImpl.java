@@ -39,7 +39,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
     @Override
     public Mono<StorageConfig> getEnabledStrategy() {
         log.debug("查询已启用存储策略");
-        return storageConfigRepository.findOneByIsEnableAndIsDeleted(true, 0)
+        return storageConfigRepository.findOneByIsEnableAndIsDeleted(1, 0)
                 .doOnNext(config -> log.info("获取到已启用的存储策略: {}, config: {}", config.getStrategyName(), config.getConfig()))
                 .doOnError(e -> log.error("查询已启用存储策略出错", e))
                 .doOnSuccess(config -> {
@@ -65,7 +65,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
         
         // 如果设置为启用，则先禁用其他策略
         Mono<Void> disableOthers = Mono.just(true)
-                .filter(__ -> Boolean.TRUE.equals(dto.getIsEnable()))
+                .filter(__ -> Integer.valueOf(1).equals(dto.getIsEnable()))
                 .flatMap(__ -> disableAllStrategies())
                 .then();
         
@@ -87,7 +87,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
         
         // 如果设置为启用，则先禁用其他策略
         Mono<Void> disableOthers = Mono.just(true)
-                .filter(__ -> Boolean.TRUE.equals(dto.getIsEnable()))
+                .filter(__ -> Integer.valueOf(1).equals(dto.getIsEnable()))
                 .flatMap(__ -> disableAllStrategies())
                 .then();
         
@@ -123,7 +123,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
                 .then(storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, 0))
                 .switchIfEmpty(Mono.error(new RuntimeException("存储策略不存在: " + strategyKey)))
                 .flatMap(config -> {
-                    config.setIsEnable(isEnabled);
+                    config.setIsEnable(isEnabled ? 1 : 0);
                     config.setUpdateTime(LocalDateTime.now());
                     return storageConfigRepository.save(config);
                 })
@@ -179,9 +179,9 @@ public class StorageConfigServiceImpl implements StorageConfigService {
      */
     private Mono<Void> disableAllStrategies() {
         return storageConfigRepository.findAllByIsDeleted(0)
-                .filter(config -> Boolean.TRUE.equals(config.getIsEnable()))
+                .filter(config -> Integer.valueOf(1).equals(config.getIsEnable()))
                 .flatMap(config -> {
-                    config.setIsEnable(false);
+                    config.setIsEnable(0);
                     config.setUpdateTime(LocalDateTime.now());
                     return storageConfigRepository.save(config);
                 })

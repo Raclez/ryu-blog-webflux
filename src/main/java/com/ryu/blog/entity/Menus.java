@@ -1,11 +1,12 @@
 package com.ryu.blog.entity;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.AllArgsConstructor;
 import lombok.Data;
-import org.springframework.data.annotation.Id;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Table;
-
-import java.time.LocalDateTime;
 
 /**
  * 菜单实体类
@@ -17,14 +18,11 @@ import java.time.LocalDateTime;
 @Data
 @Table("t_menus")
 @Schema(description = "菜单实体")
-public class Menus {
-    
-    /**
-     * 菜单ID
-     */
-    @Id
-    @Schema(description = "菜单ID")
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+@AllArgsConstructor
+@NoArgsConstructor
+@SuperBuilder
+public class Menus extends BaseEntity {
     
     /**
      * 菜单名称
@@ -75,18 +73,6 @@ public class Menus {
     private Integer hidden;
     
     /**
-     * 创建时间
-     */
-    @Schema(description = "创建时间")
-    private LocalDateTime createTime;
-    
-    /**
-     * 更新时间
-     */
-    @Schema(description = "更新时间")
-    private LocalDateTime updateTime;
-    
-    /**
      * 重定向地址
      */
     @Schema(description = "重定向地址")
@@ -96,11 +82,5 @@ public class Menus {
      * 是否为外链 (0: 否, 1: 是)
      */
     @Schema(description = "是否为外链 (0: 否, 1: 是)")
-    private Boolean isLink;
-
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-
-    private Boolean isDeleted;
+    private Integer isLink;
 } 

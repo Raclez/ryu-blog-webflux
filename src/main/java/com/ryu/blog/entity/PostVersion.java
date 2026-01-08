@@ -1,17 +1,12 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import org.springframework.format.annotation.DateTimeFormat;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
 
 /**
  * 存储文章的历史版本
@@ -19,18 +14,12 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_post_versions")
-public class PostVersion implements Serializable {
-    private static final long serialVersionUID = 4352136864701161441L;
-
-    /**
-     * 文章版本的唯一标识
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class PostVersion extends BaseEntity {
 
     /**
      * 文章的唯一标识
@@ -91,26 +80,4 @@ public class PostVersion implements Serializable {
      */
     @Column("modify_count")
     private Integer modifyCount;
-
-    /**
-     * 版本创建的时间
-     */
-    @Column("create_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime createTime;
-
-    /**
-     * 版本更新时间
-     */
-    @Column("update_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime updateTime;
-    
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
 } 

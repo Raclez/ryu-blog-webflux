@@ -30,7 +30,7 @@ public class StorageConfigCreateDTO {
     /**
      * 是否启用此策略
      */
-    private Boolean isEnable;
+    private Integer isEnable;
 
     /**
      * 访问URL

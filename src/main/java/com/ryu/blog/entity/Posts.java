@@ -2,12 +2,12 @@ package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -19,14 +19,9 @@ import java.time.LocalDateTime;
 @Table("t_posts")
 @AllArgsConstructor
 @NoArgsConstructor
-public class Posts implements Serializable {
-    private static final long serialVersionUID = 4131038251292305030L;
-
-    /**
-     * 文章的唯一标识
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+@SuperBuilder
+public class Posts extends BaseEntity {
 
     /**
      * 文章作者的用户标识
@@ -75,7 +70,7 @@ public class Posts implements Serializable {
      * 是否原创
      */
     @Column("is_original")
-    private Boolean isOriginal;
+    private Integer isOriginal;
 
     /**
      * 来源URL
@@ -92,7 +87,7 @@ public class Posts implements Serializable {
      * 是否允许评论
      */
     @Column("allow_comment")
-    private Boolean allowComment;
+    private Integer allowComment;
 
     /**
      * 访问权限: public, private, password
@@ -116,28 +111,10 @@ public class Posts implements Serializable {
     private LocalDateTime scheduleTime;
 
     /**
-     * 文章的创建时间
-     */
-    @Column("create_time")
-    private LocalDateTime createTime;
-
-    /**
-     * 文章的最后更新时间
-     */
-    @Column("update_time")
-    private LocalDateTime updateTime;
-
-    /**
      * 文章的发布时间
      */
     @Column("publish_time")
     private LocalDateTime publishTime;
-    
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
 
     /**
      * 文章状态枚举

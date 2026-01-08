@@ -25,5 +25,5 @@ public class PermissionsStatusDTO {
      * 状态：0-禁用，1-启用
      */
     @Schema(description = "状态：0-禁用，1-启用")
-    private Boolean isActive;
+    private Integer isActive;
 } 

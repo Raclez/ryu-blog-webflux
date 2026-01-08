@@ -2,6 +2,7 @@ package com.ryu.blog.strategy.impl;
 
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.event.ConfigChangeEvent;
+import com.ryu.blog.strategy.StorageConfigManager;
 import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.utils.MinioUtils;
 import io.minio.MinioClient;
@@ -9,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.context.event.EventListener;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -40,7 +40,8 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     // 分片上传信息
     private final Map<String, Map<String, Object>> multipartUploadsInfo = new ConcurrentHashMap<>();
 
-    public MinioStorageStrategy(CacheManager cacheManager) {
+    public MinioStorageStrategy(StorageConfigManager configManager, CacheManager cacheManager) {
+        super(configManager);
         this.cacheManager = cacheManager;
     }
 
@@ -416,16 +417,23 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     
     /**
      * 监听配置变更事件
+     * MinIO策略特殊处理：除了重新加载配置，还需要刷新客户端缓存
+     * 注意：不使用@EventListener注解，避免重复监听（父类已有@EventListener）
      * @param event 配置变更事件
      */
-    @EventListener
+    @Override
     public void onConfigChange(ConfigChangeEvent event) {
         // 只处理storage类型的配置变更，并且是当前策略的配置
         if (event.getConfigType().equals("storage") && 
             (event.getConfigKey().equals(getStrategyKey()) || event.getConfigKey().equals("*"))) {
-            log.info("检测到MinIO存储策略配置变更，刷新缓存");
+            log.info("[{}] 检测到MinIO存储策略配置变更，刷新缓存", getStrategyKey());
+            
+            // 刷新MinIO特有的客户端缓存
             refreshCache();
         }
+        
+        // 调用父类方法重新加载配置
+        super.onConfigChange(event);
     }
     
     /**

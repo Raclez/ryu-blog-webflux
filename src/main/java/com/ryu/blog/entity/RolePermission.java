@@ -1,14 +1,12 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-
-import java.time.LocalDateTime;
 
 /**
  * 角色权限关联实体类
@@ -18,17 +16,12 @@ import java.time.LocalDateTime;
  * @since 1.0.0 2024-08-10
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_role_permissions")
-public class RolePermission {
-    
-    /**
-     * 主键ID
-     */
-    @Id
-    private Long id;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class RolePermission extends BaseEntity {
     
     /**
      * 角色ID
@@ -41,16 +34,4 @@ public class RolePermission {
      */
     @Column("permission_id")
     private Long permissionId;
-    
-    /**
-     * 创建时间
-     */
-    @Column("create_time")
-    private LocalDateTime createTime;
-    
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    private LocalDateTime updateTime;
 } 

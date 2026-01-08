@@ -160,7 +160,7 @@ public class AiTemplateServiceImpl implements AiTemplateService {
         log.debug("获取模板: id={}", id);
         
         return templateRepository.findById(id)
-                .filter(template -> template.getIsDeleted() == 0)
+                .filter(template -> Integer.valueOf(0).equals(template.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("模板不存在: " + id)));
     }
 
@@ -245,6 +245,11 @@ public class AiTemplateServiceImpl implements AiTemplateService {
         
         return getTemplateById(templateId)
                 .map(template -> {
+
+                    // 更新模板使用次数
+                    template.setUsageCount(template.getUsageCount() + 1);
+                    templateRepository.save(template);
+
                     String promptTemplate = template.getPromptTemplate();
                     return replaceVariables(promptTemplate, variables);
                 })

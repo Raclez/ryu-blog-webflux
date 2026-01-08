@@ -22,8 +22,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Table("t_post_tags")
 public class PostTag implements Serializable {
-    private static final long serialVersionUID = -8994288556419907282L;
-
+    private static final long serialVersionUID = 1L;
+    
+    /**
+     * 主键ID
+     */
     @Id
     private Long id;
 
@@ -38,10 +41,10 @@ public class PostTag implements Serializable {
      */
     @Column("tag_id")
     private Long tagId;
-
+    
     /**
-     * 关联时间
+     * 创建时间
      */
     @Column("create_time")
     private LocalDateTime createTime;
-} 
+}

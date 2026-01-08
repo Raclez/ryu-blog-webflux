@@ -170,7 +170,7 @@ public class AiBlogServiceImpl implements AiBlogService {
         log.debug("获取历史记录: id={}, userId={}", id, userId);
         
         return historyRepository.findById(id)
-                .filter(history -> history.getIsDeleted() == 0)
+                .filter(history -> Integer.valueOf(0).equals(history.getIsDeleted()))
                 .filter(history -> history.getUserId().equals(userId))
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("历史记录不存在或无权访问")));
     }

@@ -10,6 +10,7 @@ import com.qcloud.cos.http.HttpMethodName;
 import com.qcloud.cos.http.HttpProtocol;
 import com.qcloud.cos.model.*;
 import com.qcloud.cos.region.Region;
+import com.ryu.blog.strategy.StorageConfigManager;
 import com.ryu.blog.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -47,6 +48,10 @@ public class TencentCosStorageStrategy extends AbstractFileStorageStrategy {
     
     // 分片上传信息
     private final Map<String, Map<String, Object>> multipartUploadsInfo = new ConcurrentHashMap<>();
+
+    public TencentCosStorageStrategy(StorageConfigManager configManager) {
+        super(configManager);
+    }
 
     @Override
     public String getStrategyKey() {

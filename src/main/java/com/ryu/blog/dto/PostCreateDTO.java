@@ -39,13 +39,13 @@ public class PostCreateDTO {
 
     private String slug; // URL别名
 
-    private Boolean isSticky; // 是否置顶
+    private Integer isSticky; // 是否置顶
 
-    private Boolean isOriginal; // 是否原创
+    private Integer isOriginal; // 是否原创
 
     private Integer sort; // 排序号
 
-    private Boolean allowComment; // 是否允许评论
+    private Integer allowComment; // 是否允许评论
 
     private String license;
     
@@ -59,5 +59,5 @@ public class PostCreateDTO {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime scheduleTime; // 定时发布时间
 
-    private Boolean isPublishImmediately;
+    private Integer isPublishImmediately;
 } 

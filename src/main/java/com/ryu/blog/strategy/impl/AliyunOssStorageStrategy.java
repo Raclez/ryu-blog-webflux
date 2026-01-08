@@ -1,6 +1,7 @@
 package com.ryu.blog.strategy.impl;
 
 import com.ryu.blog.entity.StorageConfig;
+import com.ryu.blog.strategy.StorageConfigManager;
 import com.ryu.blog.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -30,6 +31,10 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
     
     // 缓存OSS客户端，避免频繁创建
     private final Map<String, Object> ossClientCache = new ConcurrentHashMap<>();
+
+    public AliyunOssStorageStrategy(StorageConfigManager configManager) {
+        super(configManager);
+    }
 
     @Override
     public String getStrategyKey() {

@@ -1,11 +1,12 @@
 package com.ryu.blog.entity;
 
-import lombok.*;
-import org.springframework.data.annotation.Id;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-
-import java.time.LocalDateTime;
 
 /**
  * AI生成历史实体类
@@ -19,18 +20,12 @@ import java.time.LocalDateTime;
  * @since 1.0
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(of = {"id"})
+@EqualsAndHashCode(callSuper = true, of = {"id"})
 @Table("t_ai_generation_history")
-public class AiGenerationHistory {
-
-    /**
-     * 主键ID
-     */
-    @Id
-    private Long id;
+public class AiGenerationHistory extends BaseEntity {
 
     /**
      * 用户ID
@@ -82,16 +77,4 @@ public class AiGenerationHistory {
      */
     @Column("generation_time")
     private Long generationTime;
-
-    /**
-     * 创建时间
-     */
-    @Column("create_time")
-    private LocalDateTime createTime;
-
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
 }

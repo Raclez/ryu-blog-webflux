@@ -1,11 +1,12 @@
 package com.ryu.blog.entity;
 
-import lombok.*;
-import org.springframework.data.annotation.Id;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-
-import java.time.LocalDateTime;
 
 /**
  * AI内容模板实体类
@@ -20,18 +21,12 @@ import java.time.LocalDateTime;
  * @since 1.0
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(of = {"id"})
+@EqualsAndHashCode(callSuper = true, of = {"id"})
 @Table("t_ai_content_template")
-public class AiContentTemplate {
-
-    /**
-     * 主键ID
-     */
-    @Id
-    private Long id;
+public class AiContentTemplate extends BaseEntity {
 
     /**
      * 模板名称
@@ -74,20 +69,8 @@ public class AiContentTemplate {
     private Long userId;
 
     /**
-     * 创建时间
+     * 使用次数（统计该模板被使用的次数）
      */
-    @Column("create_time")
-    private LocalDateTime createTime;
-
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    private LocalDateTime updateTime;
-
-    /**
-     * 是否删除：0-未删除，1-已删除
-     */
-    @Column("is_deleted")
-    private Integer isDeleted;
+    @Column("usage_count")
+    private Integer usageCount;
 }

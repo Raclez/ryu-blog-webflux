@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.SystemConstants;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.Posts;
 import com.ryu.blog.repository.PostsRepository;
@@ -58,11 +59,11 @@ public class AiBlogIntegrationServiceImpl implements AiBlogIntegrationService {
         post.setTitle(title);
         post.setContent(content);
         post.setExcerpt(summary);
-        post.setStatus(0); // 草稿状态
+        post.setStatus(Posts.Status.DRAFT); // 草稿状态
         post.setViews(0);
-        post.setIsOriginal(true);
-        post.setAllowComment(true);
-        post.setVisibility("public");
+        post.setIsOriginal(SystemConstants.YES);
+        post.setAllowComment(SystemConstants.YES);
+        post.setVisibility(Posts.Visibility.PUBLIC);
         post.setCreateTime(now);
         post.setUpdateTime(now);
         

@@ -1,7 +1,10 @@
 package com.ryu.blog.entity;
 
-import lombok.*;
-import org.springframework.data.annotation.Id;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
@@ -18,18 +21,12 @@ import java.time.LocalDateTime;
  * @since 1.0
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(of = {"id"})
+@EqualsAndHashCode(callSuper = true, of = {"id"})
 @Table("t_ai_usage_quota")
-public class AiUsageQuota {
-
-    /**
-     * 主键ID
-     */
-    @Id
-    private Long id;
+public class AiUsageQuota extends BaseEntity {
 
     /**
      * 用户ID
@@ -96,16 +93,4 @@ public class AiUsageQuota {
      */
     @Column("last_reset_month")
     private LocalDateTime lastResetMonth;
-
-    /**
-     * 创建时间
-     */
-    @Column("create_time")
-    private LocalDateTime createTime;
-
-    /**
-     * 更新时间
-     */
-    @Column("update_time")
-    private LocalDateTime updateTime;
 }

@@ -72,7 +72,7 @@ public class MenusUpdateDTO {
      */
     @JsonFormat(shape = JsonFormat.Shape.NUMBER)
     @Schema(description = "是否外链：0-否，1-是")
-    private Boolean isLink;
+    private Integer isLink;
     
     /**
      * 重定向地址

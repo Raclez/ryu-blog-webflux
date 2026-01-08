@@ -1,14 +1,13 @@
 package com.ryu.blog.entity;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.experimental.SuperBuilder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -17,19 +16,13 @@ import java.time.LocalDateTime;
  * @author ryu 475118582@qq.com
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_users")
-public class User implements Serializable {
-    private static final long serialVersionUID = -4407973270614999668L;
+@EqualsAndHashCode(callSuper = true, of = {"id"})
+public class User extends BaseEntity {
     
-    /**
-     * 用户的唯一标识
-     */
-    @Id
-    private Long id;
-
     /**
      * 用户名，必须唯一
      */
@@ -71,29 +64,13 @@ public class User implements Serializable {
     private Integer status;
 
     /**
-     * 用户创建时间
-     */
-    @Column("create_time")
-    private LocalDateTime createTime;
-
-    /**
-     * 用户信息的最后更新时间
-     */
-    @Column("update_time")
-    private LocalDateTime updateTime;
-
-    /**
      * 最后登录时间
      */
     @Column("last_login_time")
-    private LocalDateTime lastLoginTime ;
+    private LocalDateTime lastLoginTime;
     
     /**
-     * 是否删除：0-未删除，1-已删除
+     * 最后登录IP
      */
-    @Column("is_deleted")
-    private Integer isDeleted;
-
-
-    private String  lastLoginIp;
+    private String lastLoginIp;
 }

@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.SystemConstants;
 import com.ryu.blog.dto.*;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.repository.FileRepository;
@@ -268,7 +269,7 @@ public class FileServiceImpl implements FileService {
         file.setUploadTime(LocalDateTime.now());
         file.setCreateTime(LocalDateTime.now());
         file.setUpdateTime(LocalDateTime.now());
-        file.setIsDeleted(0); // 0-未删除
+        file.setIsDeleted(SystemConstants.NOT_DELETED);
         
         return file;
     }
@@ -720,7 +721,7 @@ public class FileServiceImpl implements FileService {
                                             .flatMap(result -> {
                                                 if (result) {
                                                     // 逻辑删除文件记录
-                                                    file.setIsDeleted(1);
+                                                    file.setIsDeleted(SystemConstants.IS_DELETED);
                                                     file.setUpdateTime(LocalDateTime.now());
                                             return fileRepository.save(file).then();
                                                 } else {
@@ -1250,7 +1251,7 @@ public class FileServiceImpl implements FileService {
         
         // 批量查询文件信息
         return fileRepository.findAllById(fileIds)
-                .filter(file -> file.getIsDeleted() == 0) // 只处理未删除的文件
+                .filter(file -> Objects.equals(SystemConstants.NOT_DELETED, file.getIsDeleted())) // 只处理未删除的文件
                 .flatMap(file -> buildFileInfoVO(file)
                         .doOnNext(fileInfoVO -> result.put(file.getId(), fileInfoVO))
                         .thenReturn(file.getId())

@@ -61,6 +61,11 @@ public class AiProviderFactory {
      * @return 提供商实例
      */
     public Mono<AiProvider> getProvider(String providerName) {
+        // 检查providerName是否为null或空
+        if (providerName == null || providerName.isEmpty()) {
+            return getDefaultProvider();
+        }
+        
         // 先检查缓存
         if (providerCache.containsKey(providerName)) {
             return Mono.just(providerCache.get(providerName));

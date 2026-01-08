@@ -3,6 +3,7 @@ package com.ryu.blog.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ryu.blog.constant.CacheConstants;
+import com.ryu.blog.constant.SystemConstants;
 import com.ryu.blog.dto.PostCreateDTO;
 import com.ryu.blog.dto.PostStatusDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
@@ -181,11 +182,11 @@ public class ArticleServiceImpl implements ArticleService {
         article.setExcerpt(articleCreateDTO.getExcerpt());
         article.setCoverImageId(articleCreateDTO.getCoverImageId());
         article.setStatus(Posts.Status.DRAFT);
-        article.setIsOriginal(articleCreateDTO.getIsOriginal() != null ? articleCreateDTO.getIsOriginal() : true);
+        article.setIsOriginal(articleCreateDTO.getIsOriginal() != null ? articleCreateDTO.getIsOriginal() : SystemConstants.YES);
 
 
         article.setSort(articleCreateDTO.getSort() != null ? articleCreateDTO.getSort() : 0);
-        article.setAllowComment(articleCreateDTO.getAllowComment() != null ? articleCreateDTO.getAllowComment() : true);
+        article.setAllowComment(articleCreateDTO.getAllowComment() != null ? articleCreateDTO.getAllowComment() : SystemConstants.YES);
         article.setSourceUrl(articleCreateDTO.getSourceUrl());
         article.setLicense(articleCreateDTO.getLicense());
         article.setViews(0);
@@ -199,9 +200,9 @@ public class ArticleServiceImpl implements ArticleService {
             article.setPublishTime(LocalDateTime.now());
         }
 
-        article.setVisibility(articleCreateDTO.getVisibility() != null ? articleCreateDTO.getVisibility() : "public");
+        article.setVisibility(articleCreateDTO.getVisibility() != null ? articleCreateDTO.getVisibility() : Posts.Visibility.PUBLIC);
         article.setPassword(articleCreateDTO.getPassword());
-        article.setIsDeleted(0);
+        article.setIsDeleted(SystemConstants.NOT_DELETED);
 
         // 处理SEO元数据
         String seoMeta = processSeoMetadata(articleCreateDTO.getSeoTitle(), articleCreateDTO.getSeoDescription());
@@ -548,38 +549,12 @@ public class ArticleServiceImpl implements ArticleService {
                         return Flux.empty();
                     }
 
-                    // 获取所有文章ID
-                    List<Long> postIds = postsList.stream()
-                            .map(Posts::getId)
-                            .collect(Collectors.toList());
+                    Tuple2<List<Long>, Tuple2<List<Long>, List<Long>>> ids = extractIdsFromPosts(postsList);
+                    List<Long> postIds = ids.getT1();
+                    List<Long> userIds = ids.getT2().getT1();
+                    List<Long> coverImageIds = ids.getT2().getT2();
 
-                    // 获取所有作者ID
-                    List<Long> userIds = postsList.stream()
-                            .map(Posts::getUserId)
-                            .distinct()
-                            .collect(Collectors.toList());
-
-                    // 获取所有封面图片ID
-                    List<Long> coverImageIds = postsList.stream()
-                            .filter(post -> post.getCoverImageId() != null)
-                            .map(Posts::getCoverImageId)
-                            .distinct()
-                            .collect(Collectors.toList());
-
-                    // 批量查询分类、标签、作者信息、统计信息和封面图片
-                    Mono<Map<Long, Tuple2<Long, String>>> categoriesMonoMap = batchGetArticleCategories(postIds);
-                    Mono<Map<Long, List<String>>> tagsMonoMap = batchGetArticleTags(postIds);
-                    Mono<Map<Long, Tuple2<String, String>>> usersMonoMap = batchGetUserInfo(userIds);
-                    Mono<Map<Long, Tuple2<Integer, Integer>>> statsMonoMap = batchGetArticleStats(postIds);
-                    Mono<Map<Long, String>> coverMonoMap = batchGetFileUrls(coverImageIds);
-
-                    return Mono.zip(
-                                    categoriesMonoMap,
-                                    tagsMonoMap,
-                                    usersMonoMap,
-                                    statsMonoMap,
-                                    coverMonoMap
-                            )
+                    return batchGetPostRelatedData(postIds, userIds, coverImageIds)
                             .flatMapMany(tuple -> {
                                 Map<Long, Tuple2<Long, String>> categoryMap = tuple.getT1();
                                 Map<Long, List<String>> tagMap = tuple.getT2();
@@ -587,62 +562,10 @@ public class ArticleServiceImpl implements ArticleService {
                                 Map<Long, Tuple2<Integer, Integer>> statsMap = tuple.getT4();
                                 Map<Long, String> coverMap = tuple.getT5();
 
-                                // 转换并填充VO的信息
                                 return Flux.fromIterable(postsList)
-                                        .map(post -> {
-                                            PostFrontListVO vo = postMapper.toFrontListVO(post);
-                                            Long pid = post.getId();
-                                            Long userId = post.getUserId();
-
-                                            // 准备设置额外属性所需的数据
-                                            Long categoryIdValue = null;
-                                            String categoryName = null;
-                                            if (categoryMap.containsKey(pid)) {
-                                                Tuple2<Long, String> category = categoryMap.get(pid);
-                                                categoryIdValue = category.getT1();
-                                                categoryName = category.getT2();
-                                            }
-
-                                            List<String> tags = tagMap.getOrDefault(pid, List.of());
-
-                                            String authorName = null;
-                                            String authorAvatar = null;
-                                            if (userMap.containsKey(userId)) {
-                                                Tuple2<String, String> userInfo = userMap.get(userId);
-                                                authorName = userInfo.getT1();
-                                                authorAvatar = userInfo.getT2();
-                                            }
-
-                                            Integer commentCount = 0;
-                                            Integer likeCount = 0;
-                                            if (statsMap.containsKey(pid)) {
-                                                Tuple2<Integer, Integer> stats = statsMap.get(pid);
-                                                commentCount = stats.getT1();
-                                                likeCount = stats.getT2();
-                                            }
-
-                                            String coverImageUrl = null;
-                                            Long coverImageId = post.getCoverImageId();
-                                            if (coverImageId != null && coverMap.containsKey(coverImageId)) {
-                                                coverImageUrl = coverMap.get(coverImageId);
-                                            }
-
-                                            // 使用新的方法设置额外属性
-                                            return postMapper.setFrontExtraProperties(
-                                                    vo,
-                                                    categoryIdValue,
-                                                    categoryName,
-                                                    tags,
-                                                    authorName,
-                                                    authorAvatar,
-                                                    coverImageUrl,
-                                                    commentCount,
-                                                    likeCount
-                                            );
-                                        });
+                                        .map(post -> buildPostFrontListVO(post, categoryMap, tagMap, userMap, statsMap, coverMap));
                             });
-                })
-                .doOnComplete(() -> log.debug("获取相关博客推荐VO完成: 文章ID={}", postId));
+                });
     }
 
     @Override
@@ -748,113 +671,100 @@ public class ArticleServiceImpl implements ArticleService {
         log.debug("分页查询文章VO: page={}, size={}, title={}, status={}, categoryId={}, tagId={}, startTime={}, endTime={}",
                 page, size, title, status, categoryId, tagId, startTime, endTime);
 
-        PageResult<PostAdminListVO> pageResult = new PageResult<>();
-
-        // 查询条件
         String titleParam = StringUtils.hasText(title) ? title : null;
         String startTimeParam = StringUtils.hasText(startTime) ? startTime : null;
         String endTimeParam = StringUtils.hasText(endTime) ? endTime : null;
 
-        // 查询总数 - 使用IO调度器
-        return postsRepository.countPostsByCondition(
-                        titleParam, status, categoryId, tagId, startTimeParam, endTimeParam)
+        return postsRepository.countPostsByCondition(titleParam, status, categoryId, tagId, startTimeParam, endTimeParam)
                 .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(total -> {
-                    // 设置分页信息
-                    pageResult.setTotal(total);
-                    pageResult.setCurrent(page + 1); // 页码从0开始，展示时+1
-                    pageResult.setSize(size);
-                    pageResult.setPages((total + size - 1) / size); // 计算总页数
-
-                    if (total == 0) {
-                        // 如果没有数据，直接返回空结果
-                        pageResult.setRecords(Collections.emptyList());
-                        return Mono.just(pageResult);
-                    }
-
-                    // 先查询文章基本信息 - 使用IO调度器
-                    return postsRepository.findPostsByCondition(
-                                    titleParam, status, categoryId, tagId, startTimeParam, endTimeParam, page * size, size)
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .collectList()
-                            .flatMap(postsList -> {
-                                if (postsList.isEmpty()) {
-                                    pageResult.setRecords(Collections.emptyList());
-                                    return Mono.just(pageResult);
-                                }
-
-                                // 获取所有文章ID
-                                List<Long> postIds = postsList.stream()
-                                        .map(Posts::getId)
-                                        .collect(Collectors.toList());
-
-                                // 获取所有作者ID
-                                List<Long> userIds = postsList.stream()
-                                        .map(Posts::getUserId)
-                                        .distinct()
-                                        .collect(Collectors.toList());
-
-                                // 批量查询分类信息和作者信息 - 并行执行
-                                Mono<Map<Long, Tuple2<Long, String>>> categoriesMonoMap =
-                                        batchGetArticleCategories(postIds)
-                                                .subscribeOn(Schedulers.parallel());
-
-                                Mono<Map<Long, Tuple2<String, String>>> usersMonoMap =
-                                        batchGetUserInfo(userIds)
-                                                .subscribeOn(Schedulers.parallel());
-
-                                // 并行获取数据
-                                return Mono.zip(
-                                                categoriesMonoMap,
-                                                usersMonoMap
-                                        )
-                                        .map(tuple -> {
-                                            Map<Long, Tuple2<Long, String>> categoryMap = tuple.getT1();
-                                            Map<Long, Tuple2<String, String>> userMap = tuple.getT2();
-
-                                            // 转换并填充VO的信息
-                                            List<PostAdminListVO> voList = postsList.stream()
-                                                    .map(post -> {
-                                                        PostAdminListVO vo = postMapper.toAdminListVO(post);
-                                                        Long postId = post.getId();
-                                                        Long userId = post.getUserId();
-
-                                                        // 准备设置额外属性所需的数据
-                                                        Long categoryIdValue = null;
-                                                        String categoryName = null;
-                                                        if (categoryMap.containsKey(postId)) {
-                                                            Tuple2<Long, String> category = categoryMap.get(postId);
-                                                            categoryIdValue = category.getT1();
-                                                            categoryName = category.getT2();
-                                                        }
-
-                                                        String authorName = null;
-                                                        if (userMap.containsKey(userId)) {
-                                                            Tuple2<String, String> userInfo = userMap.get(userId);
-                                                            authorName = userInfo.getT1();
-                                                        }
-
-                                                        // 使用MapStruct设置额外属性
-                                                        return postMapper.setAdminExtraProperties(
-                                                                vo,
-                                                                categoryIdValue,
-                                                                categoryName,
-                                                                authorName
-                                                        );
-                                                    })
-                                                    .collect(Collectors.toList());
-
-                                            pageResult.setRecords(voList);
-                                            return pageResult;
-                                        });
-                            });
-                })
-                .doOnSuccess(result -> log.debug("分页查询文章VO成功: 总数={}", result.getTotal()))
+                .flatMap(total -> buildPageResult(page, size, total, titleParam, status, categoryId, tagId, startTimeParam, endTimeParam))
                 .doOnError(e -> log.error("分页查询文章VO失败: 错误信息={}", e.getMessage()));
     }
 
     /**
+     * Task 7.1: 拆分长方法 - 构建分页结果
+     */
+    private Mono<PageResult<PostAdminListVO>> buildPageResult(int page, int size, Long total,
+                                                                String titleParam, Integer status, Long categoryId, Long tagId,
+                                                                String startTimeParam, String endTimeParam) {
+        PageResult<PostAdminListVO> pageResult = new PageResult<>();
+        pageResult.setTotal(total);
+        pageResult.setCurrent(page + 1);
+        pageResult.setSize(size);
+        pageResult.setPages((total + size - 1) / size);
+
+        if (total == 0) {
+            pageResult.setRecords(Collections.emptyList());
+            return Mono.just(pageResult);
+        }
+
+        return postsRepository.findPostsByCondition(titleParam, status, categoryId, tagId, startTimeParam, endTimeParam, page * size, size)
+                .subscribeOn(Schedulers.boundedElastic())
+                .collectList()
+                .flatMap(postsList -> buildAdminListVOs(postsList, pageResult));
+    }
+
+    /**
+     * Task 7.1: 拆分长方法 - 构建管理端列表VO
+     */
+    private Mono<PageResult<PostAdminListVO>> buildAdminListVOs(List<Posts> postsList, PageResult<PostAdminListVO> pageResult) {
+        if (postsList.isEmpty()) {
+            pageResult.setRecords(Collections.emptyList());
+            return Mono.just(pageResult);
+        }
+
+        List<Long> postIds = postsList.stream().map(Posts::getId).collect(Collectors.toList());
+        List<Long> userIds = postsList.stream().map(Posts::getUserId).distinct().collect(Collectors.toList());
+
+        Mono<Map<Long, Tuple2<Long, String>>> categoriesMonoMap = 
+                batchGetArticleCategories(postIds).subscribeOn(Schedulers.parallel());
+        Mono<Map<Long, Tuple2<String, String>>> usersMonoMap = 
+                batchGetUserInfo(userIds).subscribeOn(Schedulers.parallel());
+
+        return Mono.zip(categoriesMonoMap, usersMonoMap)
+                .map(tuple -> {
+                    Map<Long, Tuple2<Long, String>> categoryMap = tuple.getT1();
+                    Map<Long, Tuple2<String, String>> userMap = tuple.getT2();
+
+                    List<PostAdminListVO> voList = postsList.stream()
+                            .map(post -> buildPostAdminListVO(post, categoryMap, userMap))
+                            .collect(Collectors.toList());
+
+                    pageResult.setRecords(voList);
+                    return pageResult;
+                });
+    }
+
+    /**
+     * Task 7.1: 拆分长方法 - 构建单个管理端列表VO
+     */
+    private PostAdminListVO buildPostAdminListVO(Posts post,
+                                                  Map<Long, Tuple2<Long, String>> categoryMap,
+                                                  Map<Long, Tuple2<String, String>> userMap) {
+        PostAdminListVO vo = postMapper.toAdminListVO(post);
+        Long postId = post.getId();
+        Long userId = post.getUserId();
+
+        Long categoryIdValue = null;
+        String categoryName = null;
+        if (categoryMap.containsKey(postId)) {
+            Tuple2<Long, String> category = categoryMap.get(postId);
+            categoryIdValue = category.getT1();
+            categoryName = category.getT2();
+        }
+
+        String authorName = null;
+        if (userMap.containsKey(userId)) {
+            Tuple2<String, String> userInfo = userMap.get(userId);
+            authorName = userInfo.getT1();
+        }
+
+        return postMapper.setAdminExtraProperties(vo, categoryIdValue, categoryName, authorName);
+    }
+
+    /**
      * 批量获取文章分类信息 - 使用自定义Repository批量查询
+     * Task 7.2: 优化批量查询方法
      *
      * @param postIds 文章ID列表
      * @return 文章ID到分类信息(ID, 名称)的映射
@@ -864,28 +774,24 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(Collections.emptyMap());
         }
 
-        // 使用自定义Repository方法进行批量查询
         return postsRepository.findPostsWithCategory(postIds)
                 .filter(projection -> projection.getPostId() != null 
                         && projection.getCategoryId() != null 
-                        && projection.getCategoryName() != null) // 过滤null值
+                        && projection.getCategoryName() != null)
                 .collectMap(
-                    projection -> projection.getPostId(), // 文章ID
-                    projection -> Tuples.of(
-                        projection.getCategoryId(), // 分类ID
-                        projection.getCategoryName() // 分类名称
-                    )
+                    projection -> projection.getPostId(),
+                    projection -> Tuples.of(projection.getCategoryId(), projection.getCategoryName())
                 )
                 .defaultIfEmpty(Collections.emptyMap())
-                .doOnSuccess(map -> log.debug("批量获取文章分类信息成功: 文章数={}, 分类数={}", postIds.size(), map.size()))
                 .onErrorResume(e -> {
-                    log.error("批量获取文章分类信息失败: {}", e.getMessage(), e);
+                    log.error("批量获取文章分类信息失败: {}", e.getMessage());
                     return Mono.just(Collections.emptyMap());
                 });
     }
 
     /**
      * 批量获取用户信息 - 使用批量查询优化
+     * Task 7.2: 优化批量查询方法
      *
      * @param userIds 用户ID列表
      * @return 用户ID到用户信息(名称, 头像)的映射
@@ -895,22 +801,19 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(Collections.emptyMap());
         }
 
-        // 批量查询用户信息
         return Flux.fromIterable(userIds)
-                .flatMap(userId ->
-                        // 使用已有的方法获取用户信息
-                        getUserInfo(userId)
-                                .map(userInfo -> Tuples.of(userId, userInfo))
-                )
-                .collectMap(
-                        tuple -> tuple.getT1(), // 用户ID
-                        tuple -> tuple.getT2()  // 用户信息(名称,头像)
-                )
-                .defaultIfEmpty(Collections.emptyMap());
+                .flatMap(userId -> getUserInfo(userId).map(userInfo -> Tuples.of(userId, userInfo)))
+                .collectMap(Tuple2::getT1, Tuple2::getT2)
+                .defaultIfEmpty(Collections.emptyMap())
+                .onErrorResume(e -> {
+                    log.error("批量获取用户信息失败: {}", e.getMessage());
+                    return Mono.just(Collections.emptyMap());
+                });
     }
 
     /**
      * 批量获取文件URL - 使用批量查询优化
+     * Task 7.2: 优化批量查询方法
      *
      * @param fileIds 文件ID列表
      * @return 文件ID到URL的映射
@@ -920,22 +823,16 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(Collections.emptyMap());
         }
 
-        // 使用文件服务获取永久图片URL
         return fileService.getBatchFilePermanentUrls(fileIds)
+                .map(urlMap -> {
+                    Map<Long, String> result = new HashMap<>(urlMap);
+                    fileIds.forEach(fileId -> result.putIfAbsent(fileId, DEFAULT_COVER_IMAGE));
+                    return result;
+                })
                 .defaultIfEmpty(Collections.emptyMap())
                 .onErrorResume(e -> {
                     log.error("批量获取文件URL失败: {}", e.getMessage());
                     return Mono.just(Collections.emptyMap());
-                })
-                .map(urlMap -> {
-                    // 对于不存在的图片，设置默认图片URL
-                    Map<Long, String> result = new HashMap<>(urlMap);
-                    fileIds.forEach(fileId -> {
-                        if (!result.containsKey(fileId)) {
-                            result.put(fileId, DEFAULT_COVER_IMAGE);
-                        }
-                    });
-                    return result;
                 });
     }
 
@@ -950,13 +847,111 @@ public class ArticleServiceImpl implements ArticleService {
                 .map(user -> {
                     String userName = user.getNickname() != null ? user.getNickname() : user.getUsername();
                     String avatarUrl = user.getAvatar();
-                    // 如果头像URL为空，使用默认头像
                     if (avatarUrl == null || avatarUrl.isEmpty()) {
                         avatarUrl = DEFAULT_AVATAR;
                     }
                     return Tuples.of(userName, avatarUrl);
                 })
                 .switchIfEmpty(Mono.just(Tuples.of(UNKNOWN_USER, DEFAULT_AVATAR)));
+    }
+
+    /**
+     * Task 7.1: 提取公共逻辑 - 从文章列表中提取各种ID
+     *
+     * @param posts 文章列表
+     * @return 包含文章ID、用户ID、封面图片ID的元组
+     */
+    private Tuple2<List<Long>, Tuple2<List<Long>, List<Long>>> extractIdsFromPosts(List<Posts> posts) {
+        List<Long> postIds = posts.stream().map(Posts::getId).collect(Collectors.toList());
+        List<Long> userIds = posts.stream().map(Posts::getUserId).distinct().collect(Collectors.toList());
+        List<Long> coverImageIds = posts.stream()
+                .filter(post -> post.getCoverImageId() != null)
+                .map(Posts::getCoverImageId)
+                .distinct()
+                .collect(Collectors.toList());
+        return Tuples.of(postIds, Tuples.of(userIds, coverImageIds));
+    }
+
+    /**
+     * Task 7.1: 提取公共逻辑 - 并行获取文章关联数据
+     *
+     * @param postIds 文章ID列表
+     * @param userIds 用户ID列表
+     * @param coverImageIds 封面图片ID列表
+     * @return 包含分类、标签、用户、统计、封面图片信息的元组
+     */
+    private Mono<reactor.util.function.Tuple5<Map<Long, Tuple2<Long, String>>, Map<Long, List<String>>, Map<Long, Tuple2<String, String>>, Map<Long, Tuple2<Integer, Integer>>, Map<Long, String>>> batchGetPostRelatedData(
+            List<Long> postIds, List<Long> userIds, List<Long> coverImageIds) {
+        
+        Mono<Map<Long, Tuple2<Long, String>>> categoriesMonoMap = 
+                batchGetArticleCategories(postIds).subscribeOn(Schedulers.parallel());
+        Mono<Map<Long, List<String>>> tagsMonoMap = 
+                batchGetArticleTags(postIds).subscribeOn(Schedulers.parallel());
+        Mono<Map<Long, Tuple2<String, String>>> usersMonoMap = 
+                batchGetUserInfo(userIds).subscribeOn(Schedulers.parallel());
+        Mono<Map<Long, Tuple2<Integer, Integer>>> statsMonoMap = 
+                batchGetArticleStats(postIds).subscribeOn(Schedulers.parallel());
+        Mono<Map<Long, String>> coverMonoMap = 
+                batchGetFileUrls(coverImageIds).subscribeOn(Schedulers.parallel());
+
+        return Mono.zip(categoriesMonoMap, tagsMonoMap, usersMonoMap, statsMonoMap, coverMonoMap);
+    }
+
+    /**
+     * Task 7.1: 提取公共逻辑 - 将文章实体转换为前台列表VO并填充额外信息
+     *
+     * @param post 文章实体
+     * @param categoryMap 分类映射
+     * @param tagMap 标签映射
+     * @param userMap 用户映射
+     * @param statsMap 统计映射
+     * @param coverMap 封面图片映射
+     * @return 填充完整的前台列表VO
+     */
+    private PostFrontListVO buildPostFrontListVO(Posts post,
+                                                  Map<Long, Tuple2<Long, String>> categoryMap,
+                                                  Map<Long, List<String>> tagMap,
+                                                  Map<Long, Tuple2<String, String>> userMap,
+                                                  Map<Long, Tuple2<Integer, Integer>> statsMap,
+                                                  Map<Long, String> coverMap) {
+        PostFrontListVO vo = postMapper.toFrontListVO(post);
+        Long pid = post.getId();
+        Long userId = post.getUserId();
+
+        Long categoryIdValue = null;
+        String categoryName = null;
+        if (categoryMap.containsKey(pid)) {
+            Tuple2<Long, String> category = categoryMap.get(pid);
+            categoryIdValue = category.getT1();
+            categoryName = category.getT2();
+        }
+
+        List<String> tags = tagMap.getOrDefault(pid, List.of());
+
+        String authorName = null;
+        String authorAvatar = null;
+        if (userMap.containsKey(userId)) {
+            Tuple2<String, String> userInfo = userMap.get(userId);
+            authorName = userInfo.getT1();
+            authorAvatar = userInfo.getT2();
+        }
+
+        Integer commentCount = 0;
+        Integer likeCount = 0;
+        if (statsMap.containsKey(pid)) {
+            Tuple2<Integer, Integer> stats = statsMap.get(pid);
+            commentCount = stats.getT1();
+            likeCount = stats.getT2();
+        }
+
+        String coverImageUrl = null;
+        Long coverImageId = post.getCoverImageId();
+        if (coverImageId != null && coverMap.containsKey(coverImageId)) {
+            coverImageUrl = coverMap.get(coverImageId);
+        }
+
+        return postMapper.setFrontExtraProperties(vo, categoryIdValue, categoryName, tags,
+                authorName, authorAvatar, coverImageUrl, commentCount, likeCount);
     }
 
     /**
@@ -970,7 +965,6 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(DEFAULT_COVER_IMAGE);
         }
 
-        // 调用批量获取方法处理单个图片ID的情况
         return batchGetFileUrls(Collections.singletonList(imageId))
                 .map(urlMap -> urlMap.getOrDefault(imageId, DEFAULT_COVER_IMAGE));
     }
@@ -996,7 +990,7 @@ public class ArticleServiceImpl implements ArticleService {
                 .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
                 .flatMap(article -> {
                     // 检查文章是否已删除
-                    if (article.getIsDeleted() == 1) {
+                    if (Objects.equals(SystemConstants.IS_DELETED, article.getIsDeleted())) {
                         return Mono.error(BusinessException.postAlreadyDeleted());
                     }
 
@@ -1086,161 +1080,63 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Cacheable(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, key = "'" + CacheConstants.POST_FRONT_KEY + "' + #cursor + ':' + #limit + ':' + #createTime + ':' + #direction", unless = "#result.isEmpty()")
     public Mono<List<PostFrontListVO>> getFrontArticlesVO(String cursor, int limit, String createTime, String direction) {
-        log.debug("前台游标分页查询文章VO: cursor={}, limit={}, createTime={}, direction={}",
-                cursor, limit, createTime, direction);
+        log.debug("前台游标分页查询文章VO: cursor={}, limit={}, createTime={}, direction={}", cursor, limit, createTime, direction);
 
-        // 处理游标参数
         String cursorParam = StringUtils.hasText(cursor) ? cursor : null;
+        String createTimeParam = StringUtils.hasText(createTime) ? createTime : null;
+        String directionParam = validateDirection(direction);
 
-        // 处理创建时间参数
-        String createTimeParam = null;
-        if (StringUtils.hasText(createTime)) {
-            createTimeParam = createTime;
-        }
-
-        // 处理方向参数
-        String directionParam = StringUtils.hasText(direction) ? direction : "older";
-        if (!directionParam.equals("newer") && !directionParam.equals("older") && !directionParam.equals("comprehensive")) {
-            log.warn("方向参数错误: {}, 将使用默认值 'older'", direction);
-            directionParam = "older";
-        }
-
-        // 查询参数 - 传递给Repository
-        final String finalCreateTimeParam = createTimeParam;
-        final String finalDirectionParam = directionParam;
-
-        // 查询数据 - 请求多查询一条用于判断是否还有更多数据
-        return postsRepository.findFrontPosts(cursorParam, limit + 1, finalCreateTimeParam, finalDirectionParam)
-                .subscribeOn(Schedulers.boundedElastic()) // 使用IO调度器
+        return postsRepository.findFrontPosts(cursorParam, limit + 1, createTimeParam, directionParam)
+                .subscribeOn(Schedulers.boundedElastic())
                 .collectList()
-                .flatMap(articles -> {
-                    // 检查是否有更多数据，但不返回这个信息，只返回文章列表
-                    List<Posts> resultList = articles.size() > limit ? articles.subList(0, limit) : articles;
-
-                    if (resultList.isEmpty()) {
-                        return Mono.just(List.<PostFrontListVO>of());
-                    }
-
-                    // 获取所有文章ID
-                    List<Long> postIds = resultList.stream()
-                            .map(Posts::getId)
-                            .collect(Collectors.toList());
-
-                    // 获取所有作者ID
-                    List<Long> userIds = resultList.stream()
-                            .map(Posts::getUserId)
-                            .distinct()
-                            .collect(Collectors.toList());
-
-                    // 获取所有封面图片ID
-                    List<Long> coverImageIds = resultList.stream()
-                            .filter(post -> post.getCoverImageId() != null)
-                            .map(Posts::getCoverImageId)
-                            .distinct()
-                            .collect(Collectors.toList());
-
-                    // 并行查询各种关联数据
-                    Mono<Map<Long, Tuple2<Long, String>>> categoriesMonoMap =
-                            batchGetArticleCategories(postIds)
-                                    .subscribeOn(Schedulers.parallel());
-
-                    Mono<Map<Long, List<String>>> tagsMonoMap =
-                            batchGetArticleTags(postIds)
-                                    .subscribeOn(Schedulers.parallel());
-
-                    Mono<Map<Long, Tuple2<String, String>>> usersMonoMap =
-                            batchGetUserInfo(userIds)
-                                    .subscribeOn(Schedulers.parallel());
-
-                    Mono<Map<Long, Tuple2<Integer, Integer>>> statsMonoMap =
-                            batchGetArticleStats(postIds)
-                                    .subscribeOn(Schedulers.parallel());
-
-                    Mono<Map<Long, String>> coverMonoMap =
-                            batchGetFileUrls(coverImageIds)
-                                    .subscribeOn(Schedulers.parallel());
-
-                    // 并行获取所有数据
-                    return Mono.zip(
-                                    categoriesMonoMap,
-                                    tagsMonoMap,
-                                    usersMonoMap,
-                                    statsMonoMap,
-                                    coverMonoMap
-                            )
-                            .map(tuple -> {
-                                Map<Long, Tuple2<Long, String>> categoryMap = tuple.getT1();
-                                Map<Long, List<String>> tagMap = tuple.getT2();
-                                Map<Long, Tuple2<String, String>> userMap = tuple.getT3();
-                                Map<Long, Tuple2<Integer, Integer>> statsMap = tuple.getT4();
-                                Map<Long, String> coverMap = tuple.getT5();
-
-                                // 填充VO的额外信息
-                                List<PostFrontListVO> voList = new ArrayList<>(resultList.size());
-
-                                for (Posts post : resultList) {
-                                    PostFrontListVO vo = postMapper.toFrontListVO(post);
-                                    Long pid = post.getId();
-                                    Long userId = post.getUserId();
-
-                                    // 准备设置额外属性所需的数据
-                                    Long categoryIdValue = null;
-                                    String categoryName = null;
-                                    if (categoryMap.containsKey(pid)) {
-                                        Tuple2<Long, String> category = categoryMap.get(pid);
-                                        categoryIdValue = category.getT1();
-                                        categoryName = category.getT2();
-                                    }
-
-                                    List<String> tags = tagMap.getOrDefault(pid, List.of());
-
-                                    String authorName = null;
-                                    String authorAvatar = null;
-                                    if (userMap.containsKey(userId)) {
-                                        Tuple2<String, String> userInfo = userMap.get(userId);
-                                        authorName = userInfo.getT1();
-                                        authorAvatar = userInfo.getT2();
-                                    }
-
-                                    Integer commentCount = 0;
-                                    Integer likeCount = 0;
-                                    if (statsMap.containsKey(pid)) {
-                                        Tuple2<Integer, Integer> stats = statsMap.get(pid);
-                                        commentCount = stats.getT1();
-                                        likeCount = stats.getT2();
-                                    }
-
-                                    String coverImageUrl = null;
-                                    Long coverImageId = post.getCoverImageId();
-                                    if (coverImageId != null && coverMap.containsKey(coverImageId)) {
-                                        coverImageUrl = coverMap.get(coverImageId);
-                                    }
-
-                                    // 使用MapStruct设置额外属性
-                                    PostFrontListVO enrichedVo = postMapper.setFrontExtraProperties(
-                                            vo,
-                                            categoryIdValue,
-                                            categoryName,
-                                            tags,
-                                            authorName,
-                                            authorAvatar,
-                                            coverImageUrl,
-                                            commentCount,
-                                            likeCount
-                                    );
-
-                                    voList.add(enrichedVo);
-                                }
-
-                                return voList;
-                            });
-                })
-                .doOnSuccess(voList -> log.debug("前台游标分页查询文章VO成功: 返回记录数={}", voList.size()))
+                .flatMap(articles -> buildFrontArticlesVOList(articles, limit))
                 .doOnError(e -> log.error("前台游标分页查询文章VO失败: 错误信息={}", e.getMessage()));
     }
 
     /**
+     * Task 7.1: 拆分长方法 - 验证方向参数
+     */
+    private String validateDirection(String direction) {
+        String directionParam = StringUtils.hasText(direction) ? direction : "older";
+        if (!directionParam.equals("newer") && !directionParam.equals("older") && !directionParam.equals("comprehensive")) {
+            log.warn("方向参数错误: {}, 将使用默认值 'older'", direction);
+            return "older";
+        }
+        return directionParam;
+    }
+
+    /**
+     * Task 7.1: 拆分长方法 - 构建前台文章VO列表
+     */
+    private Mono<List<PostFrontListVO>> buildFrontArticlesVOList(List<Posts> articles, int limit) {
+        List<Posts> resultList = articles.size() > limit ? articles.subList(0, limit) : articles;
+        
+        if (resultList.isEmpty()) {
+            return Mono.just(List.of());
+        }
+
+        Tuple2<List<Long>, Tuple2<List<Long>, List<Long>>> ids = extractIdsFromPosts(resultList);
+        List<Long> postIds = ids.getT1();
+        List<Long> userIds = ids.getT2().getT1();
+        List<Long> coverImageIds = ids.getT2().getT2();
+
+        return batchGetPostRelatedData(postIds, userIds, coverImageIds)
+                .map(tuple -> {
+                    Map<Long, Tuple2<Long, String>> categoryMap = tuple.getT1();
+                    Map<Long, List<String>> tagMap = tuple.getT2();
+                    Map<Long, Tuple2<String, String>> userMap = tuple.getT3();
+                    Map<Long, Tuple2<Integer, Integer>> statsMap = tuple.getT4();
+                    Map<Long, String> coverMap = tuple.getT5();
+
+                    return resultList.stream()
+                            .map(post -> buildPostFrontListVO(post, categoryMap, tagMap, userMap, statsMap, coverMap))
+                            .collect(Collectors.toList());
+                });
+    }
+
+    /**
      * 批量获取文章标签信息 - 使用自定义Repository批量查询
+     * Task 7.2: 优化批量查询方法
      *
      * @param postIds 文章ID列表
      * @return 文章ID到标签列表的映射
@@ -1250,31 +1146,25 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(Collections.emptyMap());
         }
 
-        // 使用自定义Repository方法进行批量查询
         return postsRepository.findPostsWithTags(postIds)
                 .filter(projection -> projection.getPostId() != null 
                         && projection.getTagId() != null 
-                        && projection.getTagName() != null) // 过滤null值
-                .groupBy(projection -> projection.getPostId()) // 按文章ID分组
-                .flatMap(group -> 
-                    group.map(projection -> projection.getTagName()) // 提取标签名称
+                        && projection.getTagName() != null)
+                .groupBy(projection -> projection.getPostId())
+                .flatMap(group -> group.map(projection -> projection.getTagName())
                         .collectList()
-                        .map(tags -> Tuples.of(group.key(), tags))
-                )
-                .collectMap(
-                    tuple -> tuple.getT1(), // 文章ID
-                    tuple -> tuple.getT2()  // 标签列表
-                )
+                        .map(tags -> Tuples.of(group.key(), tags)))
+                .collectMap(Tuple2::getT1, Tuple2::getT2)
                 .defaultIfEmpty(Collections.emptyMap())
-                .doOnSuccess(map -> log.debug("批量获取文章标签信息成功: 文章数={}, 有标签的文章数={}", postIds.size(), map.size()))
                 .onErrorResume(e -> {
-                    log.error("批量获取文章标签信息失败: {}", e.getMessage(), e);
+                    log.error("批量获取文章标签信息失败: {}", e.getMessage());
                     return Mono.just(Collections.emptyMap());
                 });
     }
 
     /**
      * 批量获取文章统计信息（评论数和点赞数）- 使用自定义Repository批量查询
+     * Task 7.2: 优化批量查询方法
      *
      * @param postIds 文章ID列表
      * @return 文章ID到统计信息的映射
@@ -1284,39 +1174,20 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(Collections.emptyMap());
         }
 
-        // 使用自定义Repository方法批量查询评论数
         return postsRepository.countCommentsByPostIds(postIds)
                 .collectMap(
-                    map -> ((Number) map.get("post_id")).longValue(), // 文章ID
-                    map -> Tuples.of(
-                        ((Number) map.get("comment_count")).intValue(), // 评论数
-                        0 // 点赞数暂时为0
-                    )
+                    map -> ((Number) map.get("post_id")).longValue(),
+                    map -> Tuples.of(((Number) map.get("comment_count")).intValue(), 0)
                 )
                 .map(statsMap -> {
-                    // 为所有请求的文章ID添加默认值（如果没有评论的话）
                     Map<Long, Tuple2<Integer, Integer>> result = new HashMap<>(statsMap);
-                    postIds.forEach(postId -> {
-                        if (!result.containsKey(postId)) {
-                            result.put(postId, Tuples.of(0, 0));
-                        }
-                    });
+                    postIds.forEach(postId -> result.putIfAbsent(postId, Tuples.of(0, 0)));
                     return result;
                 })
-                .defaultIfEmpty(postIds.stream()
-                        .collect(Collectors.toMap(
-                                id -> id,
-                                id -> Tuples.of(0, 0)
-                        )))
-                .doOnSuccess(map -> log.debug("批量获取文章统计信息成功: 文章数={}, 有评论的文章数={}",
-                        postIds.size(), map.values().stream().filter(t -> t.getT1() > 0).count()))
+                .defaultIfEmpty(postIds.stream().collect(Collectors.toMap(id -> id, id -> Tuples.of(0, 0))))
                 .onErrorResume(e -> {
-                    log.error("批量获取文章统计信息失败: {}", e.getMessage(), e);
-                    return Mono.just(postIds.stream()
-                            .collect(Collectors.toMap(
-                                    id -> id,
-                                    id -> Tuples.of(0, 0)
-                            )));
+                    log.error("批量获取文章统计信息失败: {}", e.getMessage());
+                    return Mono.just(postIds.stream().collect(Collectors.toMap(id -> id, id -> Tuples.of(0, 0))));
                 });
     }
 
@@ -1334,11 +1205,11 @@ public class ArticleServiceImpl implements ArticleService {
                 .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
                 .flatMap(article -> {
                     // 检查文章是否已删除
-                    if (article.getIsDeleted() == 1) {
+                    if (Objects.equals(SystemConstants.IS_DELETED, article.getIsDeleted())) {
                         return Mono.error(BusinessException.postAlreadyDeleted());
                     }
 
-                    article.setIsDeleted(1);
+                    article.setIsDeleted(SystemConstants.IS_DELETED);
                     return postsRepository.save(article)
                             .then(removeAllArticleCategories(id))
                             .then();
@@ -1380,9 +1251,9 @@ public class ArticleServiceImpl implements ArticleService {
                     postCreateDTO.setTitle(title);
                     postCreateDTO.setContent(markdownContent);
                     postCreateDTO.setExcerpt(excerpt);
-                    postCreateDTO.setIsOriginal(true);
-                    postCreateDTO.setAllowComment(true);
-                    postCreateDTO.setVisibility("public");
+                    postCreateDTO.setIsOriginal(SystemConstants.YES);
+                    postCreateDTO.setAllowComment(SystemConstants.YES);
+                    postCreateDTO.setVisibility(Posts.Visibility.PUBLIC);
                     
                     // 创建文章
                     return createArticle(postCreateDTO, userId)
