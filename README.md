@@ -17,11 +17,13 @@
   - 响应式编程
   - 非阻塞I/O
   - JWT无状态认证
+  - 异步任务调度系统
   - 缓存优化
   - 统一响应处理
   - 全局异常处理
   - 参数校验
   - API文档（SpringDoc OpenAPI）
+  - WebSocket 实时通知
 
 ## 系统架构
 
@@ -32,6 +34,7 @@
 - **评论模块**：文章评论功能
 - **文件模块**：文件上传和管理
 - **安全模块**：基于Sa-Token的JWT认证和授权
+- **异步任务模块**：通用异步任务调度系统（AI生成、邮件发送、报表生成等）
 
 ## 主要功能
 
@@ -54,6 +57,15 @@
 - 文件管理
   - 图片上传
   - 文件存储
+
+- 异步任务系统 ⭐ 新功能
+  - 通用任务框架（支持多种任务类型扩展）
+  - AI 内容生成（博客文章、摘要等）
+  - 优先级调度（HIGH、NORMAL、LOW）
+  - 实时通知（WebSocket）
+  - 任务重试和取消
+  - 配额控制
+  - 进度跟踪
 
 ## 项目结构
 
@@ -135,8 +147,41 @@ ryu-blog/
 
 项目集成了Swagger文档，启动应用后可通过以下地址访问：
 
-- Swagger UI：http://localhost:8080/swagger-ui.html
-- OpenAPI规范：http://localhost:8080/v3/api-docs
+- Swagger UI：http://localhost:5300/doc.html
+- OpenAPI规范：http://localhost:5300/v3/api-docs
+
+## 异步任务系统
+
+系统内置了一个强大的异步任务调度框架，支持多种任务类型：
+
+### 快速使用
+
+```bash
+# 提交 AI 生成任务
+curl -X POST http://localhost:5300/api/tasks \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "taskType": "AI_GENERATION",
+    "priority": "NORMAL",
+    "request": {
+      "topic": "Spring Boot响应式编程",
+      "keywords": "WebFlux,Reactor"
+    }
+  }'
+
+# 查询任务状态
+curl http://localhost:5300/api/tasks/{taskId} \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### 详细文档
+
+- [系统概览](ASYNC_TASK_SYSTEM_README.md) - 架构和特性介绍
+- [使用指南](ASYNC_TASK_GUIDE.md) - 详细的使用说明
+- [API 文档](API_DOCUMENTATION.md) - 完整的接口文档
+- [扩展指南](TASK_TYPE_EXTENSION.md) - 如何添加新任务类型
+- [快速参考](QUICK_REFERENCE.md) - 常用命令速查
 
 ## 默认账户
 

@@ -179,3 +179,47 @@ knife4j:
     enable-home: true
     enable-search: true
     enable-group: false 
+
+# 异步任务执行器配置
+task:
+  executor:
+    # 调度器配置
+    scheduler:
+      # 最大线程数
+      max-threads: 10
+      # 队列容量
+      queue-capacity: 100
+      # 线程空闲时间（秒）
+      keep-alive-seconds: 60
+      # 线程名称前缀
+      thread-name-prefix: task-exec
+    # 调度参数
+    schedule:
+      # 轮询间隔（毫秒）
+      poll-interval: 5000
+      # 每次从队列取出的任务数
+      batch-size: 10
+    # 超时配置（毫秒）
+    timeout:
+      # 默认超时时间（10分钟）
+      default: 600000
+      # AI生成任务超时时间（10分钟）
+      ai-generation: 600000
+      # 邮件发送超时时间（30秒）
+      email: 30000
+      # 报表生成超时时间（5分钟）
+      report: 300000
+    # 配额限制
+    quota:
+      # 高优先级任务配额（每用户每小时）
+      high-priority-per-hour: 5
+      # 配额TTL（小时）
+      ttl-hours: 1
+    # 任务清理配置
+    cleanup:
+      # 已完成任务保留天数
+      completed-retention-days: 30
+      # 失败任务保留天数
+      failed-retention-days: 7
+      # 清理任务执行时间（cron表达式）
+      cron: "0 0 2 * * ?"

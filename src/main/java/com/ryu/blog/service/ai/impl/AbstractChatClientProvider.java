@@ -33,7 +33,8 @@ public abstract class AbstractChatClientProvider implements AiProvider {
 
     @Override
     public Mono<AiGenerationResult> generate(AiGenerationRequest request) {
-        log.debug("开始生成内容: topic={}", request.getTopic());
+        log.debug("开始生成内容: mode={}, prompt={}", request.getMode(), 
+                request.getPrompt() != null ? request.getPrompt().substring(0, Math.min(50, request.getPrompt().length())) : "null");
         
         return Mono.fromCallable(() -> {
             // 构建 prompt
@@ -71,7 +72,7 @@ public abstract class AbstractChatClientProvider implements AiProvider {
 
     @Override
     public Flux<String> generateStream(AiGenerationRequest request) {
-        log.debug("开始流式生成内容: topic={}", request.getTopic());
+        log.debug("开始流式生成内容: mode={}", request.getMode());
         
         return Flux.defer(() -> {
             // 构建 prompt
@@ -119,38 +120,38 @@ public abstract class AbstractChatClientProvider implements AiProvider {
     protected abstract String getEffectiveModel(AiGenerationRequest request);
 
     /**
-     * 构建 prompt（根据请求参数）
+     * 构建 prompt（根据请求参数和模式）
      */
     protected String buildPrompt(AiGenerationRequest request) {
         StringBuilder prompt = new StringBuilder();
         
-        // 如果有现有内容，说明是优化场景
-        if (request.getContent() != null && !request.getContent().isEmpty()) {
-            prompt.append("请优化以下内容：\n\n");
-            prompt.append(request.getContent());
-            prompt.append("\n\n");
-        }
-        
-        // 添加主题
-        if (request.getTopic() != null && !request.getTopic().isEmpty()) {
-            if (request.getContent() == null || request.getContent().isEmpty()) {
-                prompt.append("请根据以下主题生成内容：\n\n");
+        // 根据模式构建不同的prompt
+        if ("refine".equals(request.getMode())) {
+            // 内容优化模式：结合原内容和优化指令
+            if (request.getContent() != null && !request.getContent().isEmpty()) {
+                prompt.append("请根据以下指令优化内容：\n\n");
+                prompt.append("指令：").append(request.getPrompt()).append("\n\n");
+                prompt.append("原文：\n").append(request.getContent()).append("\n");
             }
-            prompt.append("主题：").append(request.getTopic()).append("\n");
+        } else {
+            // 自由模式或模板模式：直接使用prompt
+            if (request.getPrompt() != null && !request.getPrompt().isEmpty()) {
+                prompt.append(request.getPrompt());
+            }
         }
         
-        // 添加其他参数
+        // 添加其他参数作为补充要求
         if (request.getLanguage() != null) {
-            prompt.append("语言：").append(request.getLanguage()).append("\n");
+            prompt.append("\n语言：").append(request.getLanguage());
         }
         if (request.getTone() != null) {
-            prompt.append("语气：").append(request.getTone()).append("\n");
+            prompt.append("\n语气：").append(request.getTone());
         }
         if (request.getStyle() != null) {
-            prompt.append("风格：").append(request.getStyle()).append("\n");
+            prompt.append("\n风格：").append(request.getStyle());
         }
         if (request.getLength() != null) {
-            prompt.append("期望长度：约").append(request.getLength()).append("字\n");
+            prompt.append("\n期望长度：约").append(request.getLength()).append("字");
         }
         
         return prompt.toString();

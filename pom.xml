@@ -109,7 +109,7 @@
             <artifactId>spring-ai-anthropic</artifactId>
         </dependency>
 
-        <!-- WebFlux -->
+        <!-- WebFlux (包含响应式 WebSocket 支持) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>

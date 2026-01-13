@@ -20,7 +20,7 @@ public class PromptEnhancerImpl implements PromptEnhancer {
 
     @Override
     public Mono<String> enhance(AiGenerationRequest request) {
-        log.debug("增强提示词: topic={}", request.getTopic());
+        log.debug("增强提示词: mode={}", request.getMode());
         
         return Mono.fromCallable(() -> {
             StringBuilder enhanced = new StringBuilder();
@@ -31,16 +31,24 @@ public class PromptEnhancerImpl implements PromptEnhancer {
                 enhanced.append(systemPrompt).append("\n\n");
             }
             
-            // 添加主题
-            if (request.getTopic() != null && !request.getTopic().isEmpty()) {
-                enhanced.append("## 主题\n");
-                enhanced.append(request.getTopic()).append("\n\n");
-            }
-            
-            // 添加现有内容（如果是优化场景）
-            if (request.getContent() != null && !request.getContent().isEmpty()) {
-                enhanced.append("## 现有内容\n");
-                enhanced.append(request.getContent()).append("\n\n");
+            // 根据模式处理不同的prompt构建逻辑
+            if ("refine".equals(request.getMode())) {
+                // 内容优化模式
+                enhanced.append("## 优化任务\n");
+                if (request.getPrompt() != null && !request.getPrompt().isEmpty()) {
+                    enhanced.append(request.getPrompt()).append("\n\n");
+                }
+                
+                if (request.getContent() != null && !request.getContent().isEmpty()) {
+                    enhanced.append("## 原始内容\n");
+                    enhanced.append(request.getContent()).append("\n\n");
+                }
+            } else {
+                // 自由模式或模板模式
+                if (request.getPrompt() != null && !request.getPrompt().isEmpty()) {
+                    enhanced.append("## 创作主题\n");
+                    enhanced.append(request.getPrompt()).append("\n\n");
+                }
             }
             
             // 添加生成要求

@@ -1,9 +1,12 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.AiGenerationHistory;
+import com.ryu.blog.service.AiBlogIntegrationService;
 import com.ryu.blog.service.AiBlogService;
+import com.ryu.blog.service.TaskService;
 import com.ryu.blog.utils.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -43,7 +46,8 @@ import java.util.List;
 public class AiBlogController {
 
     private final AiBlogService aiBlogService;
-    private final org.springframework.context.ApplicationContext applicationContext;
+    private final AiBlogIntegrationService aiBlogIntegrationService;
+    private final TaskService taskService;
 
     @PostMapping("/generate")
     @Operation(summary = "生成博客内容", description = "使用AI生成博客内容（非流式）")
@@ -56,7 +60,7 @@ public class AiBlogController {
     })
     public Mono<Result<AiGenerationResult>> generateBlogContent(
             @Valid @RequestBody AiGenerationRequest request) {
-        log.info("收到博客生成请求: userId={}, topic={}", request.getUserId(), request.getTopic());
+        log.info("收到博客生成请求: userId={}, mode={}", request.getUserId(), request.getMode());
         return aiBlogService.generateBlogContent(request)
                 .map(Result::success);
     }
@@ -71,7 +75,7 @@ public class AiBlogController {
     })
     public Flux<ServerSentEvent<String>> generateBlogContentStream(
             @Valid @RequestBody AiGenerationRequest request) {
-        log.info("收到流式博客生成请求: userId={}, topic={}", request.getUserId(), request.getTopic());
+        log.info("收到流式博客生成请求: userId={}, mode={}", request.getUserId(), request.getMode());
         
         return aiBlogService.generateBlogContentStream(request)
                 .map(content -> ServerSentEvent.<String>builder()
@@ -93,8 +97,8 @@ public class AiBlogController {
     })
     public Mono<Result<AiGenerationResult>> refineContent(
             @Valid @RequestBody AiGenerationRequest request) {
-        log.info("收到内容优化请求: userId={}, operation={}", 
-                request.getUserId(), request.getRefinementOperation());
+        log.info("收到内容优化请求: userId={}, hasContent={}", 
+                request.getUserId(), request.getContent() != null);
         return aiBlogService.refineContent(request)
                 .map(Result::success);
     }
@@ -185,34 +189,32 @@ public class AiBlogController {
     })
     public Mono<Result<com.ryu.blog.entity.Posts>> saveToDraft(
             @Valid @RequestBody SaveDraftRequest request) {
-        log.info("保存AI内容为草稿: userId={}, historyId={}", request.getUserId(), request.getHistoryId());
-        return aiBlogService.getHistoryById(request.getHistoryId(), request.getUserId())
+        Long userId = StpUtil.getLoginIdAsLong();
+        log.info("保存AI内容为草稿: userId={}, historyId={}", userId, request.getHistoryId());
+        
+        return aiBlogService.getHistoryById(request.getHistoryId(), userId)
                 .flatMap(history -> {
                     // 从历史记录中获取生成结果
-                    try {
-                        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                        com.ryu.blog.dto.AiGenerationResult result = mapper.readValue(
-                                history.getResult(), 
-                                com.ryu.blog.dto.AiGenerationResult.class
-                        );
-                        
-                        // 保存为草稿
-                        com.ryu.blog.service.AiBlogIntegrationService integrationService = 
-                                applicationContext.getBean(com.ryu.blog.service.AiBlogIntegrationService.class);
-                        
-                        if (request.getCategoryIds() != null && request.getTagIds() != null) {
-                            return integrationService.saveToDraft(
-                                    result, 
-                                    request.getUserId(), 
-                                    request.getCategoryIds(), 
-                                    request.getTagIds()
-                            );
-                        } else {
-                            return integrationService.saveToDraft(result, request.getUserId());
-                        }
-                    } catch (Exception e) {
-                        log.error("解析生成结果失败", e);
+                    AiGenerationResult result = com.ryu.blog.utils.JsonUtils.deserialize(
+                            history.getResult(), 
+                            AiGenerationResult.class
+                    );
+                    
+                    if (result == null) {
+                        log.error("解析生成结果失败: historyId={}", request.getHistoryId());
                         return Mono.error(new com.ryu.blog.exception.BusinessException("解析生成结果失败"));
+                    }
+                    
+                    // 保存为草稿
+                    if (request.getCategoryIds() != null && request.getTagIds() != null) {
+                        return aiBlogIntegrationService.saveToDraft(
+                                result, 
+                                userId, 
+                                request.getCategoryIds(), 
+                                request.getTagIds()
+                        );
+                    } else {
+                        return aiBlogIntegrationService.saveToDraft(result, userId);
                     }
                 })
                 .map(Result::success);
@@ -223,13 +225,46 @@ public class AiBlogController {
      */
     @lombok.Data
     public static class SaveDraftRequest {
-        @NotNull(message = "用户ID不能为空")
-        private Long userId;
-        
         @NotNull(message = "历史记录ID不能为空")
         private Long historyId;
         
         private java.util.List<Long> categoryIds;
         private java.util.List<Long> tagIds;
     }
+    
+    /**
+     * 异步生成博客内容
+     * 提交任务后立即返回任务ID，后台异步处理
+     * 
+     * @param request 生成请求
+     * @return 任务ID
+     */
+    @PostMapping("/generate/async")
+    @Operation(summary = "异步生成博客内容", description = "提交AI生成任务，立即返回任务ID，后台异步处理")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "任务提交成功，返回任务ID"),
+            @ApiResponse(responseCode = "400", description = "请求参数错误"),
+            @ApiResponse(responseCode = "429", description = "超出配额限制"),
+            @ApiResponse(responseCode = "500", description = "服务器内部错误")
+    })
+    public Mono<Result<Long>> generateBlogContentAsync(
+            @Valid @RequestBody AiGenerationRequest request) {
+        // 从 SaToken 获取当前登录用户ID
+        Long userId = StpUtil.getLoginIdAsLong();
+        log.info("收到异步博客生成请求: userId={}, mode={}", userId, request.getMode());
+        
+        // 设置 userId 到请求对象中（用于任务执行时使用）
+        request.setUserId(userId);
+        
+        // 提交异步任务
+        return taskService.submitTask(
+                        com.ryu.blog.enums.TaskType.AI_GENERATION,
+                        request,
+                        userId,
+                        null  // 使用默认优先级
+                )
+                .map(Result::success)
+                .doOnSuccess(result -> log.info("异步任务已提交: taskId={}", result.getData()));
+    }
 }
+

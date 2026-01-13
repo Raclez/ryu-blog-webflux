@@ -6,6 +6,7 @@ import com.ryu.blog.repository.AiUsageQuotaRepository;
 import com.ryu.blog.service.RateLimitService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -29,6 +30,7 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     private final AiUsageQuotaRepository quotaRepository;
     private final ReactiveRedisTemplate<String, String> redisTemplate;
+    private final R2dbcEntityTemplate r2dbcEntityTemplate;
 
     // 默认配额
     private static final int DEFAULT_HOURLY_LIMIT = 10;
@@ -288,6 +290,7 @@ public class RateLimitServiceImpl implements RateLimitService {
         LocalDateTime now = LocalDateTime.now();
         AiUsageQuota quota = AiUsageQuota.builder()
                 .userId(userId)
+                .roleId(null)  // 明确设置为null
                 .hourlyLimit(DEFAULT_HOURLY_LIMIT)
                 .dailyLimit(DEFAULT_DAILY_LIMIT)
                 .monthlyLimit(DEFAULT_MONTHLY_LIMIT)
@@ -299,6 +302,7 @@ public class RateLimitServiceImpl implements RateLimitService {
                 .lastResetMonth(now)
                 .createTime(now)
                 .updateTime(now)
+                .isDeleted(0)  // 明确设置删除标记
                 .build();
         
         return quotaRepository.save(quota)

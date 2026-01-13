@@ -34,13 +34,14 @@ public class AiProviderPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: ai-blog-writer, Property 7: 提供商切换透明性")
     void providerInterfaceConsistency(
-            @ForAll @NotBlank @StringLength(min = 10, max = 100) String topic,
+            @ForAll @NotBlank @StringLength(min = 10, max = 100) String prompt,
             @ForAll @IntRange(min = 100, max = 2000) int length,
             @ForAll("providerNames") String providerName) {
         
         // 创建生成请求
         AiGenerationRequest request = AiGenerationRequest.builder()
-                .topic(topic)
+                .mode("free")
+                .prompt(prompt)
                 .length(length)
                 .providerName(providerName)
                 .language("zh")
@@ -48,7 +49,8 @@ public class AiProviderPropertyTest {
                 .build();
         
         // 验证请求对象的一致性
-        assert request.getTopic() != null && !request.getTopic().isBlank();
+        assert request.getMode() != null;
+        assert request.getPrompt() != null && !request.getPrompt().isBlank();
         assert request.getLength() >= 100 && request.getLength() <= 2000;
         assert request.getProviderName() != null;
         assert request.getLanguage() != null;

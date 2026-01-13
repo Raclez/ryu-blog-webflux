@@ -44,7 +44,7 @@ public class AiBlogServiceImpl implements AiBlogService {
 
     @Override
     public Mono<AiGenerationResult> generateBlogContent(AiGenerationRequest request) {
-        log.info("开始生成博客内容: userId={}, topic={}", request.getUserId(), request.getTopic());
+        log.info("开始生成博客内容: userId={}, mode={}", request.getUserId(), request.getMode());
         
         long startTime = System.currentTimeMillis();
         
@@ -53,8 +53,11 @@ public class AiBlogServiceImpl implements AiBlogService {
                 .flatMap(enhancedPrompt -> {
                     // 更新请求中的提示词
                     AiGenerationRequest enhancedRequest = AiGenerationRequest.builder()
-                            .topic(enhancedPrompt)
+                            .mode(request.getMode())
+                            .prompt(enhancedPrompt)
                             .content(request.getContent())
+                            .templateId(request.getTemplateId())
+                            .templateFields(request.getTemplateFields())
                             .language(request.getLanguage())
                             .tone(request.getTone())
                             .length(request.getLength())
@@ -100,15 +103,18 @@ public class AiBlogServiceImpl implements AiBlogService {
 
     @Override
     public Flux<String> generateBlogContentStream(AiGenerationRequest request) {
-        log.info("开始流式生成博客内容: userId={}, topic={}", request.getUserId(), request.getTopic());
+        log.info("开始流式生成博客内容: userId={}, mode={}", request.getUserId(), request.getMode());
         
         return rateLimitService.checkAndIncrement(request.getUserId())
                 .then(promptEnhancer.enhance(request))
                 .flatMapMany(enhancedPrompt -> {
                     // 更新请求中的提示词
                     AiGenerationRequest enhancedRequest = AiGenerationRequest.builder()
-                            .topic(enhancedPrompt)
+                            .mode(request.getMode())
+                            .prompt(enhancedPrompt)
                             .content(request.getContent())
+                            .templateId(request.getTemplateId())
+                            .templateFields(request.getTemplateFields())
                             .language(request.getLanguage())
                             .tone(request.getTone())
                             .length(request.getLength())
@@ -148,10 +154,11 @@ public class AiBlogServiceImpl implements AiBlogService {
         return templateService.generatePromptFromTemplate(templateId, variables)
                 .flatMap(prompt -> {
                     AiGenerationRequest request = AiGenerationRequest.builder()
-                            .topic(prompt)
+                            .mode("template")
+                            .prompt(prompt)
                             .userId(userId)
                             .templateId(templateId)
-                            .variables(variables)
+                            .templateFields(variables)
                             .build();
                     
                     return generateBlogContent(request);
@@ -197,7 +204,8 @@ public class AiBlogServiceImpl implements AiBlogService {
                 .flatMap(history -> {
                     // 从历史记录重建请求
                     AiGenerationRequest request = AiGenerationRequest.builder()
-                            .topic(history.getPrompt())
+                            .mode("free") // 历史记录重新生成默认使用自由模式
+                            .prompt(history.getPrompt())
                             .providerName(history.getProviderName())
                             .modelName(history.getModelName())
                             .userId(userId)
@@ -219,9 +227,12 @@ public class AiBlogServiceImpl implements AiBlogService {
         try {
             String resultJson = objectMapper.writeValueAsString(result);
             
+            // 根据模式保存不同的prompt信息
+            String originalPrompt = getOriginalPromptForHistory(request);
+            
             AiGenerationHistory history = AiGenerationHistory.builder()
                     .userId(request.getUserId())
-                    .prompt(request.getTopic())
+                    .prompt(originalPrompt)
                     .enhancedPrompt(enhancedPrompt)
                     .result(resultJson)
                     .providerName(result.getProviderName())
@@ -239,6 +250,26 @@ public class AiBlogServiceImpl implements AiBlogService {
         } catch (JsonProcessingException e) {
             log.error("序列化生成结果失败", e);
             return Mono.empty();
+        }
+    }
+
+    /**
+     * 获取用于保存历史记录的原始prompt
+     */
+    private String getOriginalPromptForHistory(AiGenerationRequest request) {
+        if ("template".equals(request.getMode())) {
+            // 模板模式：保存模板信息
+            return String.format("Template[%d]: %s", 
+                    request.getTemplateId(), 
+                    request.getTemplateFields());
+        } else if ("refine".equals(request.getMode())) {
+            // 内容优化：保存优化指令
+            return String.format("Refine: %s\nOriginal: %s", 
+                    request.getPrompt(), 
+                    request.getContent());
+        } else {
+            // 自由模式：直接保存prompt
+            return request.getPrompt();
         }
     }
 
