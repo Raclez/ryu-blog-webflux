@@ -40,6 +40,8 @@ public class StorageConfigController {
     @Operation(summary = "根据key获取存储策略信息")
     @GetMapping("/{strategyKey}")
     public Mono<Result<StorageConfig>> getStorageConfig(@PathVariable String strategyKey) {
+        log.info("获取存储策略信息: strategyKey={}", strategyKey);
+        
         return storageConfigService.getStrategyByKey(strategyKey)
                 .map(Result::success)
                 .defaultIfEmpty(Result.notFound("存储策略不存在"));
@@ -60,6 +62,8 @@ public class StorageConfigController {
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String strategyName) {
         
+        log.info("分页获取存储策略: page={}, size={}, name={}", currentPage, pageSize, strategyName);
+        
         StorageConfigQueryDTO queryDTO = new StorageConfigQueryDTO();
         queryDTO.setCurrentPage(currentPage);
         queryDTO.setPageSize(pageSize);
@@ -77,6 +81,7 @@ public class StorageConfigController {
                     // 这里简化处理，直接使用列表大小作为总数
                     pageResult.setTotal(list.size());
                     
+                    log.debug("分页获取存储策略成功: 数量={}", list.size());
                     return Result.success(pageResult);
                 });
     }
@@ -90,9 +95,12 @@ public class StorageConfigController {
     @Operation(summary = "创建存储策略")
     @PostMapping("/add")
     public Mono<Result<Boolean>> createStorageConfig(@RequestBody StorageConfigCreateDTO storageConfigCreateDTO) {
+        log.info("创建存储策略: strategyKey={}", storageConfigCreateDTO.getStrategyKey());
+        
         return storageConfigService.createStorageConfig(storageConfigCreateDTO)
                 .then(Mono.just(Result.success(true)))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("创建存储策略成功: strategyKey={}", 
+                        storageConfigCreateDTO.getStrategyKey()));
     }
 
     /**
@@ -104,9 +112,11 @@ public class StorageConfigController {
     @Operation(summary = "更新存储策略")
     @PutMapping("/edit")
     public Mono<Result<Boolean>> editStorageConfig(@RequestBody StorageConfigUpdateDTO storageConfigUpdateDTO) {
+        log.info("更新存储策略: id={}", storageConfigUpdateDTO.getId());
+        
         return storageConfigService.updateStorageConfig(storageConfigUpdateDTO)
                 .then(Mono.just(Result.success(true)))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("更新存储策略成功: id={}", storageConfigUpdateDTO.getId()));
     }
 
     /**
@@ -118,9 +128,11 @@ public class StorageConfigController {
     @Operation(summary = "删除存储策略")
     @DeleteMapping("/delete/{id}")
     public Mono<Result<Boolean>> deleteStorageConfig(@PathVariable Long id) {
+        log.info("删除存储策略: id={}", id);
+        
         return storageConfigService.removeById(id)
                 .then(Mono.just(Result.success(true)))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("删除存储策略成功: id={}", id));
     }
 
     /**
@@ -131,6 +143,8 @@ public class StorageConfigController {
     @Operation(summary = "查询激活存储策略")
     @GetMapping("/enabled")
     public Mono<Result<StorageConfig>> getEnabledStorageConfig() {
+        log.info("查询激活存储策略");
+        
         return storageConfigService.getEnabledStrategy()
                 .map(Result::success)
                 .defaultIfEmpty(Result.successMsg("没有激活的存储策略"));
@@ -145,9 +159,11 @@ public class StorageConfigController {
     @Operation(summary = "启用存储策略")
     @PutMapping("/enable/{strategyKey}")
     public Mono<Result<Boolean>> enableStorageConfig(@PathVariable String strategyKey) {
+        log.info("启用存储策略: strategyKey={}", strategyKey);
+        
         return storageConfigService.enableOrDisableStorageConfig(strategyKey, true)
                 .then(Mono.just(Result.success(true)))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("启用存储策略成功: strategyKey={}", strategyKey));
     }
     
     /**
@@ -159,8 +175,10 @@ public class StorageConfigController {
     @Operation(summary = "禁用存储策略")
     @PutMapping("/disable/{strategyKey}")
     public Mono<Result<Boolean>> disableStorageConfig(@PathVariable String strategyKey) {
+        log.info("禁用存储策略: strategyKey={}", strategyKey);
+        
         return storageConfigService.enableOrDisableStorageConfig(strategyKey, false)
                 .then(Mono.just(Result.success(true)))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("禁用存储策略成功: strategyKey={}", strategyKey));
     }
-} 
+}

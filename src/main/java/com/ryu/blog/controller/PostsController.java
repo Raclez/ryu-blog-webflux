@@ -14,6 +14,7 @@ import com.ryu.blog.vo.PostFrontListVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
@@ -37,6 +38,7 @@ import java.util.List;
  * @author ryu
  */
 @Slf4j
+@Validated
 @RestController
 @RequestMapping("/posts")
 @RequiredArgsConstructor
@@ -70,11 +72,7 @@ public class PostsController {
                 query.getEndTime()
             )
             .map(Result::success)
-            .doOnSuccess(result -> log.info("分页查询文章列表成功: 总数={}", result.getData().getTotal()))
-            .onErrorResume(e -> {
-                log.error("分页查询文章列表失败: {}", e.getMessage(), e);
-                return Mono.just(Result.error(e.getMessage()));
-            });
+            .doOnSuccess(result -> log.info("分页查询文章列表成功: 总数={}", result.getData().getTotal()));
     }
 
     /**
@@ -91,20 +89,22 @@ public class PostsController {
     @GetMapping("/front")
     public Mono<Result<List<PostFrontListVO>>> getFrontPosts(
             @Parameter(description = "游标ID") @RequestParam(required = false) String cursor,
-            @Parameter(description = "每页数量") @RequestParam(defaultValue = "5") int limit,
+            @Parameter(description = "每页数量") 
+            @RequestParam(defaultValue = "5") 
+            @Min(value = 1, message = "每页数量必须大于0")
+            @Max(value = 50, message = "每页数量不能超过50") 
+            int limit,
             @Parameter(description = "基准创建时间") @RequestParam(required = false) String createTime,
-            @Parameter(description = "加载方向") @RequestParam(defaultValue = "comprehensive") String direction) {
+            @Parameter(description = "加载方向") 
+            @RequestParam(defaultValue = "comprehensive")
+            @Pattern(regexp = "^(newer|older|comprehensive)$", message = "加载方向只能为newer、older或comprehensive")
+            String direction) {
         log.info("前台游标加载文章列表: cursor={}, limit={}, direction={}", cursor, limit, direction);
         
         return articleService.getFrontArticlesVO(cursor, limit, createTime, direction)
                 .map(voList -> {
                     log.info("前台游标加载文章列表成功: 返回记录数={}", voList.size());
                     return Result.success(voList);
-                })
-                .doOnSuccess(result -> log.debug("前台文章列表查询成功"))
-                .onErrorResume(e -> {
-                    log.error("前台游标加载文章列表失败: {}", e.getMessage(), e);
-                    return Mono.just(Result.error(e.getMessage()));
                 });
     }
 
@@ -120,17 +120,11 @@ public class PostsController {
         Long userId = StpUtil.getLoginIdAsLong();
         log.info("创建文章: 标题={}, 用户ID={}", postCreateDTO.getTitle(), userId);
         
-        // 设置作者ID为当前登录用户
         return articleService.createArticle(postCreateDTO, userId)
                 .then(Mono.defer(() -> {
                     log.info("文章创建成功: 标题={}, 用户ID={}", postCreateDTO.getTitle(), userId);
                     return Mono.just(Result.<Void>success());
-                }))
-                .onErrorResume(e -> {
-                    log.error("文章创建失败: 标题={}, 用户ID={}, 错误: {}", 
-                            postCreateDTO.getTitle(), userId, e.getMessage(), e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                }));
     }
 
     /**
@@ -148,11 +142,7 @@ public class PostsController {
                 .then(Mono.defer(() -> {
                     log.info("文章更新成功: ID={}", postUpdateDTO.getId());
                     return Mono.just(Result.<Void>success());
-                }))
-                .onErrorResume(e -> {
-                    log.error("文章更新失败: ID={}, 错误: {}", postUpdateDTO.getId(), e.getMessage(), e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                }));
     }
 
     /**
@@ -163,17 +153,16 @@ public class PostsController {
      */
     @Operation(summary = "获取文章详情", description = "根据ID获取文章详情")
     @GetMapping("/detail/{id}")
-    public Mono<Result<PostDetailVO>> getPostDetail(@PathVariable Long id) {
+    public Mono<Result<PostDetailVO>> getPostDetail(
+            @PathVariable 
+            @Positive(message = "文章ID必须为正数") 
+            Long id) {
         log.info("获取文章详情: ID={}", id);
         
         return articleService.getArticleDetailVO(id)
                 .map(detailVO -> {
                     log.info("获取文章详情成功: ID={}, 标题={}", id, detailVO.getTitle());
                     return Result.success(detailVO);
-                })
-                .onErrorResume(e -> {
-                    log.error("获取文章详情失败: ID={}, 错误: {}", id, e.getMessage(), e);
-                    return Mono.just(Result.<PostDetailVO>error(e.getMessage()));
                 });
     }
 
@@ -185,18 +174,18 @@ public class PostsController {
      */
     @Operation(summary = "批量删除文章", description = "批量删除文章")
     @PostMapping("/delete/batch")
-    public Mono<Result<Void>> batchDeletePosts(@RequestBody List<String> ids) {
+    public Mono<Result<Void>> batchDeletePosts(
+            @RequestBody 
+            @NotEmpty(message = "文章ID列表不能为空")
+            @Size(max = 100, message = "单次最多删除100篇文章")
+            List<String> ids) {
         log.info("批量删除文章: IDs={}", ids);
         
         return articleService.batchDeleteArticles(ids)
                 .then(Mono.defer(() -> {
                     log.info("批量删除文章成功: IDs={}", ids);
                     return Mono.just(Result.<Void>success());
-                }))
-                .onErrorResume(e -> {
-                    log.error("批量删除文章失败: IDs={}, 错误: {}", ids, e.getMessage(), e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                }));
     }
 
     /**
@@ -209,8 +198,13 @@ public class PostsController {
     @Operation(summary = "获取相关博客推荐", description = "获取相关博客推荐")
     @GetMapping("/related/{postId}/{limit}")
     public Mono<Result<List<PostFrontListVO>>> getRelatedPosts(
-            @PathVariable Long postId,
-            @PathVariable Integer limit) {
+            @PathVariable 
+            @Positive(message = "文章ID必须为正数") 
+            Long postId,
+            @PathVariable 
+            @Min(value = 1, message = "推荐数量必须大于0")
+            @Max(value = 20, message = "推荐数量不能超过20")
+            Integer limit) {
         log.info("获取相关博客推荐: 文章ID={}, 限制数量={}", postId, limit);
         
         return articleService.getRelatedArticlesVO(postId, limit)
@@ -218,10 +212,6 @@ public class PostsController {
                 .map(articles -> {
                     log.info("获取相关博客推荐成功: 文章ID={}, 返回数量={}", postId, articles.size());
                     return Result.success(articles);
-                })
-                .onErrorResume(e -> {
-                    log.error("获取相关博客推荐失败: 文章ID={}, 错误: {}", postId, e.getMessage(), e);
-                    return Mono.just(Result.<List<PostFrontListVO>>error(e.getMessage()));
                 });
     }
     
@@ -237,17 +227,11 @@ public class PostsController {
     public Mono<Result<Void>> updatePostStatus(@RequestBody @Validated PostStatusDTO statusDTO) {
         log.info("更新文章状态: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
         
-        // 使用服务层方法更新状态，服务层通过Spring Cache注解自动管理缓存
         return articleService.updateArticleStatus(statusDTO)
                 .then(Mono.defer(() -> {
                     log.info("更新文章状态成功: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
                     return Mono.just(Result.<Void>success());
-                }))
-                .onErrorResume(e -> {
-                    log.error("更新文章状态失败: ID={}, 状态={}, 错误: {}", 
-                            statusDTO.getId(), statusDTO.getStatus(), e.getMessage(), e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                }));
     }
 
     /**
@@ -261,7 +245,9 @@ public class PostsController {
     @PostMapping(value = "/upload-md", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<Result<Void>> importMarkdown(
             @RequestPart("files") FilePart file,
-            @RequestParam(required = false) Long categoryId) {
+            @RequestParam(required = false) 
+            @Positive(message = "分类ID必须为正数")
+            Long categoryId) {
         Long userId = StpUtil.getLoginIdAsLong();
         log.info("导入Markdown文件: 文件名={}, 分类ID={}, 用户ID={}", file.filename(), categoryId, userId);
         
@@ -269,12 +255,7 @@ public class PostsController {
                 .then(Mono.defer(() -> {
                     log.info("Markdown文件导入成功: 文件名={}, 用户ID={}", file.filename(), userId);
                     return Mono.just(Result.<Void>success());
-                }))
-                .onErrorResume(e -> {
-                    log.error("Markdown文件导入失败: 文件名={}, 用户ID={}, 错误: {}", 
-                            file.filename(), userId, e.getMessage(), e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                }));
     }
 
     /**
@@ -285,7 +266,10 @@ public class PostsController {
      */
     @Operation(summary = "导出为Markdown文件", description = "将文章导出为Markdown文件")
     @GetMapping("/export/{id}")
-    public Mono<ResponseEntity<ByteArrayResource>> exportMarkdown(@PathVariable Long id) {
+    public Mono<ResponseEntity<ByteArrayResource>> exportMarkdown(
+            @PathVariable 
+            @Positive(message = "文章ID必须为正数") 
+            Long id) {
         log.info("导出文章为Markdown: ID={}", id);
         
         return articleService.exportArticleToMarkdown(id)
@@ -308,10 +292,6 @@ public class PostsController {
                             .contentType(MediaType.TEXT_MARKDOWN)
                             .contentLength(content.length)
                             .body(resource);
-                })
-                .onErrorResume(e -> {
-                    log.error("文章导出为Markdown失败: ID={}, 错误: {}", id, e.getMessage(), e);
-                    return Mono.error(e);
                 });
     }
 }

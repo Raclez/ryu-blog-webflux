@@ -33,35 +33,44 @@ public class CommentController {
     @PostMapping
     public Mono<Result<Comment>> createComment(@RequestBody @Validated Comment comment) {
         // 设置评论用户ID为当前登录用户
-        comment.setUserId(StpUtil.getLoginIdAsLong());
+        Long userId = StpUtil.getLoginIdAsLong();
+        comment.setUserId(userId);
+        log.info("创建评论: userId={}, articleId={}", userId, comment.getPostId());
+        
         return commentService.createComment(comment)
                 .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("创建评论成功: commentId={}", result.getData().getId()));
     }
 
     @Operation(summary = "更新评论", description = "更新已有评论")
     @PutMapping("/{id}")
     public Mono<Result<Comment>> updateComment(@PathVariable Long id, @RequestBody Comment comment) {
         comment.setId(id);
+        log.info("更新评论: id={}", id);
+        
         return commentService.updateComment(comment)
                 .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("更新评论成功: id={}", id));
     }
 
     @Operation(summary = "获取评论详情", description = "根据ID获取评论详情")
     @GetMapping("/{id}")
     public Mono<Result<Comment>> getCommentById(@PathVariable Long id) {
+        log.info("获取评论详情: id={}", id);
+        
         return commentService.getCommentById(id)
                 .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.debug("获取评论详情成功: id={}", id));
     }
 
     @Operation(summary = "删除评论", description = "根据ID删除评论")
     @DeleteMapping("/{id}")
     public Mono<Result<String>> deleteComment(@PathVariable Long id) {
+        log.info("删除评论: id={}", id);
+        
         return commentService.deleteComment(id)
                 .thenReturn(Result.success("删除成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("删除评论成功: id={}", id));
     }
 
     @Operation(summary = "获取文章评论列表", description = "分页获取文章评论列表")
@@ -70,6 +79,8 @@ public class CommentController {
             @PathVariable Long articleId,
             @Parameter(description = "页码，从0开始") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
+        log.info("获取文章评论列表: articleId={}, page={}, size={}", articleId, page, size);
+        
         return commentService.countCommentsByArticleId(articleId)
                 .flatMap(total -> {
                     return commentService.getCommentsByArticleId(articleId, page, size)
@@ -78,10 +89,10 @@ public class CommentController {
                                 Map<String, Object> result = new HashMap<>();
                                 result.put("total", total);
                                 result.put("comments", comments);
+                                log.debug("获取文章评论列表成功: articleId={}, 总数={}", articleId, total);
                                 return Result.success(result);
                             });
-                })
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                });
     }
 
     @Operation(summary = "获取用户评论列表", description = "分页获取用户评论列表")
@@ -90,6 +101,8 @@ public class CommentController {
             @PathVariable Long userId,
             @Parameter(description = "页码，从0开始") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
+        log.info("获取用户评论列表: userId={}, page={}, size={}", userId, page, size);
+        
         return commentService.countCommentsByUserId(userId)
                 .flatMap(total -> {
                     return commentService.getCommentsByUserId(userId, page, size)
@@ -98,10 +111,10 @@ public class CommentController {
                                 Map<String, Object> result = new HashMap<>();
                                 result.put("total", total);
                                 result.put("comments", comments);
+                                log.debug("获取用户评论列表成功: userId={}, 总数={}", userId, total);
                                 return Result.success(result);
                             });
-                })
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                });
     }
 
     @Operation(summary = "获取我的评论列表", description = "分页获取当前登录用户的评论列表")
@@ -110,6 +123,7 @@ public class CommentController {
             @Parameter(description = "页码，从0开始") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
         Long userId = StpUtil.getLoginIdAsLong();
+        log.info("获取我的评论列表: userId={}", userId);
         return getCommentsByUserId(userId, page, size);
     }
 
@@ -118,9 +132,11 @@ public class CommentController {
     public Mono<Result<String>> updateCommentStatus(
             @PathVariable Long id,
             @Parameter(description = "状态：0-待审核，1-已通过，2-已拒绝") @RequestParam Integer status) {
+        log.info("更新评论状态: id={}, status={}", id, status);
+        
         return commentService.updateCommentStatus(id, status)
                 .map(result -> Result.success("更新成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(r -> log.info("更新评论状态成功: id={}, status={}", id, status));
     }
 
     @Operation(summary = "获取待审核评论列表", description = "分页获取待审核评论列表（管理员）")
@@ -128,6 +144,8 @@ public class CommentController {
     public Mono<Result<Map<String, Object>>> getPendingComments(
             @Parameter(description = "页码，从0开始") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
+        log.info("获取待审核评论列表: page={}, size={}", page, size);
+        
         return commentService.countPendingComments()
                 .flatMap(total -> {
                     return commentService.getPendingComments(page, size)
@@ -136,9 +154,9 @@ public class CommentController {
                                 Map<String, Object> result = new HashMap<>();
                                 result.put("total", total);
                                 result.put("comments", comments);
+                                log.debug("获取待审核评论列表成功: 总数={}", total);
                                 return Result.success(result);
                             });
-                })
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                });
     }
-} 
+}

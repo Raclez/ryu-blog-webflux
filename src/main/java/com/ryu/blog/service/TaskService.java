@@ -73,6 +73,15 @@ public interface TaskService {
     Flux<AsyncTask> getUserTasks(Long userId, TaskType taskType, Pageable pageable);
     
     /**
+     * 统计用户任务数量
+     * 
+     * @param userId 用户ID
+     * @param taskType 任务类型（可选，null表示统计所有类型）
+     * @return 任务总数
+     */
+    Mono<Long> countUserTasks(Long userId, TaskType taskType);
+    
+    /**
      * 清理过期任务
      * 
      * @return 清理的任务数量

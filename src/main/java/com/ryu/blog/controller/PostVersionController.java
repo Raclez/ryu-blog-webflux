@@ -61,13 +61,8 @@ public class PostVersionController {
                     log.info("获取文章版本列表成功: 文章ID={}, 版本数量={}, 下一页游标={}", 
                             postId, versions.size(), nextCursor);
                     return Result.success(result);
-                })
-                .onErrorResume(e -> {
-                    log.error("获取文章版本列表失败: 文章ID={}, 错误信息={}", postId, e.getMessage(), e);
-                    return Mono.just(Result.fail("获取版本列表失败: " + e.getMessage()));
                 });
     }
-
 
     /**
      * 获取文章指定版本
@@ -88,11 +83,6 @@ public class PostVersionController {
                     log.info("获取文章指定版本成功: 文章ID={}, 版本号={}", postId, version);
                     return Result.success(postVersion);
                 })
-                .onErrorResume(e -> {
-                    log.error("获取文章指定版本失败: 文章ID={}, 版本号={}, 错误信息={}",
-                            postId, version, e.getMessage(), e);
-                    return Mono.just(Result.fail("获取版本详情失败: " + e.getMessage()));
-                })
                 .defaultIfEmpty(Result.fail("版本不存在"));
     }
 
@@ -112,10 +102,6 @@ public class PostVersionController {
                 .map(postVersion -> {
                     log.info("获取文章最新版本成功: 文章ID={}, 版本号={}", postId, postVersion.getVersion());
                     return Result.success(postVersion);
-                })
-                .onErrorResume(e -> {
-                    log.error("获取文章最新版本失败: 文章ID={}, 错误信息={}", postId, e.getMessage(), e);
-                    return Mono.just(Result.fail("获取最新版本失败: " + e.getMessage()));
                 })
                 .defaultIfEmpty(Result.fail("文章没有版本记录"));
     }
@@ -139,11 +125,6 @@ public class PostVersionController {
                 .map(posts -> {
                     log.info("回滚文章到指定版本成功: 文章ID={}, 版本号={}", postId, version);
                     return Result.success(posts);
-                })
-                .onErrorResume(e -> {
-                    log.error("回滚文章到指定版本失败: 文章ID={}, 版本号={}, 错误信息={}",
-                            postId, version, e.getMessage(), e);
-                    return Mono.just(Result.fail("回滚失败: " + e.getMessage()));
                 });
     }
 
@@ -169,10 +150,6 @@ public class PostVersionController {
                         log.warn("删除文章版本失败: 版本ID={}, 可能是权限不足或是最新版本", id);
                         return Result.<Boolean>fail("删除失败，可能无权限或不允许删除最新版本");
                     }
-                })
-                .onErrorResume(e -> {
-                    log.error("删除文章版本发生错误: 版本ID={}, 错误信息={}", id, e.getMessage(), e);
-                    return Mono.just(Result.<Boolean>fail("删除失败: " + e.getMessage()));
                 });
     }
 
@@ -196,11 +173,6 @@ public class PostVersionController {
                 .map(diff -> {
                     log.info("比较文章版本差异成功: 文章ID={}, 版本1={}, 版本2={}", postId, version1, version2);
                     return Result.success(diff);
-                })
-                .onErrorResume(e -> {
-                    log.error("比较文章版本差异失败: 文章ID={}, 版本1={}, 版本2={}, 错误信息={}",
-                            postId, version1, version2, e.getMessage(), e);
-                    return Mono.just(Result.fail("比较版本差异失败: " + e.getMessage()));
                 });
     }
-} 
+}

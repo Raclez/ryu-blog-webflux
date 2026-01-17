@@ -47,12 +47,11 @@ public class ResourceGroupController {
     @PostMapping("/save")
     @Operation(summary = "创建资源组", description = "创建新的资源组")
     public Mono<Result<Void>> createResourceGroup(@Valid @RequestBody ResourceGroupCreateDTO dto, ServerWebExchange exchange) {
+        log.info("创建资源组: name={}", dto.getGroupName());
+        
         return resourceGroupService.createResourceGroup(dto, exchange)
                 .then(Mono.just(Result.<Void>success()))
-                .onErrorResume(e -> {
-                    log.error("创建资源组失败", e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("创建资源组成功: name={}", dto.getGroupName()));
     }
 
     /**
@@ -64,12 +63,11 @@ public class ResourceGroupController {
     @PutMapping("/edit")
     @Operation(summary = "更新资源组", description = "更新资源组信息")
     public Mono<Result<Void>> updateResourceGroup(@Valid @RequestBody ResourceGroupUpdateDTO dto) {
+        log.info("更新资源组: id={}", dto.getId());
+        
         return resourceGroupService.updateResourceGroup(dto)
                 .then(Mono.just(Result.<Void>success()))
-                .onErrorResume(e -> {
-                    log.error("更新资源组失败", e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("更新资源组成功: id={}", dto.getId()));
     }
 
     /**
@@ -81,12 +79,11 @@ public class ResourceGroupController {
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除资源组", description = "根据ID删除资源组")
     public Mono<Result<Void>> deleteResourceGroup(@PathVariable Long id) {
+        log.info("删除资源组: id={}", id);
+        
         return resourceGroupService.deleteResourceGroup(id)
                 .then(Mono.just(Result.<Void>success()))
-                .onErrorResume(e -> {
-                    log.error("删除资源组失败", e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("删除资源组成功: id={}", id));
     }
 
     /**
@@ -99,14 +96,13 @@ public class ResourceGroupController {
     @Operation(summary = "获取当前用户资源组", description = "获取当前登录用户的所有资源组")
     public Mono<Result<List<ResourceGroupVO>>> getCurrentUserResourceGroups(ServerWebExchange exchange) {
         return SaTokenUtils.exec(exchange, StpUtil::getLoginIdAsLong)
-                .flatMap(userId -> 
-                    resourceGroupService.getUserResourceGroups(userId)
+                .flatMap(userId -> {
+                    log.info("获取当前用户资源组: userId={}", userId);
+                    return resourceGroupService.getUserResourceGroups(userId)
                             .collectList()
                             .map(Result::success)
-                )
-                .onErrorResume(e -> {
-                    log.error("获取当前用户资源组失败", e);
-                    return Mono.just(Result.<List<ResourceGroupVO>>error(e.getMessage()));
+                            .doOnSuccess(result -> log.debug("获取当前用户资源组成功: userId={}, 数量={}", 
+                                    userId, result.getData().size()));
                 });
     }
 
@@ -119,12 +115,12 @@ public class ResourceGroupController {
     @PostMapping("/file/add")
     @Operation(summary = "添加文件到资源组", description = "将文件添加到指定资源组")
     public Mono<Result<Void>> addFilesToGroup(@Valid @RequestBody ResourceGroupFileDTO dto) {
+        log.info("添加文件到资源组: groupId={}, fileIds={}", dto.getGroupId(), dto.getFileIds());
+        
         return resourceGroupService.addFilesToGroup(dto)
                 .then(Mono.just(Result.<Void>success()))
-                .onErrorResume(e -> {
-                    log.error("添加文件到资源组失败", e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("添加文件到资源组成功: groupId={}, 数量={}", 
+                        dto.getGroupId(), dto.getFileIds().size()));
     }
 
     /**
@@ -136,12 +132,12 @@ public class ResourceGroupController {
     @PostMapping("/file/remove")
     @Operation(summary = "从资源组移除文件", description = "从指定资源组移除文件")
     public Mono<Result<Void>> removeFilesFromGroup(@Valid @RequestBody ResourceGroupFileDTO dto) {
+        log.info("从资源组移除文件: groupId={}, fileIds={}", dto.getGroupId(), dto.getFileIds());
+        
         return resourceGroupService.removeFilesFromGroup(dto)
                 .then(Mono.just(Result.<Void>success()))
-                .onErrorResume(e -> {
-                    log.error("从资源组移除文件失败", e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("从资源组移除文件成功: groupId={}, 数量={}", 
+                        dto.getGroupId(), dto.getFileIds().size()));
     }
 
     /**
@@ -154,11 +150,7 @@ public class ResourceGroupController {
     @Operation(summary = "获取资源组文件列表", description = "分页获取资源组中的文件ID列表，不传groupId则查询所有文件")
     public Mono<Result<PageResult<Long>>> getGroupFileIds(@Valid ResourceGroupQueryDTO queryDTO) {
         return resourceGroupService.getGroupFileIds(queryDTO)
-                .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取资源组文件列表失败", e);
-                    return Mono.just(Result.<PageResult<Long>>error(e.getMessage()));
-                });
+                .map(Result::success);
     }
 
     /**
@@ -174,11 +166,7 @@ public class ResourceGroupController {
             @RequestParam String groupName,
             @RequestParam(required = false) Long excludeId) {
         return resourceGroupService.checkGroupNameExists(groupName, excludeId)
-                .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("检查资源组名是否存在失败", e);
-                    return Mono.just(Result.<Boolean>error(e.getMessage()));
-                });
+                .map(Result::success);
     }
 
     /**
@@ -190,12 +178,12 @@ public class ResourceGroupController {
     @GetMapping("/file/{fileId}")
     @Operation(summary = "获取文件所属资源组", description = "获取指定文件所属的所有资源组")
     public Mono<Result<List<ResourceGroupVO>>> getFileResourceGroups(@PathVariable Long fileId) {
+        log.info("获取文件所属资源组: fileId={}", fileId);
+        
         return resourceGroupService.getFileResourceGroups(fileId)
                 .collectList()
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取文件所属资源组失败", e);
-                    return Mono.just(Result.<List<ResourceGroupVO>>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("获取文件所属资源组成功: fileId={}, 数量={}", 
+                        fileId, result.getData().size()));
     }
-} 
+}

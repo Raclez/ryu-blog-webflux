@@ -7,6 +7,7 @@ import com.ryu.blog.enums.TaskType;
 import com.ryu.blog.service.TaskNotificationService;
 import com.ryu.blog.service.TaskService;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.vo.PageResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -134,21 +135,32 @@ public class TaskController {
      * 查询用户任务列表
      * 
      * @param taskType 任务类型（可选）
-     * @param page 页码
+     * @param current 当前页码（从1开始）
      * @param size 每页大小
-     * @return 任务列表
+     * @return 任务分页列表
      */
     @GetMapping
     @Operation(summary = "查询任务列表", description = "分页查询用户的任务列表")
-    public Mono<Result<java.util.List<AsyncTask>>> getUserTasks(
+    public Mono<Result<PageResult<AsyncTask>>> getUserTasks(
             @Parameter(description = "任务类型") @RequestParam(required = false) TaskType taskType,
-            @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "当前页码，从1开始") @RequestParam(defaultValue = "1") int current,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "20") int size) {
         
         Long userId = StpUtil.getLoginIdAsLong();
         
+        // 转换为0基页码
+        int page = current - 1;
+        
         return taskService.getUserTasks(userId, taskType, PageRequest.of(page, size))
                 .collectList()
+                .flatMap(tasks -> {
+                    // 获取总数
+                    Mono<Long> totalMono = taskService.countUserTasks(userId, taskType);
+                    return totalMono.map(total -> {
+                        PageResult<AsyncTask> pageResult = new PageResult<>(tasks, total, size, current);
+                        return pageResult;
+                    });
+                })
                 .map(Result::success);
     }
     

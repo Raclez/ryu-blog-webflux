@@ -46,8 +46,7 @@ public class UserController {
                 userListDTO.getEmail(), 
                 userListDTO.getStatus()
             )
-            .map(Result::success)
-            .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+            .map(Result::success);
     }
 
     /**
@@ -57,9 +56,11 @@ public class UserController {
     @GetMapping("/info")
     public Mono<Result<UserInfoVO>> getCurrentUser() {
         long userId = StpUtil.getLoginIdAsLong();
+        log.info("获取当前用户信息: userId={}", userId);
+        
         return userService.getCurrentUserInfo(userId)
                 .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.debug("获取当前用户信息成功: userId={}", userId));
     }
 
     /**
@@ -68,9 +69,11 @@ public class UserController {
     @Operation(summary = "获取用户详情", description = "根据ID获取用户详细信息")
     @GetMapping("/detail/{id}")
     public Mono<Result<UserInfoVO>> getUserDetail(@PathVariable Long id) {
+        log.info("获取用户详情: id={}", id);
+        
         return userService.getUserDetailById(id)
                 .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.debug("获取用户详情成功: id={}", id));
     }
 
     /**
@@ -79,9 +82,11 @@ public class UserController {
     @Operation(summary = "创建新用户", description = "创建新用户并可选地分配角色")
     @PostMapping("/save")
     public Mono<Result<String>> createUser(@Validated @RequestBody UserDTO userDTO) {
+        log.info("创建新用户: username={}", userDTO.getUsername());
+        
         return userService.createUserWithRoles(userDTO)
                 .map(u -> Result.success("用户创建成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("用户创建成功: username={}", userDTO.getUsername()));
     }
 
     /**
@@ -90,10 +95,12 @@ public class UserController {
     @Operation(summary = "更新用户信息", description = "更新指定ID用户的信息")
     @PutMapping("/edit/{id}")
     public Mono<Result<String>> updateUserInfo(@PathVariable Long id, @Validated @RequestBody UserDTO userDTO) {
+        log.info("更新用户信息: id={}, username={}", id, userDTO.getUsername());
+        
         userDTO.setId(id);
         return userService.updateUserWithRoles(userDTO)
                 .map(u -> Result.success("用户信息更新成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("用户信息更新成功: id={}", id));
     }
 
     /**
@@ -107,9 +114,11 @@ public class UserController {
         }
         
         long userId = StpUtil.getLoginIdAsLong();
+        log.info("修改密码: userId={}", userId);
+        
         return userService.updatePassword(userId, passwordDTO)
                 .map(success -> success ? Result.success("密码修改成功") : Result.error("旧密码错误"))
-                .onErrorResume(e -> Mono.just(Result.error("")));
+                .doOnSuccess(result -> log.info("密码修改成功: userId={}", userId));
     }
     
     /**
@@ -118,9 +127,11 @@ public class UserController {
     @Operation(summary = "删除用户", description = "删除指定ID的用户及其关联的角色关系")
     @DeleteMapping("/delete/{id}")
     public Mono<Result<String>> deleteUser(@PathVariable Long id) {
+        log.info("删除用户: id={}", id);
+        
         return userService.deleteUser(id)
                 .thenReturn(Result.success("用户删除成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("用户删除成功: id={}", id));
     }
     
     /**
@@ -129,9 +140,11 @@ public class UserController {
     @Operation(summary = "批量删除用户", description = "批量删除多个用户及其关联的角色关系")
     @DeleteMapping("/batch")
     public Mono<Result<String>> batchDeleteUsers(@RequestBody List<Long> ids) {
+        log.info("批量删除用户: ids={}", ids);
+        
         return userService.batchDeleteUsers(ids)
                 .thenReturn(Result.success("批量删除用户成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("批量删除用户成功: 数量={}", ids.size()));
     }
     
     /**
@@ -140,9 +153,11 @@ public class UserController {
     @Operation(summary = "重置用户密码", description = "管理员重置指定用户的密码")
     @PutMapping("/reset-password/{id}")
     public Mono<Result<String>> resetPassword(@PathVariable Long id) {
+        log.info("重置用户密码: id={}", id);
+        
         return userService.resetPassword(id)
                 .map(Result::success)
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("重置用户密码成功: id={}", id));
     }
     
     /**
@@ -153,9 +168,11 @@ public class UserController {
     public Mono<Result<String>> updateUserStatus(
             @PathVariable Long id, 
             @PathVariable Integer status) {
+        log.info("更新用户状态: id={}, status={}", id, status);
+        
         return userService.updateUserStatus(id, status)
                 .map(i -> Result.success("用户状态更新成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("用户状态更新成功: id={}, status={}", id, status));
     }
     
     /**
@@ -166,8 +183,10 @@ public class UserController {
     public Mono<Result<String>> updateUserRoles(
             @PathVariable Long id, 
             @RequestBody List<Long> roleIds) {
+        log.info("更新用户角色: id={}, roleIds={}", id, roleIds);
+        
         return userService.updateUserRoles(id, roleIds)
                 .thenReturn(Result.success("角色更新成功"))
-                .onErrorResume(e -> Mono.just(Result.error(e.getMessage())));
+                .doOnSuccess(result -> log.info("角色更新成功: id={}", id));
     }
 }

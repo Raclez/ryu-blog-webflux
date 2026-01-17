@@ -59,10 +59,7 @@ public class FileController {
         
         return fileService.handleFileUpload(filePart, options)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("文件上传失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("文件上传成功: {}", filePart.filename()));
     }
     
     /**
@@ -82,10 +79,7 @@ public class FileController {
         return fileService.handleBatchFileUpload(fileParts, options)
                 .collectList()
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("批量文件上传失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("批量文件上传成功: 数量={}", result.getData().size()));
     }
     
     /**
@@ -106,10 +100,7 @@ public class FileController {
         
         return fileService.initiateMultipartUpload(fileName, fileSize, options)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("初始化分片上传失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("初始化分片上传成功: fileName={}", fileName));
     }
     
     /**
@@ -130,10 +121,7 @@ public class FileController {
         
         return fileService.uploadPart(uploadId, partNumber, partData)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("上传分片失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("上传分片成功: uploadId={}, partNumber={}", uploadId, partNumber));
     }
     
     /**
@@ -154,10 +142,7 @@ public class FileController {
         
         return fileService.completeMultipartUpload(uploadId, partETags, options)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("完成分片上传失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("完成分片上传成功: uploadId={}", uploadId));
     }
     
     /**
@@ -172,10 +157,7 @@ public class FileController {
         
         return fileService.abortMultipartUpload(uploadId)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("终止分片上传失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("终止分片上传成功: uploadId={}", uploadId));
     }
     
     /**
@@ -190,10 +172,7 @@ public class FileController {
         
         return fileService.handleFileDelete(id)
                 .then(Mono.just(Result.<Void>success()))
-                .onErrorResume(e -> {
-                    log.error("文件删除失败", e);
-                    return Mono.just(Result.<Void>error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("文件删除成功: id={}", id));
     }
     
     /**
@@ -208,10 +187,7 @@ public class FileController {
         
         return fileService.batchDeleteFiles(ids)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("批量删除文件失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("批量删除文件成功: 数量={}", ids.size()));
     }
     
     /**
@@ -223,12 +199,7 @@ public class FileController {
     @Operation(summary = "下载文件", description = "根据文件ID下载文件")
     public Mono<ResponseEntity<Resource>> download(@PathVariable("id") Long id) {
         log.info("下载文件: id={}", id);
-        
-        return fileService.handleFileDownload(id)
-                .onErrorResume(e -> {
-                    log.error("文件下载失败", e);
-                    return Mono.just(ResponseEntity.notFound().build());
-                });
+        return fileService.handleFileDownload(id);
     }
     
     /**
@@ -248,10 +219,6 @@ public class FileController {
                             .contentType(response.getHeaders().getContentType())
                             .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
                             .body(response.getBody());
-                })
-                .onErrorResume(e -> {
-                    log.error("文件预览失败", e);
-                    return Mono.just(ResponseEntity.notFound().build());
                 });
     }
     
@@ -271,10 +238,7 @@ public class FileController {
         
         return fileService.generatePreviewUrl(id, expireSeconds)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取预览URL失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("获取预览URL成功: id={}", id));
     }
     
     /**
@@ -293,10 +257,7 @@ public class FileController {
         
         return fileService.generateDownloadUrl(id, expireSeconds)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取下载URL失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("获取下载URL成功: id={}", id));
     }
     
     /**
@@ -311,10 +272,7 @@ public class FileController {
         
         return fileService.getFileInfo(id)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取文件详情失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("获取文件详情成功: id={}", id));
     }
     
     /**
@@ -333,10 +291,7 @@ public class FileController {
         
         return fileService.updateFileInfo(id, filesDTO)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("更新文件信息失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.info("更新文件信息成功: id={}", id));
     }
     
     /**
@@ -352,11 +307,9 @@ public class FileController {
         return fileService.getFileVersions(id)
                 .collectList()
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取文件版本历史失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("获取文件版本历史成功: id={}, 版本数={}", id, result.getData().size()));
     }
+    
     /**
      * 获取资源组中的文件
      *
@@ -365,13 +318,9 @@ public class FileController {
      */
     @GetMapping("/group")
     @Operation(summary = "获取资源组文件列表", description = "分页获取资源组中的文件ID列表")
-    public Mono<Result<PageResult<File>>> getGroupFiles( @ParameterObject @Valid ResourceGroupQueryDTO queryDTO) {
+    public Mono<Result<PageResult<File>>> getGroupFiles(@ParameterObject @Valid ResourceGroupQueryDTO queryDTO) {
         return fileService.getGroupFiles(queryDTO)
-                .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("获取资源组文件列表失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .map(Result::success);
     }
 
     /**
@@ -386,10 +335,7 @@ public class FileController {
         
         return fileService.searchFiles(searchDTO)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("搜索文件失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("搜索文件成功"));
     }
     
     /**
@@ -404,10 +350,7 @@ public class FileController {
         
         return fileService.getBatchFileUrls(fileIds)
                 .map(Result::success)
-                .onErrorResume(e -> {
-                    log.error("批量获取文件URL失败", e);
-                    return Mono.just(Result.error(e.getMessage()));
-                });
+                .doOnSuccess(result -> log.debug("批量获取文件URL成功: 数量={}", fileIds.size()));
     }
 
 } 

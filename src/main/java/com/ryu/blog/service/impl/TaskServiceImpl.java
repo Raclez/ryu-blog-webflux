@@ -200,6 +200,17 @@ public class TaskServiceImpl implements TaskService {
     }
     
     @Override
+    public Mono<Long> countUserTasks(Long userId, TaskType taskType) {
+        log.debug("Counting user tasks: userId={}, taskType={}", userId, taskType);
+        
+        if (taskType != null) {
+            return taskRepository.countByUserIdAndTaskType(userId, taskType);
+        } else {
+            return taskRepository.countByUserId(userId);
+        }
+    }
+    
+    @Override
     public Mono<Integer> cleanExpiredTasks() {
         log.info("Starting expired tasks cleanup");
         
