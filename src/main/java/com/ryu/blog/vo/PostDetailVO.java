@@ -23,12 +23,12 @@ public class PostDetailVO {
     private String title;
     private String content;
     private String excerpt;
-    private Integer isOriginal;
+    private Boolean isOriginal;
     private String slug;
     private String seoTitle;
     private String seoDescription;
     private Integer sort;
-    private Integer allowComment;
+    private Boolean allowComment;
     private Integer status;
     private String sourceUrl;
     private String visibility;

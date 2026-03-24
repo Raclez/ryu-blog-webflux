@@ -61,8 +61,8 @@ public class AiBlogIntegrationServiceImpl implements AiBlogIntegrationService {
         post.setExcerpt(summary);
         post.setStatus(Posts.Status.DRAFT); // 草稿状态
         post.setViews(0);
-        post.setIsOriginal(SystemConstants.YES);
-        post.setAllowComment(SystemConstants.YES);
+        post.setIsOriginal(true);
+        post.setAllowComment(true);
         post.setVisibility(Posts.Visibility.PUBLIC);
         post.setCreateTime(now);
         post.setUpdateTime(now);

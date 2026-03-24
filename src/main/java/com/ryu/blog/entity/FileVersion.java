@@ -81,7 +81,7 @@ public class FileVersion extends BaseEntity {
      * 是否是当前版本(0:否, 1:是)
      */
     @Column("is_current")
-    private Integer isCurrent;
+    private Boolean isCurrent;
 
     /**
      * 是否有缩略图

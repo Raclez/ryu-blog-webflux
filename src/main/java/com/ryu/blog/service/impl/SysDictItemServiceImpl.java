@@ -43,7 +43,7 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@CacheConfig(cacheNames = CacheConstants.DICT_ITEM_CACHE_NAME)
+@CacheConfig(cacheNames = CacheConstants.DICT_ITEM_CACHE)
 public class SysDictItemServiceImpl implements SysDictItemService {
 
     private final SysDictItemRepository dictItemRepository;
@@ -263,7 +263,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
                             LocalDateTime now = LocalDateTime.now();
                             dictItem.setCreateTime(now);
                             dictItem.setUpdateTime(now);
-                            dictItem.setIsDeleted(SystemConstants.NOT_DELETED); // 设置为未删除状态
+                            dictItem.setIsDeleted(false); // 设置为未删除状态
                             // 如果未设置状态，默认为启用
                             if (dictItem.getStatus() == null) {
                                 dictItem.setStatus(SystemConstants.STATUS_NORMAL);
@@ -323,7 +323,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
         return dictItemRepository.findByIdAndNotDeleted(id)
                 .flatMap(dictItem -> {
                     // 逻辑删除
-                    dictItem.setIsDeleted(SystemConstants.IS_DELETED);
+                    dictItem.setIsDeleted(true);
                     dictItem.setUpdateTime(LocalDateTime.now());
                     return dictItemRepository.save(dictItem);
                 })

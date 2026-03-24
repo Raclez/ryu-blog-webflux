@@ -42,7 +42,7 @@ public class FavoriteServiceImpl implements FavoriteService {
         return favoriteRepository.findByUserIdAndArticleIdAndIsDeleted(userId, articleId, 0)
                 .flatMap(favorite -> {
                     // 如果存在，则取消收藏
-                    favorite.setIsDeleted(1);
+                    favorite.setIsDeleted(true);
                     favorite.setUpdateTime(LocalDateTime.now());
                     return favoriteRepository.save(favorite).map(f -> false);
                 })
@@ -54,7 +54,7 @@ public class FavoriteServiceImpl implements FavoriteService {
                             favorite.setUserId(userId);
                             favorite.setCreateTime(LocalDateTime.now());
                             favorite.setUpdateTime(LocalDateTime.now());
-                            favorite.setIsDeleted(0);
+                            favorite.setIsDeleted(false);
                             return favoriteRepository.save(favorite).map(f -> true);
                         })
                 );

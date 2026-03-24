@@ -75,8 +75,8 @@ public class OpenAiProvider extends AbstractChatClientProvider {
     protected org.springframework.ai.chat.prompt.ChatOptions buildChatOptions(AiGenerationRequest request) {
         return OpenAiChatOptions.builder()
                 .model(request.getModelName() != null ? request.getModelName() : config.getModelName())
-                .temperature(config.getTemperature())
-                .maxTokens(config.getMaxTokens())
+                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
+                .maxTokens(config.getMaxTokens() != null ? config.getMaxTokens() : 2000)
                 .build();
     }
 

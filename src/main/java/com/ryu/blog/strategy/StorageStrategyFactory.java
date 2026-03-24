@@ -83,14 +83,6 @@ public class StorageStrategyFactory {
     }
     
     /**
-     * 获取缓存统计信息
-     * @return 缓存统计信息
-     */
-    public Map<String, Object> getCacheStats() {
-        return configManager.getCacheStats();
-    }
-    
-    /**
      * 设置当前活跃的策略键
      * @param strategyKey 策略键
      */

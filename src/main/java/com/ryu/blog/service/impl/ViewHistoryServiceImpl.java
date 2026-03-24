@@ -73,7 +73,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     // 文章浏览量缓存键前缀
     private static final String ARTICLE_VIEW_COUNT_KEY = CacheConstants.VIEW_COUNT_KEY;
     // 访问记录缓存名称 - 使用常量
-    private static final String VISIT_RECORD_CACHE_NAME = CacheConstants.VISIT_RECORD_CACHE_NAME;
+    private static final String VISIT_RECORD_CACHE = CacheConstants.VISIT_RECORD_CACHE;
     // 同步到数据库的阈值
     private static final int SYNC_THRESHOLD = 10;
 
@@ -137,7 +137,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
             
             // 1. 首先检查缓存中是否存在访问记录以及访问时间是否在限定间隔内
             return Mono.fromCallable(() -> {
-                Cache visitRecordCache = cacheManager.getCache(VISIT_RECORD_CACHE_NAME);
+                Cache visitRecordCache = cacheManager.getCache(VISIT_RECORD_CACHE);
                 boolean isNewVisit = true;
                 
                 if (visitRecordCache != null) {
@@ -247,7 +247,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         }
         
         return Mono.fromCallable(() -> {
-            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
             if (viewCountCache == null) {
                 log.warn("浏览量缓存不可用，将直接更新数据库");
                 return -1; // 标记缓存不可用
@@ -348,7 +348,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME, key = "#articleId", unless = "#result == 0")
+    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE, key = "#articleId", unless = "#result == 0")
     public Mono<Long> getArticleViewCount(Long articleId) {
         log.debug("从数据库获取文章访问量: articleId={}", articleId);
         return viewHistoryRepository.countByPostId(articleId);
@@ -423,7 +423,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         Map<Long, Integer> topPosts = new LinkedHashMap<>();
         
         // 从缓存中获取文章访问量
-        org.springframework.cache.Cache postPvCacheObj = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+        org.springframework.cache.Cache postPvCacheObj = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
         if (postPvCacheObj != null) {
             Object nativeCache = postPvCacheObj.getNativeCache();
             if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
@@ -505,7 +505,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 
      * @return 总访问量
      */
-    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, key = "'" + CacheConstants.STATS_TOTAL_KEY + "'", unless = "#result == 0")
+    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_PV_CACHE, key = "'" + CacheConstants.STATS_TOTAL_KEY + "'", unless = "#result == 0")
     public Mono<Long> getTotalViewsFromDatabase() {
         log.debug("从数据库获取总访问量");
         return viewHistoryRepository.count();
@@ -535,7 +535,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 获取缓存中的PV值
      */
     private Long getCachedPvValue(String key) {
-        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_PV_CACHE_NAME);
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_PV_CACHE);
         if (cache != null) {
             ValueWrapper wrapper = cache.get(key);
             if (wrapper != null) {
@@ -552,7 +552,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 获取缓存中的UV集合
      */
     private Set<String> getCachedUvValue(String key) {
-        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_UV_CACHE_NAME);
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_UV_CACHE);
         if (cache != null) {
             ValueWrapper wrapper = cache.get(key);
             if (wrapper != null) {
@@ -571,7 +571,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 更新PV值 - 线程安全的原子操作
      */
     private void updatePvValue(String key) {
-        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_PV_CACHE_NAME);
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_PV_CACHE);
         if (cache == null) {
             log.warn("PV缓存不可用: {}", key);
             return;
@@ -596,7 +596,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 更新文章PV值 - 线程安全的原子操作
      */
     private void updatePostPvValue(String key) {
-        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
         if (cache == null) {
             log.warn("文章PV缓存不可用: {}", key);
             return;
@@ -621,7 +621,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 更新UV集合 - 线程安全的操作
      */
     private void updateUvValue(String key, String visitorId) {
-        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_UV_CACHE_NAME);
+        org.springframework.cache.Cache cache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_UV_CACHE);
         if (cache == null) {
             log.warn("UV缓存不可用: {}", key);
             return;
@@ -656,7 +656,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         
         return Mono.fromCallable(() -> {
             // 首先从缓存获取
-            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
             if (viewCountCache != null) {
                 String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
                 AtomicInteger counter = viewCountCache.get(cacheKey, AtomicInteger.class);
@@ -694,7 +694,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         log.info("开始同步缓存中的文章浏览量到数据库");
         
         return Mono.fromCallable(() -> {
-            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME);
+            Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
             if (viewCountCache == null) {
                 log.warn("浏览量缓存不可用，跳过同步");
                 return Collections.<Mono<Integer>>emptyList();

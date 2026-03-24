@@ -50,10 +50,10 @@ public class AiTemplateServiceImpl implements AiTemplateService {
                     // 设置默认值
                     template.setCreateTime(LocalDateTime.now());
                     template.setUpdateTime(LocalDateTime.now());
-                    template.setIsDeleted(0);
+                    template.setIsDeleted(false);
                     
                     if (template.getIsSystem() == null) {
-                        template.setIsSystem(0);
+                        template.setIsSystem(false);
                     }
                     
                     return templateRepository.save(template);
@@ -70,7 +70,7 @@ public class AiTemplateServiceImpl implements AiTemplateService {
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("模板不存在: " + id)))
                 .flatMap(existing -> {
                     // 系统模板不允许修改
-                    if (existing.getIsSystem() != null && existing.getIsSystem() == 1) {
+                    if (existing.getIsSystem() != null && existing.getIsSystem()) {
                         return Mono.error(new BusinessException("系统模板不允许修改"));
                     }
                     
@@ -112,12 +112,12 @@ public class AiTemplateServiceImpl implements AiTemplateService {
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("模板不存在: " + id)))
                 .flatMap(template -> {
                     // 系统模板不允许删除
-                    if (template.getIsSystem() != null && template.getIsSystem() == 1) {
+                    if (template.getIsSystem() != null && template.getIsSystem()) {
                         return Mono.error(new BusinessException("系统模板不允许删除"));
                     }
                     
                     // 逻辑删除
-                    template.setIsDeleted(1);
+                    template.setIsDeleted(true);
                     template.setUpdateTime(LocalDateTime.now());
                     
                     return templateRepository.save(template)
@@ -135,7 +135,7 @@ public class AiTemplateServiceImpl implements AiTemplateService {
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("模板不存在: " + id)))
                 .flatMap(template -> {
                     // 系统模板不允许删除
-                    if (template.getIsSystem() != null && template.getIsSystem() == 1) {
+                    if (template.getIsSystem() != null && template.getIsSystem()) {
                         return Mono.error(new BusinessException("系统模板不允许删除"));
                     }
                     
@@ -145,7 +145,7 @@ public class AiTemplateServiceImpl implements AiTemplateService {
                     }
                     
                     // 逻辑删除
-                    template.setIsDeleted(1);
+                    template.setIsDeleted(true);
                     template.setUpdateTime(LocalDateTime.now());
                     
                     return templateRepository.save(template)

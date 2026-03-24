@@ -33,7 +33,7 @@ public enum TaskType {
      * 文件处理
      */
     FILE_PROCESS("文件处理");
-    
+
     private final String description;
     
     TaskType(String description) {

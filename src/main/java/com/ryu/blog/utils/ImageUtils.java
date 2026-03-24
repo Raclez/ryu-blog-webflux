@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 
 /**
  * 图片处理工具类，支持生成缩略图
@@ -28,6 +29,9 @@ public class ImageUtils {
                     .outputQuality(0.85f)
                     .toOutputStream(out);
             return out.toByteArray();
+        } catch (IOException e) {
+            log.error("生成缩略图失败-IO异常", e);
+            return null;
         } catch (Exception e) {
             log.error("生成缩略图失败", e);
             return null;

@@ -40,7 +40,7 @@ public class Permissions extends BaseEntity {
      * 是否激活 (1: 激活, 0: 禁用)
      */
     @Schema(description = "是否激活 (1: 激活, 0: 禁用)")
-    private Integer isActive;
+    private Boolean isActive;
 
     /**
      * 权限描述

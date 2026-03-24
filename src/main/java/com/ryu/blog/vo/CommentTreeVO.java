@@ -46,7 +46,7 @@ public class CommentTreeVO {
     private Integer likeCount;
 
     @Schema(description = "是否已编辑: 0否，1是")
-    private Byte isEdited;
+    private Boolean isEdited;
 
     @Schema(description = "回复数量")
     private Integer replyCount;

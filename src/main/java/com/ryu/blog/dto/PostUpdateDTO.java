@@ -62,20 +62,16 @@ public class PostUpdateDTO {
     @Schema(description = "是否置顶：0-否，1-是", example = "0")
     private Integer isSticky;
 
-    @Min(value = 0, message = "原创标识只能为0或1")
-    @Max(value = 1, message = "原创标识只能为0或1")
-    @Schema(description = "是否原创：0-否，1-是", example = "1")
-    private Integer isOriginal;
+    @Schema(description = "是否原创", example = "true")
+    private Boolean isOriginal;
 
     @Min(value = 0, message = "排序号不能为负数")
     @Max(value = 9999, message = "排序号不能超过9999")
     @Schema(description = "排序号", example = "0")
     private Integer sort;
 
-    @Min(value = 0, message = "评论标识只能为0或1")
-    @Max(value = 1, message = "评论标识只能为0或1")
-    @Schema(description = "是否允许评论：0-否，1-是", example = "1")
-    private Integer allowComment;
+    @Schema(description = "是否允许评论", example = "true")
+    private Boolean allowComment;
 
     @Min(value = 0, message = "立即发布标识只能为0或1")
     @Max(value = 1, message = "立即发布标识只能为0或1")

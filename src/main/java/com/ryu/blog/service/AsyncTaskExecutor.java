@@ -94,7 +94,7 @@ public class AsyncTaskExecutor {
                         try {
                             Long taskId = Long.parseLong(taskIdStr);
                             return taskRepository.findById(taskId)
-                                    .filter(task -> task.getIsDeleted() == 0)
+                                    .filter(task -> Boolean.FALSE.equals(task.getIsDeleted()))
                                     .filter(task -> task.getStatus() == TaskStatus.PENDING);
                         } catch (NumberFormatException e) {
                             log.error("Invalid task ID format: {}", taskIdStr);
@@ -145,6 +145,9 @@ public class AsyncTaskExecutor {
                         
                         // 3. 反序列化请求参数
                         Object request = deserializeRequest(task.getRequestJson(), task.getTaskType());
+                        
+                        // 3.5. 注入taskId到请求对象中
+                        injectTaskId(request, task.getId());
                         
                         // 4. 执行任务（带超时控制）
                         Duration timeout = Duration.ofMillis(defaultTimeoutMs);
@@ -255,6 +258,19 @@ public class AsyncTaskExecutor {
         // 其他任务类型可以在这里添加
         // 默认返回 Map
         return JsonUtils.toMap(requestJson);
+    }
+    
+    /**
+     * 注入taskId到请求对象中
+     * 
+     * @param request 请求对象
+     * @param taskId 任务ID
+     */
+    private void injectTaskId(Object request, Long taskId) {
+        if (request instanceof AiGenerationRequest) {
+            // AiGenerationRequest可能也需要taskId，根据需要添加
+        }
+        // 其他请求类型可以在这里添加
     }
     
     /**

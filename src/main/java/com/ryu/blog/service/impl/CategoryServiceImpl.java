@@ -43,7 +43,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, allEntries = true)
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, allEntries = true)
     public Mono<Void> createCategory(CategoryCreateDTO categoryCreateDTO) {
         Category category = categoryMapper.toEntity(categoryCreateDTO);
         
@@ -56,7 +56,7 @@ public class CategoryServiceImpl implements CategoryService {
                     // 设置默认值
                     category.setCreateTime(LocalDateTime.now());
                     category.setUpdateTime(LocalDateTime.now());
-                    category.setIsDeleted(0);
+                    category.setIsDeleted(false);
                     
                     if (category.getSort() == null) {
                         category.setSort(0);
@@ -68,7 +68,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, allEntries = true)
+    @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, allEntries = true)
     public Mono<Void> updateCategory(CategoryUpdateDTO categoryUpdateDTO) {
         return categoryRepository.findById(categoryUpdateDTO.getId())
                 .switchIfEmpty(Mono.error(BusinessException.categoryNotFound()))
@@ -98,7 +98,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id")
     public Mono<CategoryVO> getCategoryById(Long id) {
         log.debug("从数据库获取分类详情: id={}", id);
         return categoryRepository.findById(id)
@@ -109,9 +109,9 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'allCategories'"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'categoryStats'")
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_DETAIL_KEY + "' + #id"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'allCategories'"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'categoryStats'")
     })
     public Mono<Void> deleteCategory(Long id) {
         return categoryRepository.findById(id)
@@ -125,7 +125,7 @@ public class CategoryServiceImpl implements CategoryService {
                                 }
                                 
                                 // 逻辑删除
-                                category.setIsDeleted(1);
+                                category.setIsDeleted(true);
                                 category.setUpdateTime(LocalDateTime.now());
                                 return categoryRepository.save(category).then();
                             })
@@ -133,7 +133,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'allCategories'")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'allCategories'")
     public Flux<CategoryVO> getAllCategories() {
         log.debug("从数据库获取所有分类");
         return categoryRepository.findAllCategories()
@@ -141,7 +141,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'categoryStats'")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'categoryStats'")
     public Flux<CategoryStatsVO> getAllCategoriesWithArticleCount() {
         log.debug("从数据库获取所有分类统计信息");
         return categoryRepository.findAllCategories()
@@ -156,7 +156,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, 
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE, 
                key = "'" + CacheConstants.CATEGORY_PAGE_KEY + "' + #categoryListDTO.currentPage + ':' + #categoryListDTO.pageSize + ':' + #categoryListDTO.keyword")
     public Mono<PageResult<CategoryVO>> getCategoriesByPage(CategoryListDTO categoryListDTO) {
         int page = Math.max(0, categoryListDTO.getCurrentPage() - 1);
@@ -198,7 +198,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     public Flux<CategoryVO> getCategoriesByArticleId(Long articleId) {
         return postCategoryRepository.findByPostId(articleId)
                 .map(PostCategory::getCategoryId)
@@ -207,7 +207,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
     
     @Override
-    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
+    @Cacheable(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId")
     public Flux<Long> getCategoryIdsByArticleId(Long articleId) {
         return postCategoryRepository.findByPostId(articleId)
                 .map(PostCategory::getCategoryId);
@@ -216,8 +216,8 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     })
     public Mono<Void> addArticleCategory(Long articleId, Long categoryId) {
         return categoryRepository.findById(categoryId)
@@ -241,8 +241,8 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     })
     public Mono<Void> removeArticleCategory(Long articleId, Long categoryId) {
         return postCategoryRepository.deleteByPostIdAndCategoryId(articleId, categoryId);
@@ -251,8 +251,8 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE_NAME, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_IDS_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     })
     public Mono<Void> removeAllArticleCategories(Long articleId) {
         return postCategoryRepository.deleteByPostId(articleId);

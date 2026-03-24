@@ -57,7 +57,7 @@ public class CacheConfig {
         // 所有缓存统一使用异步操作以提高并发性能
         
         // 系统配置缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.SYS_CONFIG_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.SYS_CONFIG_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(12, TimeUnit.HOURS)
                 .maximumSize(200)
@@ -65,7 +65,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 字典类型缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.DICT_TYPE_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.DICT_TYPE_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(12, TimeUnit.HOURS)  // 字典类型变化很少，可以缓存12小时
                 .maximumSize(100)
@@ -73,7 +73,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 字典项缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.DICT_ITEM_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.DICT_ITEM_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(6, TimeUnit.HOURS)  // 字典项变化较少，可以缓存6小时
                 .maximumSize(500)
@@ -81,7 +81,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 分类缓存 - 中期缓存
-        cacheManager.registerCustomCache(CacheConstants.CATEGORY_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.CATEGORY_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(4, TimeUnit.HOURS)  // 分类数据变化较少，可以缓存更长时间
                 .maximumSize(100)
@@ -89,7 +89,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 标签缓存 - 中期缓存
-        cacheManager.registerCustomCache(CacheConstants.TAG_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.TAG_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(3, TimeUnit.HOURS)  // 标签数据变化较少，可以缓存更长时间
                 .maximumSize(300)
@@ -97,7 +97,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 文章缓存 - 根据不同类型设置不同过期时间
-        cacheManager.registerCustomCache(CacheConstants.POST_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.POST_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(30, TimeUnit.MINUTES)  // 默认30分钟
                 .maximumSize(500)
@@ -105,7 +105,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 热门文章缓存 - 较长时间缓存
-        cacheManager.registerCustomCache(CacheConstants.POST_HOT_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.POST_HOT_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(2, TimeUnit.HOURS)  // 热门文章变化较慢，可以缓存更长时间
                 .maximumSize(100)
@@ -113,7 +113,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 文章详情缓存 - 中期缓存
-        cacheManager.registerCustomCache(CacheConstants.POST_DETAIL_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.POST_DETAIL_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.HOURS)  // 文章详情变化不频繁，可以缓存1小时
                 .maximumSize(200)
@@ -121,7 +121,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 前台文章列表缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.POST_FRONT_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.POST_FRONT_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(15, TimeUnit.MINUTES)  // 前台列表需要较新数据
                 .maximumSize(200)
@@ -129,7 +129,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 后台文章列表缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.POST_ADMIN_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.POST_ADMIN_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(10, TimeUnit.MINUTES)  // 管理后台需要较新数据
                 .maximumSize(100)
@@ -137,7 +137,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 评论缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.COMMENT_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.COMMENT_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(15, TimeUnit.MINUTES)
                 .maximumSize(300)
@@ -145,7 +145,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 用户缓存 - 中期缓存
-        cacheManager.registerCustomCache(CacheConstants.USER_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.USER_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(30, TimeUnit.MINUTES)  // 用户信息变化不频繁
                 .maximumSize(300)
@@ -153,7 +153,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 文件缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.FILE_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.FILE_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(2, TimeUnit.HOURS)  // 文件信息变化很少
                 .maximumSize(500)
@@ -161,7 +161,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 统计缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.STATS_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.STATS_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES)  // 统计数据需要较新
                 .maximumSize(100)
@@ -169,7 +169,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 菜单缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.MENUS_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.MENUS_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(12, TimeUnit.HOURS)  // 菜单变化很少，可以缓存12小时
                 .maximumSize(50)
@@ -177,7 +177,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 存储配置缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.STORAGE_CONFIG_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.STORAGE_CONFIG_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(6, TimeUnit.HOURS)  // 存储配置变化较少
                 .maximumSize(50)
@@ -185,7 +185,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 存储属性缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.STORAGE_PROPERTIES_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(6, TimeUnit.HOURS)
                 .maximumSize(200)
@@ -193,7 +193,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 存储访问URL缓存 - 中期缓存
-        cacheManager.registerCustomCache(CacheConstants.STORAGE_ACCESS_URL_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.STORAGE_ACCESS_URL_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(2, TimeUnit.HOURS)
                 .maximumSize(100)
@@ -201,7 +201,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 存储客户端缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.STORAGE_CLIENT_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.STORAGE_CLIENT_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(6, TimeUnit.HOURS)
                 .maximumSize(50)
@@ -209,7 +209,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 分片上传缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.MULTIPART_UPLOAD_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.MULTIPART_UPLOAD_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(30, TimeUnit.MINUTES)
                 .maximumSize(500)
@@ -217,7 +217,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 浏览历史PV缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.VIEW_HISTORY_PV_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.VIEW_HISTORY_PV_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(10, TimeUnit.MINUTES)
                 .maximumSize(1000)
@@ -225,7 +225,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 浏览历史UV缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.VIEW_HISTORY_UV_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.VIEW_HISTORY_UV_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(10, TimeUnit.MINUTES)
                 .maximumSize(1000)
@@ -233,7 +233,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 文章浏览量缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES)
                 .maximumSize(2000)
@@ -241,7 +241,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // 访问记录缓存 - 用于控制访问频率（修复：使用异步缓存）
-        cacheManager.registerCustomCache(CacheConstants.VISIT_RECORD_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.VISIT_RECORD_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(30, TimeUnit.MINUTES)  // 30分钟过期
                 .maximumSize(10000)  // 支持更多并发用户
@@ -249,7 +249,7 @@ public class CacheConfig {
                 .buildAsync());  // 修复：改为异步缓存
         
         // AI生成结果缓存 - 短期缓存（用于幂等性）
-        cacheManager.registerCustomCache(CacheConstants.AI_GENERATION_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.AI_GENERATION_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES)  // 5分钟内相同请求返回缓存
                 .maximumSize(100)
@@ -257,7 +257,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // AI模板缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.AI_TEMPLATE_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.AI_TEMPLATE_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(6, TimeUnit.HOURS)  // 模板变化较少
                 .maximumSize(50)
@@ -265,7 +265,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // AI配额缓存 - 短期缓存
-        cacheManager.registerCustomCache(CacheConstants.AI_QUOTA_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.AI_QUOTA_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(10, TimeUnit.MINUTES)  // 配额需要较新数据
                 .maximumSize(500)
@@ -273,7 +273,7 @@ public class CacheConfig {
                 .buildAsync());
         
         // AI提供商配置缓存 - 长期缓存
-        cacheManager.registerCustomCache(CacheConstants.AI_PROVIDER_CONFIG_CACHE_NAME, 
+        cacheManager.registerCustomCache(CacheConstants.AI_PROVIDER_CONFIG_CACHE, 
             Caffeine.newBuilder()
                 .expireAfterWrite(12, TimeUnit.HOURS)  // 配置变化很少
                 .maximumSize(20)

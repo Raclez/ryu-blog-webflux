@@ -105,6 +105,8 @@ public class AiBlogServiceImpl implements AiBlogService {
     public Flux<String> generateBlogContentStream(AiGenerationRequest request) {
         log.info("开始流式生成博客内容: userId={}, mode={}", request.getUserId(), request.getMode());
         
+        long startTime = System.currentTimeMillis();
+        
         return rateLimitService.checkAndIncrement(request.getUserId())
                 .then(promptEnhancer.enhance(request))
                 .flatMapMany(enhancedPrompt -> {
@@ -126,11 +128,71 @@ public class AiBlogServiceImpl implements AiBlogService {
                     
                     // 获取AI提供商并流式生成内容
                     return providerFactory.getProvider(request.getProviderName())
-                            .flatMapMany(provider -> provider.generateStream(enhancedRequest));
-                })
-                .doOnComplete(() -> log.info("流式博客内容生成完成: userId={}", request.getUserId()))
-                .doOnError(error -> log.error("流式博客内容生成失败: userId={}, error={}",
-                        request.getUserId(), error.getMessage(), error));
+                            .flatMapMany(provider -> {
+                                // 收集流式输出的内容用于统计
+                                StringBuilder contentBuilder = new StringBuilder();
+                                
+                                return provider.generateStream(enhancedRequest)
+                                        .doOnNext(contentBuilder::append)
+                                        .doOnComplete(() -> {
+                                            long generationTime = System.currentTimeMillis() - startTime;
+                                            String fullContent = contentBuilder.toString();
+                                            int estimatedTokens = estimateTokens(fullContent);
+                                            
+                                            // 估算成本（简化：假设prompt占30%）
+                                            double estimatedCost = 0;
+                                            if (statisticsService != null) {
+                                                int promptTokens = (int) (estimatedTokens * 0.3);
+                                                int completionTokens = (int) (estimatedTokens * 0.7);
+                                                estimatedCost = statisticsService.estimateCost(
+                                                        provider.getProviderName(),
+                                                        request.getModelName() != null ? request.getModelName() : "default",
+                                                        promptTokens,
+                                                        completionTokens
+                                                );
+                                            }
+                                            
+                                            // 记录流式使用统计
+                                            recordUsage(request.getUserId(), 
+                                                    provider.getProviderName(),
+                                                    request.getModelName(),
+                                                    estimatedTokens,
+                                                    estimatedCost,
+                                                    generationTime,
+                                                    true
+                                            ).subscribe();
+                                            
+                                            log.info("流式博客内容生成完成: userId={}, estimatedTokens={}, time={}ms",
+                                                    request.getUserId(), estimatedTokens, generationTime);
+                                        })
+                                        .doOnError(error -> log.error("流式博客内容生成失败: userId={}, error={}",
+                                                request.getUserId(), error.getMessage(), error));
+                            });
+                });
+    }
+    
+    /**
+     * 估算token数量（基于字符数/4的粗略估算）
+     */
+    private int estimateTokens(String content) {
+        if (content == null || content.isEmpty()) {
+            return 0;
+        }
+        // 中文约1字=1token，英文约4字符=1token，平均按3字符=1token估算
+        return content.length() / 3;
+    }
+    
+    private Mono<Void> recordUsage(Long userId, String providerName, String modelName, 
+                                    int tokenCount, double cost, long generationTime, boolean success) {
+        return statisticsService.recordUsage(
+                userId,
+                providerName,
+                modelName != null ? modelName : "default",
+                tokenCount,
+                cost,
+                generationTime,
+                success
+        );
     }
 
     @Override
@@ -188,7 +250,7 @@ public class AiBlogServiceImpl implements AiBlogService {
         
         return getHistoryById(id, userId)
                 .flatMap(history -> {
-                    history.setIsDeleted(1);
+                    history.setIsDeleted(true);
                     return historyRepository.save(history);
                 })
                 .thenReturn(true)
@@ -241,7 +303,7 @@ public class AiBlogServiceImpl implements AiBlogService {
                     .cost(result.getEstimatedCost())
                     .generationTime(result.getGenerationTime())
                     .createTime(LocalDateTime.now())
-                    .isDeleted(0)
+                    .isDeleted(false)
                     .build();
             
             return historyRepository.save(history)

@@ -45,7 +45,7 @@ public class MenusServiceImpl implements MenusService {
     private final PermissionsRepository permissionsRepository;
 
     @Override
-    @Cacheable(value = CacheConstants.MENUS_CACHE_NAME, key = "'" + CacheConstants.MENUS_TREE_KEY + "'")
+    @Cacheable(value = CacheConstants.MENUS_CACHE, key = "'" + CacheConstants.MENUS_TREE_KEY + "'")
     public Mono<List<Tree<Long>>> getMenusByTree() {
         return menusRepository.findAllOrderByParentIdAndSort()
                 .collectList()
@@ -85,7 +85,7 @@ public class MenusServiceImpl implements MenusService {
     }
 
     @Override
-    @Cacheable(value = CacheConstants.MENUS_CACHE_NAME, key = "'" + CacheConstants.MENUS_ALL_KEY + "'")
+    @Cacheable(value = CacheConstants.MENUS_CACHE, key = "'" + CacheConstants.MENUS_ALL_KEY + "'")
     public Mono<List<Menus>> listAll() {
         return menusRepository.findAllOrderByParentIdAndSort()
                 .collectList();
@@ -93,7 +93,7 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
-    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
+    @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
     public Mono<Void> bindPermissions(List<Long> permissionIds, Long menuId) {
         log.info("绑定权限到菜单, menuId: {}, permissionIds: {}", menuId, permissionIds);
         
@@ -165,7 +165,7 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
-    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
+    @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
     public Mono<Void> saveMenu(MenusSaveDTO menusSaveDTO) {
         log.info("保存菜单: {}", menusSaveDTO);
         
@@ -199,7 +199,7 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
-    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
+    @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
     public Mono<Void> updateMenu(MenusUpdateDTO menusUpdateDTO) {
         log.info("更新菜单: {}", menusUpdateDTO);
         
@@ -221,7 +221,7 @@ public class MenusServiceImpl implements MenusService {
 
     @Override
     @Transactional
-    @CacheEvict(value = CacheConstants.MENUS_CACHE_NAME, allEntries = true)
+    @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
     public Mono<Void> deleteMenu(Long id) {
         log.info("删除菜单, id: {}", id);
         

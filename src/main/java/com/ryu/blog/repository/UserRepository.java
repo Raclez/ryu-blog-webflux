@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -227,4 +228,6 @@ public interface UserRepository extends R2dbcRepository<User, Long> {
      */
     @Query("SELECT COUNT(*) FROM t_users WHERE is_deleted = 0 AND username LIKE CONCAT('%', :username, '%') AND email LIKE CONCAT('%', :email, '%') AND status = :status")
     Mono<Long> countByUsernameLikeAndEmailLikeAndStatus(String username, String email, Integer status);
+
+    Flux<User> findByIdIn(List<Long> ids);
 } 

@@ -82,5 +82,5 @@ public class Menus extends BaseEntity {
      * 是否为外链 (0: 否, 1: 是)
      */
     @Schema(description = "是否为外链 (0: 否, 1: 是)")
-    private Integer isLink;
+    private Boolean isLink;
 } 

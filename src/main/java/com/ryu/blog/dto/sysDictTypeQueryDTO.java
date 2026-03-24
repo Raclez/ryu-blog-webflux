@@ -12,7 +12,7 @@ import lombok.Data;
  * @since 2025-01-24
  */
 @Data
-public class sysDictTypeQueryDTO {
+public class SysDictTypeQueryDTO {
 
     /**
      * 当前页码
@@ -28,7 +28,7 @@ public class sysDictTypeQueryDTO {
      * 类型名称
      */
     private String typeName;
-    
+
     /**
      * 类型编码
      */

@@ -51,10 +51,10 @@ public class PostAdminListVO {
     private Integer views;
 
     @Schema(description = "是否原创")
-    private Integer isOriginal;
+    private Boolean isOriginal;
     
     @Schema(description = "是否允许评论")
-    private Integer allowComment;
+    private Boolean allowComment;
 
 
     private String visibility;

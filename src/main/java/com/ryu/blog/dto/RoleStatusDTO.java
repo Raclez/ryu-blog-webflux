@@ -27,5 +27,5 @@ public class RoleStatusDTO {
      */
     @NotNull(message = "状态不能为空")
     @Schema(description = "状态：0-禁用，1-启用", required = true)
-    private Integer isActive;
+    private Boolean isActive;
 } 

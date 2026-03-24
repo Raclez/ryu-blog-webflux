@@ -84,7 +84,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                     version.setDescription(description);
                     version.setCreateTime(LocalDateTime.now());
                     version.setUpdateTime(LocalDateTime.now());
-                    version.setIsDeleted(0);
+                    version.setIsDeleted(false);
                     version.setWordCount(wordCount);
                     version.setIsLatest(true);
                     
@@ -128,7 +128,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                             .take(toDelete) // 取最旧的N个
                             .flatMap(version -> {
                                 // 逻辑删除
-                                version.setIsDeleted(1);
+                                version.setIsDeleted(true);
                                 version.setUpdateTime(LocalDateTime.now());
                                 return postVersionRepository.save(version);
                             })
@@ -282,7 +282,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                                             }
 
                                             // 逻辑删除版本
-                                            version.setIsDeleted(1);
+                                            version.setIsDeleted(true);
                                             version.setUpdateTime(LocalDateTime.now());
                                             return postVersionRepository.save(version)
                                                     .map(savedVersion -> true)

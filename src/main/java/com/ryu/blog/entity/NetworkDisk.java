@@ -77,7 +77,7 @@ public class NetworkDisk extends BaseEntity {
      * 是否为收藏(0-否, 1-是)
      */
     @Column("is_favorite")
-    private Integer isFavorite;
+    private Boolean isFavorite;
 
     /**
      * 文件状态(1-正常, 0-已删除, 2-回收站)

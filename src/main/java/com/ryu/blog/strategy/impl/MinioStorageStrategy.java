@@ -373,7 +373,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 获取MinIO客户端
      */
-    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE_NAME, key = "'" + CacheConstants.STORAGE_CLIENT_KEY + ":" + "' + #this.getStrategyKey()")
+    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE, key = "'" + CacheConstants.STORAGE_CLIENT_KEY + ":" + "' + #this.getStrategyKey()")
     public Mono<MinioClient> getMinioClient() {
         log.debug("创建新的MinIO客户端实例 (缓存未命中)");
         
@@ -407,7 +407,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 获取存储桶名称
      */
-    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE_NAME, key = "'" + CacheConstants.STORAGE_BUCKET_KEY + ":" + "' + #this.getStrategyKey()")
+    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE, key = "'" + CacheConstants.STORAGE_BUCKET_KEY + ":" + "' + #this.getStrategyKey()")
     public Mono<String> getBucketName() {
         log.debug("获取MinIO存储桶名称 (缓存未命中)");
         
@@ -439,7 +439,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 刷新缓存
      */
-    @CacheEvict(value = CacheConstants.STORAGE_CLIENT_CACHE_NAME, allEntries = true)
+    @CacheEvict(value = CacheConstants.STORAGE_CLIENT_CACHE, allEntries = true)
     public void refreshCache() {
         log.info("MinIO存储策略配置缓存已刷新");
     }

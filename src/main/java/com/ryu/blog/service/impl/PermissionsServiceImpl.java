@@ -5,6 +5,7 @@ import com.ryu.blog.dto.PermissionsAddDTO;
 import com.ryu.blog.dto.PermissionsQueryDTO;
 import com.ryu.blog.dto.PermissionsUpdateDTO;
 import com.ryu.blog.entity.Permissions;
+import com.ryu.blog.entity.RolePermission;
 import com.ryu.blog.repository.MenuPermissionRepository;
 import com.ryu.blog.repository.PermissionsRepository;
 import com.ryu.blog.repository.RolePermissionRepository;
@@ -178,8 +179,8 @@ public class PermissionsServiceImpl implements PermissionsService {
         permission.setName(permissionsAddDTO.getName());
         permission.setIdentity(permissionsAddDTO.getIdentity());
         permission.setDescription(permissionsAddDTO.getDescription());
-        permission.setIsActive(SystemConstants.YES);
-        permission.setIsDeleted(SystemConstants.NOT_DELETED);
+        permission.setIsActive(true);
+        permission.setIsDeleted(false);
         
         // 设置时间
         LocalDateTime now = LocalDateTime.now();
@@ -207,7 +208,7 @@ public class PermissionsServiceImpl implements PermissionsService {
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("权限不存在")))
                 .flatMap(permission -> {
                     // 逻辑删除
-                    permission.setIsDeleted(SystemConstants.IS_DELETED);
+                    permission.setIsDeleted(true);
                     permission.setUpdateTime(LocalDateTime.now());
                     
                     return permissionsRepository.save(permission)
@@ -224,28 +225,29 @@ public class PermissionsServiceImpl implements PermissionsService {
     @Override
     public Mono<Set<String>> getUserPermissionIdentities(Long userId) {
         log.info("获取用户权限标识, userId: {}", userId);
-        
-        // 获取用户角色ID
+
         return userRoleRepository.findRoleIdsByUserId(userId)
                 .collectList()
                 .flatMap(roleIds -> {
                     if (roleIds.isEmpty()) {
                         return Mono.just(new HashSet<>());
                     }
-                    
-                    // 获取角色权限ID
-                    return Flux.fromIterable(roleIds)
-                            .flatMap(rolePermissionRepository::findPermissionIdsByRoleId)
+
+                    return rolePermissionRepository.findByRoleIds(roleIds)
                             .collectList()
-                            .flatMap(permissionIds -> {
-                                if (permissionIds.isEmpty()) {
+                            .flatMap(rolePermissions -> {
+                                if (rolePermissions.isEmpty()) {
                                     return Mono.just(new HashSet<>());
                                 }
-                                
-                                // 获取权限标识
+
+                                List<Long> permissionIds = rolePermissions.stream()
+                                        .map(RolePermission::getPermissionId)
+                                        .distinct()
+                                        .collect(Collectors.toList());
+
                                 return permissionsRepository.findByIdIn(permissionIds)
-                                        .filter(permission -> Objects.equals(SystemConstants.YES, permission.getIsActive())
-                                                && Objects.equals(SystemConstants.NOT_DELETED, permission.getIsDeleted()))
+                                        .filter(permission -> Boolean.TRUE.equals(permission.getIsActive())
+                                                && !Boolean.TRUE.equals(permission.getIsDeleted()))
                                         .map(Permissions::getIdentity)
                                         .collect(Collectors.toSet());
                             });
@@ -275,8 +277,8 @@ public class PermissionsServiceImpl implements PermissionsService {
                 .switchIfEmpty(Mono.just(new Permissions())) // 权限不存在，返回空对象
                 .flatMap(permission -> {
                     if (permission.getId() == null 
-                            || !Objects.equals(SystemConstants.YES, permission.getIsActive())
-                            || Objects.equals(SystemConstants.IS_DELETED, permission.getIsDeleted())) {
+                            || !Boolean.TRUE.equals(permission.getIsActive())
+                            || Boolean.TRUE.equals(permission.getIsDeleted())) {
                         return Mono.just(false);
                     }
                     
@@ -333,7 +335,7 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Boolean> updatePermissionStatus(List<Long> ids, Integer isActive) {
+    public Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive) {
         log.info("批量更新权限状态, ids: {}, isActive: {}", ids, isActive);
         
         if (ids == null || ids.isEmpty()) {

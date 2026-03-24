@@ -58,4 +58,7 @@ public interface RolePermissionRepository extends R2dbcRepository<RolePermission
      */
     @Query("SELECT role_id FROM t_role_permissions WHERE permission_id = :permissionId")
     Flux<Long> findRoleIdsByPermissionId(Long permissionId);
+
+    @Query("SELECT role_id, permission_id FROM t_role_permissions WHERE role_id IN (:roleIds)")
+    Flux<RolePermission> findByRoleIds(List<Long> roleIds);
 } 

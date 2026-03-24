@@ -19,6 +19,11 @@ import java.util.Map;
 @Mapper(componentModel = "spring", imports = {LocalDateTime.class})
 public interface StorageConfigMapper {
 
+    @Named("mapIsEnable")
+    default Boolean mapIsEnable(Integer value) {
+        return value != null && value == 1;
+    }
+
     /**
      * 将创建DTO转换为实体
      *
@@ -32,7 +37,8 @@ public interface StorageConfigMapper {
     @Mapping(target = "creatorId", constant = "0L")
     @Mapping(target = "createTime", expression = "java(LocalDateTime.now())")
     @Mapping(target = "updateTime", expression = "java(LocalDateTime.now())")
-    @Mapping(target = "isDeleted", constant = "0")
+    @Mapping(target = "isDeleted", constant = "false")
+    @Mapping(target = "isEnable", qualifiedByName = "mapIsEnable")
     StorageConfig toEntity(StorageConfigCreateDTO dto);
 
     /**
@@ -48,6 +54,7 @@ public interface StorageConfigMapper {
     @Mapping(target = "updateTime", expression = "java(LocalDateTime.now())")
     @Mapping(target = "createTime", ignore = true)
     @Mapping(target = "isDeleted", ignore = true)
+    @Mapping(target = "isEnable", qualifiedByName = "mapIsEnable")
     StorageConfig toEntity(StorageConfigUpdateDTO dto);
     
     /**
@@ -63,6 +70,7 @@ public interface StorageConfigMapper {
     @Mapping(target = "maxFileSize", ignore = true)
     @Mapping(target = "defaultExpiry", ignore = true)
     @Mapping(target = "creatorId", ignore = true)
+    @Mapping(target = "isEnable", qualifiedByName = "mapIsEnable")
     void updateEntityFromDto(StorageConfigUpdateDTO dto, @MappingTarget StorageConfig entity);
     
     /**

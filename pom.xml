@@ -16,8 +16,8 @@
     <packaging>jar</packaging>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springboot>3.2.8</springboot>
         <spring-ai.version>1.0.0-M5</spring-ai.version>
@@ -26,7 +26,7 @@
         <jackson.version>2.15.3</jackson.version>
         <lomok>1.18.34</lomok>
         <mapstruct>1.5.5.Final</mapstruct>
-        <hutool>5.8.25</hutool>
+        <hutool>5.8.30</hutool>
         <profiles.active>local</profiles.active>
         <log.level>info</log.level>
     </properties>
@@ -94,6 +94,13 @@
             <version>0.4.20</version>
         </dependency>
 
+        <!-- Dotenv for environment variables -->
+        <dependency>
+            <groupId>io.github.cdimascio</groupId>
+            <artifactId>java-dotenv</artifactId>
+            <version>5.2.2</version>
+        </dependency>
+
         <!-- Spring AI - 使用核心库而非 starter，避免自动配置 -->
         <!-- 这样可以完全控制 AI 客户端的创建，实现真正的可插拔设计 -->
         <dependency>
@@ -123,7 +130,11 @@
         <dependency>
             <groupId>io.asyncer</groupId>
             <artifactId>r2dbc-mysql</artifactId>
-            <version>1.0.6</version>
+            <version>1.4.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-pool</artifactId>
         </dependency>
 
         <dependency>
@@ -148,7 +159,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-        
+
+        <!-- Spring Security Crypto (for BCrypt password encoding) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
         <!-- Sa-Token -->
         <dependency>
             <groupId>cn.dev33</groupId>
@@ -340,6 +357,14 @@
             <scope>test</scope>
         </dependency>
         
+        <!-- WireMock for HTTP mocking -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.3.1</version>
+            <scope>test</scope>
+        </dependency>
+        
         <!-- ZXing -->
         <dependency>
             <groupId>com.google.zxing</groupId>
@@ -372,10 +397,39 @@
             <artifactId>cos_api</artifactId>
             <version>5.6.155</version>
         </dependency>
+        
+        <!-- Guava (RateLimiter) -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>32.1.3-jre</version>
+        </dependency>
+        
+        <!-- Resilience4j for Circuit Breaker -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-reactor</artifactId>
+            <version>2.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>2.1.0</version>
+        </dependency>
     </dependencies>
 
     <!-- Spring Milestone Repository for Spring AI -->
     <repositories>
+        <repository>
+            <id>central</id>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
         <repository>
             <id>spring-milestones</id>
             <name>Spring Milestones</name>
@@ -404,8 +458,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
+                    <release>21</release>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>

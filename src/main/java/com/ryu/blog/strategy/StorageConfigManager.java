@@ -6,10 +6,8 @@ import com.ryu.blog.event.ConfigChangeEvent;
 import com.ryu.blog.repository.StorageConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -36,8 +34,7 @@ public class StorageConfigManager {
 
     private final StorageConfigRepository storageConfigRepository;
     private final ApplicationEventPublisher eventPublisher;
-    private final CacheManager cacheManager;
-    
+
     // 当前激活的策略键
     private final AtomicReference<String> activeStrategyKey = new AtomicReference<>();
     
@@ -105,10 +102,10 @@ public class StorageConfigManager {
         log.debug("开始重新加载存储配置");
         isReloading.set(true);
         
-        return storageConfigRepository.findOneByIsEnableAndIsDeleted(1, 0)
+        return storageConfigRepository.findOneByIsEnableAndIsDeleted(true, false)
                 .switchIfEmpty(Mono.defer((Supplier<Mono<StorageConfig>>) () -> {
                     log.warn("未找到启用的存储配置，尝试获取任意可用配置");
-                    return storageConfigRepository.findAllByIsDeleted(0)
+                    return storageConfigRepository.findAllByIsDeleted(false)
                             .take(1)
                             .singleOrEmpty();
                 }))
@@ -142,12 +139,12 @@ public class StorageConfigManager {
      * @param strategyKey 策略键
      * @return 策略配置
      */
-    @Cacheable(value = CacheConstants.STORAGE_CONFIG_CACHE_NAME, key = "#strategyKey", unless = "#result == null")
+    @Cacheable(value = CacheConstants.STORAGE_CONFIG_CACHE, key = "#strategyKey", unless = "#result == null")
     public Mono<StorageConfig> getStrategyConfig(String strategyKey) {
         log.debug("获取策略配置: strategyKey={} (缓存未命中)", strategyKey);
         
         // 从数据库获取
-        return storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, 0)
+        return storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, false)
                 .doOnNext(config -> log.debug("策略配置已从数据库加载: strategyKey={}", strategyKey))
                 .switchIfEmpty(Mono.fromRunnable(() -> 
                     log.warn("未找到策略配置: strategyKey={}", strategyKey)
@@ -186,50 +183,9 @@ public class StorageConfigManager {
     /**
      * 清除配置缓存
      */
-    @CacheEvict(value = {CacheConstants.STORAGE_CONFIG_CACHE_NAME, CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, CacheConstants.STORAGE_ACCESS_URL_CACHE_NAME}, allEntries = true)
+    @CacheEvict(value = {CacheConstants.STORAGE_CONFIG_CACHE, CacheConstants.STORAGE_PROPERTIES_CACHE, CacheConstants.STORAGE_ACCESS_URL_CACHE}, allEntries = true)
     public void clearConfigCache() {
         log.info("存储配置缓存已清除");
-    }
-    
-    /**
-     * 获取缓存统计信息
-     * @return 缓存统计信息
-     */
-    public Map<String, Object> getCacheStats() {
-        Map<String, Object> stats = new HashMap<>();
-        
-        try {
-            // 获取Caffeine缓存统计信息
-            CaffeineCache storageConfigCache = (CaffeineCache) cacheManager.getCache("storageConfig");
-            CaffeineCache storagePropertiesCache = (CaffeineCache) cacheManager.getCache("storageProperties");
-            CaffeineCache accessUrlCache = (CaffeineCache) cacheManager.getCache("accessUrl");
-            
-            if (storageConfigCache != null) {
-                com.github.benmanes.caffeine.cache.stats.CacheStats configStats = 
-                    storageConfigCache.getNativeCache().stats();
-                stats.put("storageConfig.hitRate", configStats.hitRate());
-                stats.put("storageConfig.size", storageConfigCache.getNativeCache().estimatedSize());
-            }
-            
-            if (storagePropertiesCache != null) {
-                com.github.benmanes.caffeine.cache.stats.CacheStats propsStats = 
-                    storagePropertiesCache.getNativeCache().stats();
-                stats.put("storageProperties.hitRate", propsStats.hitRate());
-                stats.put("storageProperties.size", storagePropertiesCache.getNativeCache().estimatedSize());
-            }
-            
-            if (accessUrlCache != null) {
-                com.github.benmanes.caffeine.cache.stats.CacheStats urlStats = 
-                    accessUrlCache.getNativeCache().stats();
-                stats.put("accessUrl.hitRate", urlStats.hitRate());
-                stats.put("accessUrl.size", accessUrlCache.getNativeCache().estimatedSize());
-            }
-        } catch (Exception e) {
-            log.warn("获取缓存统计信息失败: {}", e.getMessage());
-        }
-        
-        log.debug("缓存统计信息: {}", stats);
-        return stats;
     }
     
     /**
@@ -241,7 +197,7 @@ public class StorageConfigManager {
         ConfigChangeEvent event = new ConfigChangeEvent(this, "storage", strategyKey);
         eventPublisher.publishEvent(event);
     }
-    
+
     /**
      * 获取配置属性
      * @param strategyKey 策略键
@@ -249,7 +205,7 @@ public class StorageConfigManager {
      * @param defaultValue 默认值
      * @return 属性值的Mono
      */
-    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, key = "#strategyKey + ':' + #key", unless = "#result == null")
+    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE, key = "#strategyKey + ':' + #key", unless = "#result == null")
     public Mono<String> getConfigPropertyAsync(String strategyKey, String key, String defaultValue) {
         log.debug("获取配置属性: strategyKey={}, key={} (缓存未命中)", strategyKey, key);
         
@@ -264,40 +220,11 @@ public class StorageConfigManager {
     }
     
     /**
-     * 获取配置属性（同步方法，仅供非响应式上下文使用）
-     * @param strategyKey 策略键
-     * @param key 属性键
-     * @param defaultValue 默认值
-     * @return 属性值
-     * @deprecated 请在响应式上下文中使用 getConfigPropertyAsync 方法
-     */
-    @Deprecated
-    public String getConfigProperty(String strategyKey, String key, String defaultValue) {
-        // 从缓存获取
-        try {
-            CaffeineCache cache = (CaffeineCache) cacheManager.getCache("storageProperties");
-            if (cache != null) {
-                String cacheKey = strategyKey + ':' + key;
-                String cachedValue = cache.get(cacheKey, String.class);
-                if (cachedValue != null) {
-                    return cachedValue;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("从缓存获取配置属性失败: {}", e.getMessage());
-        }
-        
-        // 如果缓存未命中，返回默认值
-        log.warn("同步获取配置属性，返回默认值: strategyKey={}, key={}, defaultValue={}", strategyKey, key, defaultValue);
-        return defaultValue;
-    }
-    
-    /**
      * 获取配置属性集合
      * @param strategyKey 策略键
      * @return 配置属性集合的Mono
      */
-    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE_NAME, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY", unless = "#result.isEmpty()")
+    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY", unless = "#result.isEmpty()")
     public Mono<Map<String, String>> getConfigPropertiesAsync(String strategyKey) {
         log.debug("获取配置属性集合: strategyKey={} (缓存未命中)", strategyKey);
         
@@ -317,7 +244,7 @@ public class StorageConfigManager {
      * @param strategyKey 策略键
      * @return 访问URL的Mono
      */
-    @Cacheable(value = CacheConstants.STORAGE_ACCESS_URL_CACHE_NAME, key = "#strategyKey", unless = "#result == null or #result.isEmpty()")
+    @Cacheable(value = CacheConstants.STORAGE_ACCESS_URL_CACHE, key = "#strategyKey", unless = "#result == null or #result.isEmpty()")
     public Mono<String> getAccessUrlAsync(String strategyKey) {
         log.debug("获取访问URL: strategyKey={} (缓存未命中)", strategyKey);
         
@@ -331,39 +258,13 @@ public class StorageConfigManager {
     }
     
     /**
-     * 获取访问URL（同步方法，仅供非响应式上下文使用）
-     * @param strategyKey 策略键
-     * @return 访问URL
-     * @deprecated 请在响应式上下文中使用 getAccessUrlAsync 方法
-     */
-    @Deprecated
-    public String getAccessUrl(String strategyKey) {
-        // 从缓存获取
-        try {
-            CaffeineCache cache = (CaffeineCache) cacheManager.getCache("accessUrl");
-            if (cache != null) {
-                String cachedValue = cache.get(strategyKey, String.class);
-                if (cachedValue != null) {
-                    return cachedValue;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("从缓存获取访问URL失败: {}", e.getMessage());
-        }
-        
-        // 如果缓存未命中，返回空字符串
-        log.warn("同步获取访问URL，返回空字符串: strategyKey={}", strategyKey);
-        return "";
-    }
-    
-    /**
      * 更新配置属性
      * @param strategyKey 策略键
      * @param key 属性键
      * @param value 属性值
      * @return Void Mono
      */
-    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE_NAME}, key = "#strategyKey + ':' + #key")
+    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE}, key = "#strategyKey + ':' + #key")
     public Mono<Void> updateConfigProperty(String strategyKey, String key, String value) {
         log.info("更新配置属性: strategyKey={}, key={}, value={}", strategyKey, key, value);
         
@@ -393,7 +294,7 @@ public class StorageConfigManager {
      * @param properties 属性集合
      * @return Void Mono
      */
-    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE_NAME}, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY")
+    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE}, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY")
     public Mono<Void> updateConfigProperties(String strategyKey, Map<String, String> properties) {
         log.info("更新配置属性集合: strategyKey={}, propertiesCount={}", strategyKey, properties != null ? properties.size() : 0);
         

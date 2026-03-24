@@ -302,7 +302,7 @@ public class RateLimitServiceImpl implements RateLimitService {
                 .lastResetMonth(now)
                 .createTime(now)
                 .updateTime(now)
-                .isDeleted(0)  // 明确设置删除标记
+                .isDeleted(false)  // 明确设置删除标记
                 .build();
         
         return quotaRepository.save(quota)

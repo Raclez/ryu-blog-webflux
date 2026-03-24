@@ -92,7 +92,7 @@ public interface RoleService {
      * @param isActive 激活状态
      * @return 操作结果
      */
-    Mono<Boolean> changeRoleStatus(Long roleId, Integer isActive);
+    Mono<Boolean> changeRoleStatus(Long roleId, Boolean isActive);
 
     /**
      * 批量分配用户角色

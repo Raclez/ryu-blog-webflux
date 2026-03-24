@@ -70,7 +70,7 @@ public class Posts extends BaseEntity {
      * 是否原创
      */
     @Column("is_original")
-    private Integer isOriginal;
+    private Boolean isOriginal;
 
     /**
      * 来源URL
@@ -87,7 +87,7 @@ public class Posts extends BaseEntity {
      * 是否允许评论
      */
     @Column("allow_comment")
-    private Integer allowComment;
+    private Boolean allowComment;
 
     /**
      * 访问权限: public, private, password

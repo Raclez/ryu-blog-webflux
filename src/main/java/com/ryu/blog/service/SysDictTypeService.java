@@ -2,7 +2,7 @@ package com.ryu.blog.service;
 
 import com.ryu.blog.dto.SysDictTypeAddDTO;
 import com.ryu.blog.dto.SysDictTypeUpdateDTO;
-import com.ryu.blog.dto.sysDictTypeQueryDTO;
+import com.ryu.blog.dto.SysDictTypeQueryDTO;
 import com.ryu.blog.entity.SysDictType;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictTypeVO;
@@ -28,7 +28,7 @@ public interface SysDictTypeService {
      * @param queryDTO 查询条件DTO
      * @return 字典类型分页结果
      */
-    Mono<PageResult<SysDictTypeVO>> getDictTypePage(sysDictTypeQueryDTO queryDTO);
+    Mono<PageResult<SysDictTypeVO>> getDictTypePage(SysDictTypeQueryDTO queryDTO);
     
     /**
      * 获取所有字典类型

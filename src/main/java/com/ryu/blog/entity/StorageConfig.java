@@ -3,9 +3,7 @@ package com.ryu.blog.entity;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.experimental.SuperBuilder;
@@ -16,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
+
+import com.ryu.blog.utils.JsonUtils;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -59,7 +59,7 @@ public class StorageConfig extends BaseEntity {
      * 是否启用
      */
     @Column("is_enable")
-    private Integer isEnable;
+    private Boolean isEnable;
 
     /**
      * 最大文件大小限制(字节)
@@ -107,26 +107,15 @@ public class StorageConfig extends BaseEntity {
         if (config == null || config.isEmpty()) {
             return new HashMap<>();
         }
-        
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(config, new TypeReference<Map<String, String>>() {});
-        } catch (JsonProcessingException e) {
-            log.error("解析配置JSON失败", e);
-            return new HashMap<>();
-        }
+
+        return JsonUtils.parseObject(config, new TypeReference<Map<String, String>>() {});
     }
-    
+
     /**
      * 设置配置属性Map
      * @param configMap 配置属性Map
      */
     public void setConfigMap(Map<String, String> configMap) {
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            this.config = mapper.writeValueAsString(configMap);
-        } catch (JsonProcessingException e) {
-            log.error("序列化配置JSON失败", e);
-        }
+        this.config = JsonUtils.toJsonString(configMap);
     }
 } 

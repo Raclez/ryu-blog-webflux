@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.ResourceGroupCreateDTO;
 import com.ryu.blog.dto.ResourceGroupFileDTO;
@@ -14,7 +15,6 @@ import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.service.ResourceGroupService;
 import com.ryu.blog.utils.JsonUtils;
 import com.ryu.blog.utils.SaTokenUtils;
-import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.ResourceGroupVO;
 import lombok.RequiredArgsConstructor;
@@ -23,9 +23,9 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import org.springframework.web.server.ServerWebExchange;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -55,35 +55,21 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
     @Override
     @Transactional
     public Mono<Void> createResourceGroup(ResourceGroupCreateDTO dto, ServerWebExchange exchange) {
-        // 检查组名是否已存在
         return checkGroupNameExists(dto.getGroupName(), null)
-                .flatMap(exists -> {
-                    if (Boolean.TRUE.equals(exists)) {
-                        return Mono.error(new RuntimeException("资源组名称已存在"));
-                    }
-                    
-                    // 获取当前用户ID - 使用响应式方法
-                    return SaTokenUtils.exec(exchange, StpUtil::getLoginIdAsLong)
-                            .flatMap(userId -> {
-                                // 将DTO转换为实体
-                                ResourceGroup group = resourceGroupMapper.toEntity(dto);
-                                
-                                // 设置默认值
-                                group.setCreatorId(userId);
-                                group.setCreateTime(LocalDateTime.now());
-                                group.setUpdateTime(LocalDateTime.now());
-                                group.setIsDeleted(0); // 正常状态
-                                
-                                // 保存实体
-                                return resourceGroupRepository.save(group)
-                                        .doOnSuccess(savedGroup -> {
-                                            // 清除缓存
-                                            clearResourceGroupCache();
-                                            log.info("资源组创建成功: id={}, name={}", savedGroup.getId(), savedGroup.getGroupName());
-                                        })
-                                        .then();
-                            });
-                });
+                .filter(exists -> !Boolean.TRUE.equals(exists))
+                .switchIfEmpty(Mono.error(new RuntimeException("资源组名称已存在")))
+                .flatMap(exists -> SaTokenUtils.exec(exchange, StpUtil::getLoginIdAsLong))
+                .flatMap(userId -> {
+                    ResourceGroup group = resourceGroupMapper.toEntity(dto);
+                    group.setCreatorId(userId);
+                    group.setCreateTime(LocalDateTime.now());
+                    group.setUpdateTime(LocalDateTime.now());
+                    group.setIsDeleted(false);
+                    return resourceGroupRepository.save(group);
+                })
+                .flatMap(savedGroup -> clearResourceGroupCache()
+                        .then(Mono.fromRunnable(() -> log.info("资源组创建成功: id={}, name={}", savedGroup.getId(), savedGroup.getGroupName()))))
+                .then();
     }
 
     @Override
@@ -92,38 +78,26 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
         return resourceGroupRepository.findById(dto.getId())
                 .switchIfEmpty(Mono.error(new RuntimeException("资源组不存在")))
                 .flatMap(existingGroup -> {
-                    // 如果组名有变化，需要检查是否已存在
                     if (dto.getGroupName() != null && !dto.getGroupName().equals(existingGroup.getGroupName())) {
                         return checkGroupNameExists(dto.getGroupName(), dto.getId())
-                                .flatMap(exists -> {
-                                    if (Boolean.TRUE.equals(exists)) {
-                                        return Mono.error(new RuntimeException("资源组名称已存在"));
-                                    }
-                                    
-                                    return updateGroupInternal(dto, existingGroup);
-                                });
-                    } else {
-                        return updateGroupInternal(dto, existingGroup);
+                                .filter(exists -> !Boolean.TRUE.equals(exists))
+                                .switchIfEmpty(Mono.error(new RuntimeException("资源组名称已存在")))
+                                .flatMap(exists -> updateGroupInternal(dto, existingGroup));
                     }
-                });
+                    return updateGroupInternal(dto, existingGroup);
+                })
+                .flatMap(savedGroup -> clearResourceGroupCache()
+                        .then(Mono.fromRunnable(() -> log.info("资源组更新成功: id={}, name={}", savedGroup.getId(), savedGroup.getGroupName()))))
+                .then();
     }
     
     /**
      * 内部更新资源组方法
      */
-    private Mono<Void> updateGroupInternal(ResourceGroupUpdateDTO dto, ResourceGroup existingGroup) {
-        // 使用MapStruct更新实体属性
+    private Mono<ResourceGroup> updateGroupInternal(ResourceGroupUpdateDTO dto, ResourceGroup existingGroup) {
         resourceGroupMapper.updateEntityFromDTO(dto, existingGroup);
         existingGroup.setUpdateTime(LocalDateTime.now());
-        
-        // 保存更新后的实体
-        return resourceGroupRepository.save(existingGroup)
-                .doOnSuccess(savedGroup -> {
-                    // 清除缓存
-                    clearResourceGroupCache();
-                    log.info("资源组更新成功: id={}, name={}", savedGroup.getId(), savedGroup.getGroupName());
-                })
-                .then();
+        return resourceGroupRepository.save(existingGroup);
     }
 
     @Override
@@ -131,22 +105,17 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
     public Mono<Void> deleteResourceGroup(Long id) {
         return resourceGroupRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("资源组不存在")))
-                .flatMap(group -> {
-                    // 删除资源组与文件的关联
-                    return resourceGroupFileRelRepository.deleteByGroupId(id)
+                .flatMap(group ->
+                    resourceGroupFileRelRepository.deleteByGroupId(id)
                             .then(Mono.defer(() -> {
-                                // 逻辑删除资源组（将isDeleted设为1）
-                                group.setIsDeleted(1);
+                                group.setIsDeleted(true);
                                 group.setUpdateTime(LocalDateTime.now());
                                 return resourceGroupRepository.save(group);
                             }))
-                            .doOnSuccess(savedGroup -> {
-                                // 清除缓存
-                                clearResourceGroupCache();
-                                log.info("资源组删除成功: id={}", id);
-                            })
-                            .then();
-                });
+                            .flatMap(savedGroup -> clearResourceGroupCache()
+                                    .then(Mono.fromRunnable(() -> log.info("资源组删除成功: id={}", id))))
+                )
+                .then();
     }
 
     @Override
@@ -196,20 +165,14 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
         return resourceGroupRepository.findByIdAndIsDeleted(dto.getGroupId(), 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("资源组不存在或已删除")))
                 .flatMap(group ->
-
-                            // 处理每个文件ID
                             Flux.fromIterable(dto.getFileIds())
-                                .flatMap(fileId -> 
-                                    // 检查关联是否已存在
+                                .flatMap(fileId ->
                                     resourceGroupFileRelRepository.findByGroupIdAndFileId(dto.getGroupId(), fileId)
                                         .hasElement()
                                         .flatMap(exists -> {
                                             if (Boolean.TRUE.equals(exists)) {
-                                                // 已存在，跳过
                                                 return Mono.empty();
                                             }
-                                            
-                                            // 创建新的关联
                                             ResourceGroupFileRel rel = ResourceGroupFileRel.builder()
                                                     .groupId(dto.getGroupId())
                                                     .fileId(fileId)
@@ -219,14 +182,11 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
                                         })
                                 )
                                 .then()
-
                 )
-                .doOnSuccess(v -> {
-                    // 清除相关缓存
-                    clearResourceGroupCache();
-                    log.info("文件添加到资源组成功: groupId={}, fileCount={}", 
-                            dto.getGroupId(), dto.getFileIds().size());
-                });
+                .flatMap(v -> clearResourceGroupCache()
+                        .then(Mono.fromRunnable(() -> log.info("文件添加到资源组成功: groupId={}, fileCount={}",
+                                dto.getGroupId(), dto.getFileIds().size()))))
+                .then();
     }
 
     @Override
@@ -234,20 +194,17 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
     public Mono<Void> removeFilesFromGroup(ResourceGroupFileDTO dto) {
         return resourceGroupRepository.findByIdAndIsDeleted(dto.getGroupId(), 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("资源组不存在或已删除")))
-                .flatMap(group -> 
-                    // 处理每个文件ID
+                .flatMap(group ->
                     Flux.fromIterable(dto.getFileIds())
-                        .flatMap(fileId -> 
+                        .flatMap(fileId ->
                             resourceGroupFileRelRepository.deleteByGroupIdAndFileId(dto.getGroupId(), fileId)
                         )
                         .then()
                 )
-                .doOnSuccess(v -> {
-                    // 清除相关缓存
-                    clearResourceGroupCache();
-                    log.info("从资源组移除文件成功: groupId={}, fileCount={}", 
-                            dto.getGroupId(), dto.getFileIds().size());
-                });
+                .flatMap(v -> clearResourceGroupCache()
+                        .then(Mono.fromRunnable(() -> log.info("从资源组移除文件成功: groupId={}, fileCount={}",
+                                dto.getGroupId(), dto.getFileIds().size()))))
+                .then();
     }
 
     @Override
@@ -374,12 +331,12 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
     /**
      * 清除资源组缓存
      */
-    private void clearResourceGroupCache() {
+    private Mono<Void> clearResourceGroupCache() {
         log.debug("清除资源组缓存");
-        // 使用通配符清除所有相关缓存
-        reactiveRedisTemplate.scan(ScanOptions.scanOptions()
-                .match(RESOURCE_GROUP_CACHE_PREFIX + "*").build())
-                .flatMap(reactiveRedisTemplate::delete)
-                .subscribe();
+        return reactiveRedisTemplate.scan(ScanOptions.scanOptions()
+                .match(RESOURCE_GROUP_CACHE_PREFIX + "*").count(100).build())
+                .flatMap(key -> reactiveRedisTemplate.delete(key).then())
+                .then()
+                .doOnError(e -> log.error("清除资源组缓存失败: error={}", e.getMessage()));
     }
 } 

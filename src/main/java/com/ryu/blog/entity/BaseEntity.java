@@ -45,7 +45,7 @@ public abstract class BaseEntity implements Serializable {
      * 删除标记：0-未删除，1-已删除
      */
     @Column("is_deleted")
-    private Integer isDeleted;
+    private Boolean isDeleted;
     
     /**
      * 创建前回调
@@ -60,7 +60,7 @@ public abstract class BaseEntity implements Serializable {
             this.updateTime = now;
         }
         if (this.isDeleted == null) {
-            this.isDeleted = 0;
+            this.isDeleted = false;
         }
     }
     

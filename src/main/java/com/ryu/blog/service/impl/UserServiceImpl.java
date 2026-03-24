@@ -1,6 +1,5 @@
 package com.ryu.blog.service.impl;
 
-import cn.hutool.crypto.SecureUtil;
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.UserDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
@@ -20,8 +19,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
@@ -46,27 +47,27 @@ public class UserServiceImpl implements UserService {
     private final UserRoleRepository userRoleRepository;
     private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
     private final UserMapper userMapper;
-    
-    // 注入自己的代理对象，用于解决自调用导致的缓存失效问题
-    // 使用 setter 注入 + @Lazy 避免循环依赖
+    private final BCryptPasswordEncoder passwordEncoder;
+
     private UserService self;
-    
+
     private static final String USER_CACHE_KEY = "user:";
     private static final String USER_LIST_CACHE_KEY = "user:list:";
     private static final String USER_COUNT_CACHE_KEY = "user:count";
-    
-    // 构造函数注入其他依赖
+
     public UserServiceImpl(
             UserRepository userRepository,
             RoleRepository roleRepository,
             UserRoleRepository userRoleRepository,
             ReactiveRedisTemplate<String, Object> reactiveRedisTemplate,
-            UserMapper userMapper) {
+            UserMapper userMapper,
+            BCryptPasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
         this.reactiveRedisTemplate = reactiveRedisTemplate;
         this.userMapper = userMapper;
+        this.passwordEncoder = passwordEncoder;
     }
     
     // Setter 注入 self，使用 @Lazy 避免循环依赖
@@ -105,26 +106,24 @@ public class UserServiceImpl implements UserService {
         // 设置默认值
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
-        user.setIsDeleted(0);
+        user.setIsDeleted(false);
         
         if (user.getStatus() == null) {
             user.setStatus(1);
         }
         
         // 使用HuTool的SecureUtil加密密码
-        user.setPassword(SecureUtil.md5(user.getPassword()));
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
         
         return userRepository.save(user)
-                .doOnSuccess(savedUser -> {
-                    // 清除缓存
-                    clearUserCache(savedUser.getId());
-                    reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).subscribe();
-                });
+                .flatMap(savedUser -> clearUserCache(savedUser.getId())
+                        .then(reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).then())
+                        .thenReturn(savedUser));
     }
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #user.id", condition = "#user.id != null")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #user.id", condition = "#user.id != null")
     public Mono<User> updateUser(User user) {
         return userRepository.findById(user.getId())
                 .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
@@ -179,9 +178,8 @@ public class UserServiceImpl implements UserService {
             existingUser.setStatus(user.getStatus());
         }
         
-        // 如果有新密码，使用HuTool的SecureUtil加密后更新
         if (user.getPassword() != null && !user.getPassword().isEmpty()) {
-            existingUser.setPassword(SecureUtil.md5(user.getPassword()));
+            existingUser.setPassword(passwordEncoder.encode(user.getPassword()));
         }
         
         existingUser.setUpdateTime(LocalDateTime.now());
@@ -194,7 +192,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<User> getUserById(Long id) {
         // 先尝试从缓存中获取
         String key = USER_CACHE_KEY + id;
@@ -212,7 +210,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_USERNAME_KEY + "' + #username", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_USERNAME_KEY + "' + #username", unless = "#result == null")
     public Mono<User> getUserByUsername(String username) {
         return userRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(BusinessException.userNotFound()));
@@ -220,24 +218,19 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Void> deleteUser(Long id) {
         return userRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                 .flatMap(user -> {
                     // 逻辑删除
-                    user.setIsDeleted(1);
+                    user.setIsDeleted(true);
                     user.setUpdateTime(LocalDateTime.now());
                     return userRepository.save(user)
                             .flatMap(savedUser -> {
-                                // 删除用户角色关联
                                 return userRoleRepository.deleteByUserId(savedUser.getId())
-                                        .then();
-                            })
-                            .doOnSuccess(v -> {
-                                // 清除缓存
-                                clearUserCache(user.getId());
-                                reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).subscribe();
+                                        .then(clearUserCache(user.getId()))
+                                        .then(reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).then());
                             });
                 });
     }
@@ -259,7 +252,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Integer> updateUserStatus(Long id, Integer status) {
         return userRepository.updateStatus(id, status)
                 .doOnSuccess(result -> {
@@ -270,7 +263,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
     public Mono<Void> updateUserRoles(Long userId, List<Long> roleIds) {
         // 先删除原有的用户角色关联
         return userRoleRepository.deleteByUserId(userId)
@@ -307,7 +300,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Integer> updateLastLogin(Long id, String ip) {
         return userRepository.updateLastLogin(id, ip)
                 .doOnSuccess(result -> {
@@ -318,7 +311,7 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, allEntries = true)
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
     public Mono<Void> batchDeleteUsers(List<Long> ids) {
         return Flux.fromIterable(ids)
                 .flatMap(id -> userRoleRepository.deleteByUserId(id)
@@ -329,72 +322,91 @@ public class UserServiceImpl implements UserService {
     
     @Override
     public Mono<PageResult<UserVO>> getUserPage(int page, int size, String username, String email, Integer status) {
-        // 分页查询参数
         PageRequest pageRequest = PageRequest.of(page, size);
-        
-        // 根据查询条件选择适当的查询方法
-        Flux<User> userFlux;
-        Mono<Long> countMono;
-        
-        if (username != null && !username.isEmpty() && email != null && !email.isEmpty() && status != null) {
-            // 用户名 + 邮箱 + 状态
-            userFlux = userRepository.findByUsernameLikeAndEmailLikeAndStatus(username, email, status, pageRequest);
-            countMono = userRepository.countByUsernameLikeAndEmailLikeAndStatus(username, email, status);
-        } else if (username != null && !username.isEmpty() && email != null && !email.isEmpty()) {
-            // 用户名 + 邮箱
-            userFlux = userRepository.findByUsernameLikeAndEmailLike(username, email, pageRequest);
-            countMono = userRepository.countByUsernameLikeAndEmailLike(username, email);
-        } else if (username != null && !username.isEmpty() && status != null) {
-            // 用户名 + 状态
-            userFlux = userRepository.findByUsernameLikeAndStatus(username, status, pageRequest);
-            countMono = userRepository.countByUsernameLikeAndStatus(username, status);
-        } else if (email != null && !email.isEmpty() && status != null) {
-            // 邮箱 + 状态
-            userFlux = userRepository.findByEmailLikeAndStatus(email, status, pageRequest);
-            countMono = userRepository.countByEmailLikeAndStatus(email, status);
-        } else if (username != null && !username.isEmpty()) {
-            // 仅用户名
-            userFlux = userRepository.findByUsernameLike(username, pageRequest);
-            countMono = userRepository.countByUsernameLike(username);
-        } else if (email != null && !email.isEmpty()) {
-            // 仅邮箱
-            userFlux = userRepository.findByEmailLike(email, pageRequest);
-            countMono = userRepository.countByEmailLike(email);
-        } else if (status != null) {
-            // 仅状态
-            userFlux = userRepository.findByStatus(status, pageRequest);
-            countMono = userRepository.countByStatus(status);
-        } else {
-            // 无条件，查询所有
-            userFlux = userRepository.findAllUsers(pageRequest);
-            countMono = userRepository.countAllUsers();
-        }
-        
-        return Mono.zip(userFlux.collectList(), countMono)
+
+        QueryType queryType = determineQueryType(username, email, status);
+        QueryResult queryResult = selectQuery(queryType, username, email, status, pageRequest);
+
+        return Mono.zip(queryResult.users().collectList(), queryResult.count())
                 .map(tuple -> {
                     List<User> users = tuple.getT1();
                     Long total = tuple.getT2();
-                    
-                    // 使用MapStruct将User转换为UserVO
+
                     List<UserVO> userVOs = users.stream()
                             .map(userMapper::toUserVO)
                             .collect(Collectors.toList());
-                    
-                    // 创建并返回PageResult对象
+
                     PageResult<UserVO> pageResult = new PageResult<>();
                     pageResult.setRecords(userVOs);
                     pageResult.setTotal(total);
                     pageResult.setSize(size);
                     pageResult.setCurrent(page + 1);
                     pageResult.setPages((total + size - 1) / size);
-                    
+
                     return pageResult;
                 });
+    }
+
+    private enum QueryType {
+        USERNAME_EMAIL_STATUS,
+        USERNAME_EMAIL,
+        USERNAME_STATUS,
+        EMAIL_STATUS,
+        USERNAME_ONLY,
+        EMAIL_ONLY,
+        STATUS_ONLY,
+        ALL
+    }
+
+    private record QueryResult(Flux<User> users, Mono<Long> count) {}
+
+    private QueryType determineQueryType(String username, String email, Integer status) {
+        boolean hasUsername = username != null && !username.isEmpty();
+        boolean hasEmail = email != null && !email.isEmpty();
+        boolean hasStatus = status != null;
+
+        if (hasUsername && hasEmail && hasStatus) return QueryType.USERNAME_EMAIL_STATUS;
+        if (hasUsername && hasEmail) return QueryType.USERNAME_EMAIL;
+        if (hasUsername && hasStatus) return QueryType.USERNAME_STATUS;
+        if (hasEmail && hasStatus) return QueryType.EMAIL_STATUS;
+        if (hasUsername) return QueryType.USERNAME_ONLY;
+        if (hasEmail) return QueryType.EMAIL_ONLY;
+        if (hasStatus) return QueryType.STATUS_ONLY;
+        return QueryType.ALL;
+    }
+
+    private QueryResult selectQuery(QueryType type, String username, String email, Integer status, PageRequest pageRequest) {
+        return switch (type) {
+            case USERNAME_EMAIL_STATUS -> new QueryResult(
+                    userRepository.findByUsernameLikeAndEmailLikeAndStatus(username, email, status, pageRequest),
+                    userRepository.countByUsernameLikeAndEmailLikeAndStatus(username, email, status));
+            case USERNAME_EMAIL -> new QueryResult(
+                    userRepository.findByUsernameLikeAndEmailLike(username, email, pageRequest),
+                    userRepository.countByUsernameLikeAndEmailLike(username, email));
+            case USERNAME_STATUS -> new QueryResult(
+                    userRepository.findByUsernameLikeAndStatus(username, status, pageRequest),
+                    userRepository.countByUsernameLikeAndStatus(username, status));
+            case EMAIL_STATUS -> new QueryResult(
+                    userRepository.findByEmailLikeAndStatus(email, status, pageRequest),
+                    userRepository.countByEmailLikeAndStatus(email, status));
+            case USERNAME_ONLY -> new QueryResult(
+                    userRepository.findByUsernameLike(username, pageRequest),
+                    userRepository.countByUsernameLike(username));
+            case EMAIL_ONLY -> new QueryResult(
+                    userRepository.findByEmailLike(email, pageRequest),
+                    userRepository.countByEmailLike(email));
+            case STATUS_ONLY -> new QueryResult(
+                    userRepository.findByStatus(status, pageRequest),
+                    userRepository.countByStatus(status));
+            case ALL -> new QueryResult(
+                    userRepository.findAllUsers(pageRequest),
+                    userRepository.countAllUsers());
+        };
     }
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<String> resetPassword(Long id) {
         return userRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
@@ -402,8 +414,7 @@ public class UserServiceImpl implements UserService {
                     // 生成随机密码
                     String newPassword = generateRandomPassword();
                     // 加密密码 - 使用与其他方法相同的加密方式
-                    String encryptedPassword = SecureUtil.md5(newPassword);
-                    user.setPassword(encryptedPassword);
+                    user.setPassword(passwordEncoder.encode(newPassword));
                     return userRepository.save(user)
                             .map(savedUser -> newPassword)
                             .doOnSuccess(password -> clearUserCache(id));
@@ -429,13 +440,16 @@ public class UserServiceImpl implements UserService {
      * 清除用户相关缓存
      * @param userId 用户ID
      */
-    private void clearUserCache(Long userId) {
+    private Mono<Void> clearUserCache(Long userId) {
         String userKey = USER_CACHE_KEY + userId;
-        reactiveRedisTemplate.delete(userKey).subscribe();
-        
-        // 清除用户列表缓存
         String userListPattern = USER_LIST_CACHE_KEY + "*";
-        reactiveRedisTemplate.keys(userListPattern).flatMap(reactiveRedisTemplate::delete).subscribe();
+
+        return reactiveRedisTemplate.delete(userKey)
+                .then(reactiveRedisTemplate.scan(ScanOptions.scanOptions()
+                        .match(userListPattern).count(100).build())
+                        .flatMap(key -> reactiveRedisTemplate.delete(key).then())
+                        .then())
+                .doOnError(e -> log.error("清除用户缓存失败: userId={}, error={}", userId, e.getMessage()));
     }
 
     @Override
@@ -468,9 +482,7 @@ public class UserServiceImpl implements UserService {
                         return Mono.error(BusinessException.accountDisabled());
                     }
                     
-                    // 验证密码
-                    String encryptedPassword = SecureUtil.md5(password);
-                    if (!encryptedPassword.equals(user.getPassword())) {
+                    if (!passwordEncoder.matches(password, user.getPassword())) {
                         return Mono.error(BusinessException.loginFailed());
                     }
                     
@@ -480,7 +492,7 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
-    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_INFO_KEY + "' + #userId", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_INFO_KEY + "' + #userId", unless = "#result == null")
     public Mono<UserInfoVO> getCurrentUserInfo(Long userId) {
         // 使用 self 调用，确保缓存生效
         return self.getUserById(userId)
@@ -490,7 +502,7 @@ public class UserServiceImpl implements UserService {
     }
     
     @Override
-    @Cacheable(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_DETAIL_KEY + "' + #id", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_DETAIL_KEY + "' + #id", unless = "#result == null")
     public Mono<UserInfoVO> getUserDetailById(Long id) {
         // 使用 self 调用，确保缓存生效
         return self.getUserById(id)
@@ -501,7 +513,7 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
     public Mono<User> createUserWithRoles(UserDTO userDTO) {
         User user = userMapper.toUser(userDTO);
         
@@ -518,7 +530,7 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
     public Mono<User> updateUserWithRoles(UserDTO userDTO) {
         // 使用 self 调用，确保缓存生效
         return self.getUserById(userDTO.getId())
@@ -537,19 +549,16 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE_NAME, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
     public Mono<Boolean> updatePassword(Long userId, UserPasswordDTO passwordDTO) {
         // 使用 self 调用，确保缓存生效
         return self.getUserById(userId)
                 .flatMap(user -> {
-                    // 验证旧密码
-                    String oldEncryptedPassword = SecureUtil.md5(passwordDTO.getOldPassword());
-                    if (!oldEncryptedPassword.equals(user.getPassword())) {
+                    if (!passwordEncoder.matches(passwordDTO.getOldPassword(), user.getPassword())) {
                         return Mono.error(BusinessException.oldPasswordError());
                     }
-                    
-                    // 设置新密码
-                    user.setPassword(SecureUtil.md5(passwordDTO.getNewPassword()));
+
+                    user.setPassword(passwordEncoder.encode(passwordDTO.getNewPassword()));
                     user.setUpdateTime(LocalDateTime.now());
                     
                     return userRepository.save(user)

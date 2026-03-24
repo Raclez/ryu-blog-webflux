@@ -10,28 +10,28 @@ import lombok.ToString;
  */
 @Data
 @ToString
-public class FilesDTO {
-    
+public class FileUpdateDTO {
+
     /**
      * 文件名称
      */
     private String fileName;
-    
+
     /**
      * 文件类型
      */
     private String fileType;
-    
+
     /**
      * 文件描述
      */
     private String description;
-    
+
     /**
      * 文件状态
      */
     private Integer status;
-    
+
     /**
      * 所属分组ID
      */

@@ -97,8 +97,8 @@ public class AzureOpenAiProvider extends AbstractChatClientProvider {
     protected org.springframework.ai.chat.prompt.ChatOptions buildChatOptions(AiGenerationRequest request) {
         return AzureOpenAiChatOptions.builder()
                 .deploymentName(deploymentName)
-                .temperature(temperature)
-                .maxTokens(maxTokens)
+                .temperature(temperature != null ? temperature : 0.7)
+                .maxTokens(maxTokens != null ? maxTokens : 2000)
                 .build();
     }
 

@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 /**
  * 定时任务配置类
+ * @author ryu
  */
 @Slf4j
 @Configuration

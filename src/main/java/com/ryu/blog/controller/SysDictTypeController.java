@@ -2,7 +2,7 @@ package com.ryu.blog.controller;
 
 import com.ryu.blog.dto.SysDictTypeAddDTO;
 import com.ryu.blog.dto.SysDictTypeUpdateDTO;
-import com.ryu.blog.dto.sysDictTypeQueryDTO;
+import com.ryu.blog.dto.SysDictTypeQueryDTO;
 import com.ryu.blog.service.SysDictTypeService;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictTypeVO;
@@ -62,7 +62,7 @@ public class SysDictTypeController {
     @GetMapping("/page")
     @Operation(summary = "分页查询字典类型", description = "支持按名称和编码查询")
     public Mono<Result<PageResult<SysDictTypeVO>>> getSysDictTypePage(
-            @ParameterObject sysDictTypeQueryDTO queryDTO
+            @ParameterObject SysDictTypeQueryDTO queryDTO
     ) {
         log.info("分页查询字典类型，查询条件: {}", queryDTO);
         return dictTypeService.getDictTypePage(queryDTO)

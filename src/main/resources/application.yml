@@ -17,6 +17,7 @@ spring:
     name: ryu-blog
   profiles:
     active: dev
+    include: resilience4j
   output:
     ansi:
       enabled: always
@@ -32,15 +33,15 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:475118582}
+      password: ${REDIS_PASSWORD:}
       database: 0
     r2dbc:
       repositories:
         enabled: true
   r2dbc:
     url: ${DB_URL:r2dbc:mysql://localhost:3306/ryu_blog_webflux?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai}
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:475118582}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
     pool:
       enabled: true
       initial-size: 10
@@ -71,17 +72,17 @@ sa-token:
   # 是否尝试从 cookie 里读取 Token
   is-read-cookie: false
   # jwt秘钥
-  jwt-secret-key: ${JWT_SECRET:abcdefghijklmnopqrstuvwx}
+  jwt-secret-key: ${JWT_SECRET:}
   # 配置 Sa-Token 单独使用的 Redis 连接
   alone-redis:
     # Redis数据库索引
-    database: 0
+    database: ${REDIS_DATABASE:0}
     # Redis服务器地址
-    host: localhost
+    host: ${REDIS_HOST:localhost}
     # Redis服务器连接端口
-    port: 6379
+    port: ${REDIS_PORT:6379}
     # Redis服务器连接密码（默认为空）
-    password: 475118582
+    password: ${REDIS_PASSWORD:}
     # 连接超时时间
     timeout: 10s
     lettuce:
@@ -131,14 +132,6 @@ app:
     base-path: ${UPLOAD_PATH:./uploads}
     max-size: 10MB
     allowed-types: jpg,jpeg,png,gif,webp,mp4,mp3,pdf,doc,docx,xls,xlsx,ppt,pptx,zip,rar,7z
-  # 跨域配置
-  cors:
-    allowed-origins: "*"
-    allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
-    allowed-headers: "*"
-    allow-credentials: true
-    max-age: 3600
-    exposed-headers: "Content-Disposition,Content-Length,Content-Type,Authorization"
   # 缓存配置
   cache:
     article:
@@ -149,10 +142,8 @@ app:
       expire: 1h
     comment:
       expire: 10m
-  # 安全配置
-  security:
-    # 不需要认证的路径
-    ignore-paths: /auth/login,/auth/register,/auth/captcha,/auth/captcha/**,/auth/check,/content/article/list,/content/article/detail/**,/content/category/list,/content/tag/list,/ip/info,/ip/query
+
+
 
 # API文档配置
 springdoc:

@@ -38,6 +38,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuples;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -269,7 +270,7 @@ public class FileServiceImpl implements FileService {
         file.setUploadTime(LocalDateTime.now());
         file.setCreateTime(LocalDateTime.now());
         file.setUpdateTime(LocalDateTime.now());
-        file.setIsDeleted(SystemConstants.NOT_DELETED);
+        file.setIsDeleted(false);
         
         return file;
     }
@@ -595,49 +596,35 @@ public class FileServiceImpl implements FileService {
     @Override
     public Mono<ResponseEntity<Resource>> handleFileDownload(Long fileId) {
         log.info("处理文件下载请求: fileId={}", fileId);
-        
+
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除")))
                 .flatMap(file -> {
-                    // 获取文件存储策略
                     return strategyRegistry.getStrategy(file.getStorageType())
-                            .flatMap(strategy -> {
-                                // 获取文件数据流
-                                return strategy.downloadFile(file.getFilePath())
-                                        .flatMap(dataBufferFlux -> {
-                                            // 创建临时文件
-                                            try {
-                                                java.io.File tempFile = java.io.File.createTempFile("download_", "_" + file.getFileName());
-                                                tempFile.deleteOnExit();
-                                                
-                                                // 将数据流写入临时文件
-                                                return DataBufferUtils.write(dataBufferFlux, tempFile.toPath())
-                                                        .then(Mono.fromCallable(() -> {
-                                                            // 创建Resource
-                                                            Resource resource = new org.springframework.core.io.FileSystemResource(tempFile);
-                                                            
-                                                            // 设置响应头
-                                                            HttpHeaders headers = new HttpHeaders();
-                                                            headers.add(HttpHeaders.CONTENT_DISPOSITION, 
-                                                                    "attachment; filename=\"" + file.getFileName() + "\"");
-                                                            headers.add(HttpHeaders.CONTENT_TYPE, 
-                                                                    file.getMimeType() != null ? file.getMimeType() : FileUtils.getContentType(file.getFileName()));
-                                                            if (file.getFileSize() != null) {
-                                                                headers.add(HttpHeaders.CONTENT_LENGTH, file.getFileSize().toString());
-                                                            }
-                                                            
-                                                            // 记录下载日志（异步）
-                                                            logFileDownload(file).subscribe();
-                                                            
-                                                            return ResponseEntity.ok()
-                                                                    .headers(headers)
-                                                                    .body(resource);
-                                                        }));
-                                            } catch (IOException e) {
-                                                return Mono.error(new RuntimeException("创建临时文件失败", e));
-                                            }
-                                        });
-                            });
+                            .flatMap(strategy -> strategy.downloadFile(file.getFilePath())
+                                    .flatMap(dataBufferFlux -> DataBufferUtils.join(dataBufferFlux)
+                                            .map(dataBuffer -> {
+                                                byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                                                dataBuffer.read(bytes);
+                                                DataBufferUtils.release(dataBuffer);
+
+                                                Resource resource = new org.springframework.core.io.ByteArrayResource(bytes);
+
+                                                HttpHeaders headers = new HttpHeaders();
+                                                headers.add(HttpHeaders.CONTENT_DISPOSITION,
+                                                        "attachment; filename=\"" + file.getFileName() + "\"");
+                                                headers.add(HttpHeaders.CONTENT_TYPE,
+                                                        file.getMimeType() != null ? file.getMimeType() : FileUtils.getContentType(file.getFileName()));
+                                                if (file.getFileSize() != null) {
+                                                    headers.add(HttpHeaders.CONTENT_LENGTH, file.getFileSize().toString());
+                                                }
+
+                                                return Tuples.of(file, resource, headers);
+                                            })
+                                            .flatMap(tuple -> logFileDownload(tuple.getT1())
+                                                    .thenReturn(ResponseEntity.ok()
+                                                            .headers(tuple.getT3())
+                                                            .body(tuple.getT2())))));
                 })
                 .doOnSuccess(response -> log.info("文件下载成功: fileId={}", fileId))
                 .doOnError(error -> log.error("文件下载失败: fileId={}, error={}", fileId, error.getMessage()));
@@ -646,26 +633,21 @@ public class FileServiceImpl implements FileService {
     @Override
     public Mono<byte[]> handleFileDownload(String path) {
         log.info("通过路径处理文件下载请求: path={}", path);
-        
-        // 先通过路径查找文件记录
+
         return findByFilePath(path, 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除")))
                 .flatMap(file -> {
-                    // 获取文件存储策略
                     return strategyRegistry.getStrategy(file.getStorageType())
                             .flatMap(strategy -> strategy.downloadFile(file.getFilePath())
                                     .flatMap(dataBufferFlux -> DataBufferUtils.join(dataBufferFlux)
                                             .map(dataBuffer -> {
-                                                // 将DataBuffer转换为字节数组
                                                 byte[] bytes = new byte[dataBuffer.readableByteCount()];
                                                 dataBuffer.read(bytes);
                                                 DataBufferUtils.release(dataBuffer);
-                                                
-                                                // 记录下载日志（异步）
-                                                logFileDownload(file).subscribe();
-                                                
-                                                return bytes;
-                                            })));
+                                                return Tuples.of(file, bytes);
+                                            })
+                                            .flatMap(tuple -> logFileDownload(tuple.getT1())
+                                                    .thenReturn(tuple.getT2()))));
                 })
                 .doOnSuccess(bytes -> log.info("通过路径下载文件成功: path={}, size={}", path, bytes.length))
                 .doOnError(error -> log.error("通过路径下载文件失败: path={}, error={}", path, error.getMessage()));
@@ -674,27 +656,21 @@ public class FileServiceImpl implements FileService {
     @Override
     public Mono<InputStream> getFileStream(Long fileId) {
         log.info("获取文件流: fileId={}", fileId);
-        
+
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除")))
                 .flatMap(file -> {
-                    // 获取文件存储策略
                     return strategyRegistry.getStrategy(file.getStorageType())
                             .flatMap(strategy -> strategy.downloadFile(file.getFilePath())
                                     .flatMap(dataBufferFlux -> DataBufferUtils.join(dataBufferFlux)
                                             .map(dataBuffer -> {
-                                                // 将DataBuffer转换为字节数组，然后创建InputStream
                                                 byte[] bytes = new byte[dataBuffer.readableByteCount()];
                                                 dataBuffer.read(bytes);
                                                 DataBufferUtils.release(dataBuffer);
-                                                
-                                                // 记录下载日志（异步）
-                                                logFileDownload(file).subscribe();
-                                                
-                                                // 明确指定返回类型
-                                                InputStream inputStream = new ByteArrayInputStream(bytes);
-                                                return inputStream;
-                                            })));
+                                                return Tuples.of(file, bytes);
+                                            })
+                                            .<InputStream>flatMap(tuple -> logFileDownload(tuple.getT1())
+                                                    .thenReturn(new ByteArrayInputStream(tuple.getT2())))));
                 })
                 .doOnSuccess(stream -> log.info("获取文件流成功: fileId={}", fileId))
                 .doOnError(error -> log.error("获取文件流失败: fileId={}, error={}", fileId, error.getMessage()));
@@ -721,7 +697,7 @@ public class FileServiceImpl implements FileService {
                                             .flatMap(result -> {
                                                 if (result) {
                                                     // 逻辑删除文件记录
-                                                    file.setIsDeleted(SystemConstants.IS_DELETED);
+                                                    file.setIsDeleted(true);
                                                     file.setUpdateTime(LocalDateTime.now());
                                             return fileRepository.save(file).then();
                                                 } else {
@@ -767,39 +743,14 @@ public class FileServiceImpl implements FileService {
         if (files == null || files.isEmpty()) {
             return Mono.just(Collections.emptyList());
         }
-        
-        // 创建新的文件列表，避免修改原始列表
-        List<File> transformedFiles = new ArrayList<>(files.size());
-        
-        // 创建一个包含所有转换操作的Flux
+
         return Flux.fromIterable(files)
-                .flatMap(file -> {
-                    // 获取完整URL
-                    return strategyRegistry.getStrategy(file.getStorageType())
-                            .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
-                            .map(fullUrl -> {
-                                // 创建新的File对象，复制原始对象的所有属性
-                                File newFile = new File();
-                                newFile.setId(file.getId());
-                                newFile.setFileName(file.getFileName());
-                                newFile.setFilePath(fullUrl); // 设置完整URL
-                                newFile.setFileSize(file.getFileSize());
-                                newFile.setFileType(file.getFileType());
-                                newFile.setMimeType(file.getMimeType());
-                                newFile.setUploadTime(file.getUploadTime());
-                                newFile.setUpdateTime(file.getUpdateTime());
-                                newFile.setCreatorId(file.getCreatorId());
-                                newFile.setStatus(file.getStatus());
-                                newFile.setStorageType(file.getStorageType());
-                                newFile.setDescription(file.getDescription());
-                                newFile.setChecksum(file.getChecksum());
-                                newFile.setHasThumbnail(file.getHasThumbnail());
-                                newFile.setAccessType(file.getAccessType());
-                                newFile.setCreateTime(file.getCreateTime());
-                                newFile.setIsDeleted(file.getIsDeleted());
-                                return newFile;
-                            });
-                })
+                .flatMap(file -> strategyRegistry.getStrategy(file.getStorageType())
+                        .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
+                        .map(fullUrl -> {
+                            file.setFilePath(fullUrl);
+                            return file;
+                        }))
                 .collectList();
     }
 
@@ -927,21 +878,21 @@ public class FileServiceImpl implements FileService {
         @CacheEvict(cacheNames = "fileCache", key = "'user:*'", allEntries = true),
         @CacheEvict(cacheNames = "fileCache", key = "'type:*'", allEntries = true)
     })
-    public Mono<FileInfoVO> updateFileInfo(Long fileId, FilesDTO filesDTO) {
-        log.info("更新文件信息: fileId={}, filesDTO={}", fileId, filesDTO);
+    public Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO) {
+        log.info("更新文件信息: fileId={}, fileUpdateDTO={}", fileId, fileUpdateDTO);
         
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("文件不存在或已删除")))
                 .flatMap(file -> {
                     // 更新文件信息
-                    if (filesDTO.getFileName() != null && !filesDTO.getFileName().isEmpty()) {
-                        file.setFileName(filesDTO.getFileName());
+                    if (fileUpdateDTO.getFileName() != null && !fileUpdateDTO.getFileName().isEmpty()) {
+                        file.setFileName(fileUpdateDTO.getFileName());
                     }
-                    if (filesDTO.getDescription() != null) {
-                        file.setDescription(filesDTO.getDescription());
+                    if (fileUpdateDTO.getDescription() != null) {
+                        file.setDescription(fileUpdateDTO.getDescription());
                     }
-                    if (filesDTO.getStatus() != null) {
-                        file.setStatus(filesDTO.getStatus());
+                    if (fileUpdateDTO.getStatus() != null) {
+                        file.setStatus(fileUpdateDTO.getStatus());
                     }
                     
                     file.setUpdateTime(LocalDateTime.now());

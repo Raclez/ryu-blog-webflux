@@ -23,7 +23,7 @@ public interface StorageConfigRepository extends R2dbcRepository<StorageConfig, 
      * @param isDeleted 是否删除
      * @return 存储配置
      */
-    Mono<StorageConfig> findByStrategyKeyAndIsDeleted(String strategyKey, Integer isDeleted);
+    Mono<StorageConfig> findByStrategyKeyAndIsDeleted(String strategyKey, Boolean isDeleted);
 
     /**
      * 查询所有未删除的配置
@@ -31,7 +31,7 @@ public interface StorageConfigRepository extends R2dbcRepository<StorageConfig, 
      * @param isDeleted 是否删除
      * @return 存储配置列表
      */
-    Flux<StorageConfig> findAllByIsDeleted(Integer isDeleted);
+    Flux<StorageConfig> findAllByIsDeleted(Boolean isDeleted);
 
     /**
      * 查询启用的配置
@@ -40,7 +40,7 @@ public interface StorageConfigRepository extends R2dbcRepository<StorageConfig, 
      * @param isDeleted 是否删除
      * @return 存储配置列表
      */
-    Flux<StorageConfig> findByIsEnableAndIsDeleted(Integer isEnable, Integer isDeleted);
+    Flux<StorageConfig> findByIsEnableAndIsDeleted(Boolean isEnable, Boolean isDeleted);
     
     /**
      * 查询单个启用的配置
@@ -50,5 +50,5 @@ public interface StorageConfigRepository extends R2dbcRepository<StorageConfig, 
      * @return 存储配置
      */
     @Query("SELECT * FROM t_storage_config WHERE is_enable = :isEnable AND is_deleted = :isDeleted LIMIT 1")
-    Mono<StorageConfig> findOneByIsEnableAndIsDeleted(Integer isEnable, Integer isDeleted);
+    Mono<StorageConfig> findOneByIsEnableAndIsDeleted(Boolean isEnable, Boolean isDeleted);
 } 

@@ -1,15 +1,13 @@
-package com.ryu.blog.util;
+package com.ryu.blog.utils;
 
 import com.ryu.blog.config.AiRetryConfig;
 import com.ryu.blog.exception.AiProviderException;
 import com.ryu.blog.exception.AiTimeoutException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.util.function.Predicate;
 
 /**
  * AI重试工具类
@@ -20,7 +18,7 @@ import java.util.function.Predicate;
  * @since 1.0.0
  */
 @Slf4j
-@Component
+//@Component
 public class AiRetryUtil {
 
     private final AiRetryConfig retryConfig;

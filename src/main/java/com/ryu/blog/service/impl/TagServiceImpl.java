@@ -76,8 +76,8 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
     })
     public Mono<Boolean> createTag(TagCreateDTO tagCreateDTO) {
         log.debug("[标签服务] 开始创建标签 - 标签名称: {}", tagCreateDTO.getName());
@@ -95,7 +95,7 @@ public class TagServiceImpl implements TagService {
                     LocalDateTime now = LocalDateTime.now();
                     tag.setCreateTime(now);
                     tag.setUpdateTime(now);
-                    tag.setIsDeleted(0);
+                    tag.setIsDeleted(false);
                     
                     log.debug("[标签服务] 保存标签到数据库 - 标签名称: {}", tag.getName());
                     return tagRepository.save(tag)
@@ -124,8 +124,8 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
     })
     public Mono<Boolean> updateTag(TagUpdateDTO tagUpdateDTO) {
         log.debug("[标签服务] 开始更新标签 - 标签ID: {}", tagUpdateDTO.getId());
@@ -196,7 +196,7 @@ public class TagServiceImpl implements TagService {
      * @throws BusinessException 当标签不存在时抛出
      */
     @Override
-    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_DETAIL_KEY + "' + #id")
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_DETAIL_KEY + "' + #id")
     public Mono<TagVO> getTagById(Long id) {
         log.debug("[标签服务] 查询标签详情 - 标签ID: {}", id);
         
@@ -224,10 +224,10 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_DETAIL_KEY + "' + #id"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_DETAIL_KEY + "' + #id"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "*'"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
     })
     public Mono<Boolean> deleteTag(Long id) {
         log.debug("[标签服务] 开始删除标签 - 标签ID: {}", id);
@@ -246,7 +246,7 @@ public class TagServiceImpl implements TagService {
                             .collectList()
                             .flatMap(articleTags -> {
                                 // 准备标签进行逻辑删除
-                                tag.setIsDeleted(1);
+                                tag.setIsDeleted(true);
                                 tag.setUpdateTime(LocalDateTime.now());
                                 
                                 if (!articleTags.isEmpty()) {
@@ -286,7 +286,7 @@ public class TagServiceImpl implements TagService {
      * @return 标签列表流
      */
     @Override
-    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ALL_KEY + "' + #withCount")
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ALL_KEY + "' + #withCount")
     public Flux<TagVO> getAllTags(boolean withCount) {
         log.debug("[标签服务] 查询所有标签 - 是否包含文章数: {}", withCount);
         
@@ -338,7 +338,7 @@ public class TagServiceImpl implements TagService {
      * @return 标签列表流
      */
     @Override
-    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId")
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId")
     public Flux<TagVO> getTagsByArticleId(Long articleId) {
         log.debug("[标签服务] 查询文章标签 - 文章ID: {}", articleId);
         
@@ -360,10 +360,10 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_HOT_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ALL_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_HOT_KEY + "*'"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ALL_KEY + "*'"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
     })
     public Mono<Boolean> addTagsToArticle(Long articleId, List<Long> tagIds) {
         log.debug("[标签服务] 为文章添加标签 - 文章ID: {}, 标签数: {}", articleId, 
@@ -406,10 +406,10 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_HOT_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_ALL_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_HOT_KEY + "*'"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ALL_KEY + "*'"),
+        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
     })
     public Mono<Boolean> removeTagsFromArticle(Long articleId) {
         log.debug("[标签服务] 移除文章标签 - 文章ID: {}", articleId);
@@ -451,7 +451,7 @@ public class TagServiceImpl implements TagService {
      * @return 热门标签列表流，按文章数量降序排列
      */
     @Override
-    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, key = "'" + CacheConstants.TAG_HOT_KEY + "' + #limit")
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_HOT_KEY + "' + #limit")
     public Flux<TagVO> getHotTags(int limit) {
         log.debug("[标签服务] 查询热门标签 - 限制数量: {}", limit);
         
@@ -475,7 +475,7 @@ public class TagServiceImpl implements TagService {
      * @return 分页结果，包含标签列表和分页信息
      */
     @Override
-    @Cacheable(cacheNames = CacheConstants.TAG_CACHE_NAME, 
+    @Cacheable(cacheNames = CacheConstants.TAG_CACHE, 
                key = "'" + CacheConstants.TAG_PAGE_KEY + "' + #tagListDTO.currentPage + ':size:' + #tagListDTO.pageSize + ':keyword:' + #tagListDTO.keyword")
     public Mono<PageResult<TagVO>> getTagByPage(TagListDTO tagListDTO) {
         log.debug("[标签服务] 分页查询标签 - 页码: {}, 每页大小: {}, 关键字: {}", 

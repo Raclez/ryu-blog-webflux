@@ -124,6 +124,9 @@ public class FileUtils {
             if (size.endsWith("mb")) return Long.parseLong(size.replace("mb", "").trim()) * 1024 * 1024;
             if (size.endsWith("gb")) return Long.parseLong(size.replace("gb", "").trim()) * 1024 * 1024 * 1024;
             return Long.parseLong(size);
+        } catch (NumberFormatException e) {
+            log.warn("解析最大文件大小失败-数字格式错误: {}，使用默认100MB", maxSizeStr);
+            return 100 * 1024 * 1024L;
         } catch (Exception e) {
             log.warn("解析最大文件大小失败: {}，使用默认100MB", maxSizeStr);
             return 100 * 1024 * 1024L;
@@ -271,6 +274,9 @@ public class FileUtils {
             Tika tika = new Tika();
             String mime = tika.detect(is, fileName);
             return mime != null ? mime : getContentType(fileName);
+        } catch (IOException e) {
+            log.warn("Tika识别MIME失败-IO异常，降级为扩展名: {}", e.getMessage());
+            return getContentType(fileName);
         } catch (Exception e) {
             log.warn("Tika识别MIME失败，降级为扩展名: {}", e.getMessage());
             return getContentType(fileName);

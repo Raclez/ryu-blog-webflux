@@ -1,7 +1,7 @@
 package com.ryu.blog.controller;
 
 import com.ryu.blog.dto.FileSearchDTO;
-import com.ryu.blog.dto.FilesDTO;
+import com.ryu.blog.dto.FileUpdateDTO;
 import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.UploadOptionsDTO;
 import com.ryu.blog.entity.File;
@@ -285,11 +285,11 @@ public class FileController {
     @Operation(summary = "更新文件信息", description = "更新文件的基本信息")
     public Mono<Result<FileInfoVO>> updateFileInfo(
             @PathVariable("id") Long id,
-            @RequestBody FilesDTO filesDTO) {
+            @RequestBody FileUpdateDTO fileUpdateDTO) {
         
-        log.info("更新文件信息: id={}, data={}", id, filesDTO);
-        
-        return fileService.updateFileInfo(id, filesDTO)
+        log.info("更新文件信息: id={}, data={}", id, fileUpdateDTO);
+
+        return fileService.updateFileInfo(id, fileUpdateDTO)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("更新文件信息成功: id={}", id));
     }

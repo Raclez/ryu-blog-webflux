@@ -54,6 +54,8 @@ public class IPLocationUtil {
                 searcher = Searcher.newWithBuffer(dbBytes);
                 log.info("IP2Region搜索器初始化成功");
             }
+        } catch (IOException e) {
+            log.error("初始化IP2Region失败-IO异常: {}", e.getMessage(), e);
         } catch (Exception e) {
             log.error("初始化IP2Region失败: {}", e.getMessage(), e);
         }
@@ -76,6 +78,9 @@ public class IPLocationUtil {
             
             log.info("从ClassPath加载IP2Region数据库成功");
             return outputStream.toByteArray();
+        } catch (IOException e) {
+            log.warn("从ClassPath加载IP2Region数据库失败-IO异常: {}", e.getMessage());
+            return null;
         } catch (Exception e) {
             log.warn("从ClassPath加载IP2Region数据库失败: {}", e.getMessage());
             return null;
@@ -97,6 +102,9 @@ public class IPLocationUtil {
             byte[] bytes = Searcher.loadContentFromFile(tempFile.getPath());
             log.info("从临时文件加载IP2Region数据库成功");
             return bytes;
+        } catch (IOException e) {
+            log.error("从临时文件加载IP2Region数据库失败-IO异常: {}", e.getMessage());
+            return null;
         } catch (Exception e) {
             log.error("从临时文件加载IP2Region数据库失败: {}", e.getMessage());
             return null;
@@ -129,6 +137,9 @@ public class IPLocationUtil {
             }
             
             log.warn("IP2Region搜索器未初始化");
+            return "未知";
+        } catch (IOException e) {
+            log.error("IP地址解析失败-IO异常: {}, {}", ip, e.getMessage());
             return "未知";
         } catch (Exception e) {
             log.error("IP地址解析失败: {}, {}", ip, e.getMessage());
@@ -180,6 +191,8 @@ public class IPLocationUtil {
             
             dbBytes = null;
             log.info("IP2Region资源释放成功");
+        } catch (IOException e) {
+            log.error("IP2Region资源释放失败-IO异常: {}", e.getMessage(), e);
         } catch (Exception e) {
             log.error("IP2Region资源释放失败: {}", e.getMessage(), e);
         }
@@ -208,7 +221,7 @@ public class IPLocationUtil {
             getIpLocation(ip);
         }
         long endTime = System.nanoTime();
-        System.out.printf("预热耗时: %.5f 毫秒\n", (endTime - startTime) / 1000000.0);
+        log.info("预热耗时: {:.5f} 毫秒", (endTime - startTime) / 1000000.0);
         
         // 测试性能
         int total = 10000;
@@ -217,13 +230,13 @@ public class IPLocationUtil {
             getIpLocation(testIps[i % testIps.length]);
         }
         endTime = System.nanoTime();
-        System.out.printf("平均查询耗时: %.5f 毫秒\n", (endTime - startTime) / 1000000.0 / total);
+        log.info("平均查询耗时: {:.5f} 毫秒", (endTime - startTime) / 1000000.0 / total);
         
         // 输出地理位置信息
         for (String ip : testIps) {
             String location = getIpLocation(ip);
             IPLocationInfo info = parseLocation(location);
-            System.out.printf("IP: %s\n位置: %s\n解析: %s\n\n", ip, location, info);
+            log.info("IP: {} 位置: {} 解析: {}", ip, location, info);
         }
         
         // 释放资源

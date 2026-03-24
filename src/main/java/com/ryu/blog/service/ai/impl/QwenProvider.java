@@ -99,8 +99,8 @@ public class QwenProvider extends AbstractChatClientProvider {
     protected org.springframework.ai.chat.prompt.ChatOptions buildChatOptions(AiGenerationRequest request) {
         return OpenAiChatOptions.builder()
                 .model(request.getModelName() != null ? request.getModelName() : modelName)
-                .temperature(temperature)
-                .maxTokens(maxTokens)
+                .temperature(temperature != null ? temperature : 0.7)
+                .maxTokens(maxTokens != null ? maxTokens : 2000)
                 .build();
     }
 

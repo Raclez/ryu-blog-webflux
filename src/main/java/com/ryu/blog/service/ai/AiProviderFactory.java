@@ -66,22 +66,25 @@ public class AiProviderFactory {
             return getDefaultProvider();
         }
         
-        // 先检查缓存
-        if (providerCache.containsKey(providerName)) {
-            return Mono.just(providerCache.get(providerName));
-        }
-        
-        // 从数据库加载配置并创建实例
-        return loadProviderConfig(providerName)
-                .flatMap(config -> {
-                    try {
-                        AiProvider provider = createProvider(providerName, config);
-                        providerCache.put(providerName, provider);
-                        return Mono.just(provider);
-                    } catch (Exception e) {
-                        log.error("创建AI提供商失败: {}", providerName, e);
-                        return Mono.error(new RuntimeException("创建AI提供商失败: " + providerName, e));
+        // 先检查缓存（使用computeIfAbsent避免竞态）
+        return Mono.fromCallable(() -> providerCache.get(providerName))
+                .flatMap(cached -> {
+                    if (cached != null) {
+                        return Mono.just(cached);
                     }
+                    
+                    // 从数据库加载配置并创建实例
+                    return loadProviderConfig(providerName)
+                            .flatMap(config -> {
+                                try {
+                                    AiProvider provider = createProvider(providerName, config);
+                                    providerCache.put(providerName, provider);
+                                    return Mono.just(provider);
+                                } catch (Exception e) {
+                                    log.error("创建AI提供商失败: {}", providerName, e);
+                                    return Mono.error(new RuntimeException("创建AI提供商失败: " + providerName, e));
+                                }
+                            });
                 });
     }
 

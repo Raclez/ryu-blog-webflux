@@ -66,8 +66,11 @@ public class QrCodeUtil {
             Path path = FileSystems.getDefault().getPath(filePath);
             MatrixToImageWriter.writeToPath(bitMatrix, DEFAULT_FORMAT, path);
             return true;
-        } catch (Exception e) {
-            log.error("生成二维码文件失败: {}", e.getMessage(), e);
+        } catch (WriterException e) {
+            log.error("生成二维码文件失败-编码错误: {}", e.getMessage(), e);
+            return false;
+        } catch (IOException e) {
+            log.error("生成二维码文件失败-IO异常: {}", e.getMessage(), e);
             return false;
         }
     }

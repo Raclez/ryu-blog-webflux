@@ -57,7 +57,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@CacheConfig(cacheNames = CacheConstants.SYS_CONFIG_CACHE_NAME)
+@CacheConfig(cacheNames = CacheConstants.SYS_CONFIG_CACHE)
 public class SysConfigServiceImpl implements SysConfigService {
 
     private final SysConfigRepository sysConfigRepository;
@@ -209,7 +209,7 @@ public class SysConfigServiceImpl implements SysConfigService {
                             .extra(configDTO.getExtra())
                             .createTime(LocalDateTime.now())
                             .updateTime(LocalDateTime.now())
-                            .isDeleted(0)
+                            .isDeleted(false)
                             .build();
                     
                     return sysConfigRepository.save(sysConfig)

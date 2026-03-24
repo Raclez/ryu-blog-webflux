@@ -99,7 +99,7 @@ public class TaskServiceImpl implements TaskService {
         log.debug("Getting task status: taskId={}, userId={}", taskId, userId);
         
         return taskRepository.findById(taskId)
-                .filter(task -> task.getIsDeleted() == 0)
+                .filter(task -> Boolean.FALSE.equals(task.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("Task not found: " + taskId)))
                 .flatMap(task -> {
                     // 验证用户权限

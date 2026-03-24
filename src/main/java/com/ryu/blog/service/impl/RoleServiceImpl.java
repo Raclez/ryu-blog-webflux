@@ -55,9 +55,9 @@ public class RoleServiceImpl implements RoleService {
         role.setCode(roleDTO.getCode());
         role.setDescription(roleDTO.getDescription());
         role.setSort(roleDTO.getSort() != null ? roleDTO.getSort() : 0);
-        role.setIsActive(1);  // 默认激活
-        role.setIsDefault(0); // 默认非默认角色
-        role.setIsDeleted(0); // 未删除
+        role.setIsActive(true);  // 默认激活
+        role.setIsDefault(false); // 默认非默认角色
+        role.setIsDeleted(false); // 未删除
         
         // 设置时间
         LocalDateTime now = LocalDateTime.now();
@@ -223,11 +223,11 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Boolean> changeRoleStatus(Long roleId, Integer isActive) {
+    public Mono<Boolean> changeRoleStatus(Long roleId, Boolean isActive) {
         log.info("变更角色状态, roleId: {}, isActive: {}", roleId, isActive);
-        
+
         return roleRepository.findById(roleId)
-                .filter(role -> !Integer.valueOf(1).equals(role.getIsDeleted()))
+                .filter(role -> !Boolean.TRUE.equals(role.getIsDeleted()))
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在")))
                 .flatMap(role -> {
                     role.setIsActive(isActive);
@@ -283,7 +283,7 @@ public class RoleServiceImpl implements RoleService {
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("角色不存在或已删除")))
                 .flatMap(role -> {
                     // 逻辑删除
-                    role.setIsDeleted(1);
+                    role.setIsDeleted(true);
                     role.setUpdateTime(LocalDateTime.now());
                     return roleRepository.save(role)
                             .then(rolePermissionRepository.deleteByRoleId(id))
@@ -305,7 +305,7 @@ public class RoleServiceImpl implements RoleService {
                     if (roleUpdateDTO.getDescription() != null) role.setDescription(roleUpdateDTO.getDescription());
                     if (roleUpdateDTO.getSort() != null) role.setSort(roleUpdateDTO.getSort());
                     if (roleUpdateDTO.getIsActive() != null) {
-                        role.setIsActive(Boolean.TRUE.equals(roleUpdateDTO.getIsActive()) ? 1 : 0);
+                        role.setIsActive(roleUpdateDTO.getIsActive() == 1);
                     }
                     
                     role.setUpdateTime(LocalDateTime.now());

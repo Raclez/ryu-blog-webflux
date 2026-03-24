@@ -3,7 +3,7 @@ package com.ryu.blog.service.impl;
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.SysDictTypeAddDTO;
 import com.ryu.blog.dto.SysDictTypeUpdateDTO;
-import com.ryu.blog.dto.sysDictTypeQueryDTO;
+import com.ryu.blog.dto.SysDictTypeQueryDTO;
 import com.ryu.blog.entity.SysDictType;
 import com.ryu.blog.mapper.SysDictTypeMapper;
 import com.ryu.blog.repository.SysDictItemRepository;
@@ -41,7 +41,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@CacheConfig(cacheNames = CacheConstants.DICT_TYPE_CACHE_NAME)
+@CacheConfig(cacheNames = CacheConstants.DICT_TYPE_CACHE)
 public class SysDictTypeServiceImpl implements SysDictTypeService {
 
     private final SysDictTypeRepository dictTypeRepository;
@@ -54,7 +54,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
      */
     
     @Override
-    public Mono<PageResult<SysDictTypeVO>> getDictTypePage(sysDictTypeQueryDTO queryDTO) {
+    public Mono<PageResult<SysDictTypeVO>> getDictTypePage(SysDictTypeQueryDTO queryDTO) {
         log.debug("分页查询字典类型, 查询条件: {}", queryDTO);
         
         Pageable pageable = PageRequest.of(queryDTO.getCurrentPage().intValue() - 1, queryDTO.getPageSize().intValue());
@@ -141,7 +141,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
                     LocalDateTime now = LocalDateTime.now();
                     dictType.setCreateTime(now);
                     dictType.setUpdateTime(now);
-                    dictType.setIsDeleted(SystemConstants.NOT_DELETED); // 设置为未删除状态
+                    dictType.setIsDeleted(false); // 设置为未删除状态
                     // 如果未设置状态，默认为启用
                     if (dictType.getStatus() == null) {
                         dictType.setStatus(SystemConstants.STATUS_NORMAL);
@@ -195,7 +195,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
                     return dictItemRepository.deleteByDictTypeId(id)
                             .then(Mono.defer(() -> {
                                 // 逻辑删除字典类型
-                                dictType.setIsDeleted(SystemConstants.IS_DELETED);
+                                dictType.setIsDeleted(true);
                                 dictType.setUpdateTime(LocalDateTime.now());
                                 return dictTypeRepository.save(dictType);
                             }));
@@ -219,7 +219,7 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
                             // 逻辑删除字典类型
                             return dictTypeRepository.findByIdAndNotDeleted(id)
                                     .flatMap(dictType -> {
-                                        dictType.setIsDeleted(SystemConstants.IS_DELETED);
+                                        dictType.setIsDeleted(true);
                                         dictType.setUpdateTime(LocalDateTime.now());
                                         return dictTypeRepository.save(dictType);
                                     });

@@ -63,7 +63,7 @@ public class Comment extends BaseEntity {
      * 是否编辑过，0-否，1-是
      */
     @Column("is_edited")
-    private Integer isEdited;
+    private Boolean isEdited;
     
     /**
      * 编辑时间

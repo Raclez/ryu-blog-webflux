@@ -35,12 +35,12 @@ public class Role extends BaseEntity {
     /**
      * 是否激活：0-禁用，1-启用
      */
-    private Integer isActive;
+    private Boolean isActive;
 
     /**
      * 是否为默认角色：0-否，1-是
      */
-    private Integer isDefault;
+    private Boolean isDefault;
 
     /**
      * 角色排序

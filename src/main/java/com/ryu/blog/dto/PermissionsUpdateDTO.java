@@ -16,5 +16,5 @@ public class PermissionsUpdateDTO {
     private String description;
 
     private Long id;
-    private Integer isActive;
+    private Boolean isActive;
 }

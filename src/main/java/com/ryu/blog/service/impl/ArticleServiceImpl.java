@@ -41,6 +41,8 @@ import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static org.springframework.ai.model.ModelOptionsUtils.OBJECT_MAPPER;
+
 /**
  * 文章服务实现类
  * @author ryu
@@ -63,6 +65,7 @@ public class ArticleServiceImpl implements ArticleService {
     private final ContentService contentService;
     private final FileService fileService;
     private final ViewHistoryService viewHistoryService;
+    private final ObjectMapper objectMapper;
     
     // 注入自身代理以解决@Cacheable自调用问题
     private ArticleService self;
@@ -75,9 +78,6 @@ public class ArticleServiceImpl implements ArticleService {
     private static final String DEFAULT_AVATAR = "/assets/images/default-avatar.png";
     private static final String UNKNOWN_USER = "未知用户";
     private static final String UNNAMED_ARTICLE = "未命名文章";
-    
-    // 共享的ObjectMapper实例，避免重复创建
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     /**
      * 设置自身代理，用于解决@Cacheable自调用问题
@@ -109,7 +109,7 @@ public class ArticleServiceImpl implements ArticleService {
         }
 
         try {
-            return OBJECT_MAPPER.writeValueAsString(seoMeta);
+            return objectMapper.writeValueAsString(seoMeta);
         } catch (JsonProcessingException e) {
             log.error("SEO元数据序列化失败", e);
             return null;
@@ -170,8 +170,8 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = {
-            CacheConstants.POST_FRONT_CACHE_NAME,
-            CacheConstants.POST_HOT_CACHE_NAME
+            CacheConstants.POST_FRONT_CACHE,
+            CacheConstants.POST_HOT_CACHE
     }, allEntries = true)
     public Mono<Posts> createArticle(PostCreateDTO articleCreateDTO, Long userId) {
         log.info("创建文章: 标题={}", articleCreateDTO.getTitle());
@@ -182,11 +182,11 @@ public class ArticleServiceImpl implements ArticleService {
         article.setExcerpt(articleCreateDTO.getExcerpt());
         article.setCoverImageId(articleCreateDTO.getCoverImageId());
         article.setStatus(Posts.Status.DRAFT);
-        article.setIsOriginal(articleCreateDTO.getIsOriginal() != null ? articleCreateDTO.getIsOriginal() : SystemConstants.YES);
+        article.setIsOriginal(articleCreateDTO.getIsOriginal() != null ? articleCreateDTO.getIsOriginal() : true);
 
 
         article.setSort(articleCreateDTO.getSort() != null ? articleCreateDTO.getSort() : 0);
-        article.setAllowComment(articleCreateDTO.getAllowComment() != null ? articleCreateDTO.getAllowComment() : SystemConstants.YES);
+        article.setAllowComment(articleCreateDTO.getAllowComment() != null ? articleCreateDTO.getAllowComment() : true);
         article.setSourceUrl(articleCreateDTO.getSourceUrl());
         article.setLicense(articleCreateDTO.getLicense());
         article.setViews(0);
@@ -202,7 +202,7 @@ public class ArticleServiceImpl implements ArticleService {
 
         article.setVisibility(articleCreateDTO.getVisibility() != null ? articleCreateDTO.getVisibility() : Posts.Visibility.PUBLIC);
         article.setPassword(articleCreateDTO.getPassword());
-        article.setIsDeleted(SystemConstants.NOT_DELETED);
+        article.setIsDeleted(false);
 
         // 处理SEO元数据
         String seoMeta = processSeoMetadata(articleCreateDTO.getSeoTitle(), articleCreateDTO.getSeoDescription());
@@ -248,10 +248,10 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE_NAME, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #articleUpdateDTO.id"),
-            @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, allEntries = true),
-            @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE_NAME, allEntries = true),
-            @CacheEvict(cacheNames = CacheConstants.POST_CACHE_NAME, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #articleUpdateDTO.id + ':*'")
+            @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #articleUpdateDTO.id"),
+            @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.POST_CACHE, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #articleUpdateDTO.id + ':*'")
     })
     public Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO) {
         log.info("根据DTO更新文章: ID={}", articleUpdateDTO.getId());
@@ -321,10 +321,10 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE_NAME, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #statusDTO.id"),
-            @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, allEntries = true),
-            @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE_NAME, allEntries = true),
-            @CacheEvict(cacheNames = CacheConstants.POST_CACHE_NAME, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #statusDTO.id + ':*'")
+            @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #statusDTO.id"),
+            @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.POST_CACHE, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #statusDTO.id + ':*'")
     })
     public Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO) {
         log.info("更新文章状态: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
@@ -421,10 +421,10 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = {
-            CacheConstants.POST_DETAIL_CACHE_NAME,
-            CacheConstants.POST_FRONT_CACHE_NAME,
-            CacheConstants.POST_HOT_CACHE_NAME,
-            CacheConstants.POST_CACHE_NAME
+            CacheConstants.POST_DETAIL_CACHE,
+            CacheConstants.POST_FRONT_CACHE,
+            CacheConstants.POST_HOT_CACHE,
+            CacheConstants.POST_CACHE
     }, allEntries = true)
     public Mono<Void> batchDeleteArticles(List<String> ids) {
         log.info("批量删除文章: IDs={}", ids);
@@ -538,7 +538,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.POST_CACHE_NAME, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #postId + ':' + #limit", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.POST_CACHE, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #postId + ':' + #limit", unless = "#result == null")
     public Flux<PostFrontListVO> getRelatedArticlesVO(Long postId, Integer limit) {
         log.info("获取相关博客推荐VO: 文章ID={}, 限制数量={}", postId, limit);
 
@@ -615,9 +615,9 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @CacheEvict(cacheNames = {
-            CacheConstants.POST_DETAIL_CACHE_NAME,
-            CacheConstants.POST_HOT_CACHE_NAME,
-            CacheConstants.POST_FRONT_CACHE_NAME
+            CacheConstants.POST_DETAIL_CACHE,
+            CacheConstants.POST_HOT_CACHE,
+            CacheConstants.POST_FRONT_CACHE
     }, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id", condition = "#id != null")
     public Mono<Integer> incrementLikes(Long id) {
         log.debug("增加文章点赞数: ID={}", id);
@@ -629,9 +629,9 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @CacheEvict(cacheNames = {
-            CacheConstants.POST_DETAIL_CACHE_NAME,
-            CacheConstants.POST_HOT_CACHE_NAME,
-            CacheConstants.POST_FRONT_CACHE_NAME
+            CacheConstants.POST_DETAIL_CACHE,
+            CacheConstants.POST_HOT_CACHE,
+            CacheConstants.POST_FRONT_CACHE
     }, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id", condition = "#id != null")
     public Mono<Integer> incrementComments(Long id) {
         log.debug("增加文章评论数: ID={}", id);
@@ -643,9 +643,9 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @CacheEvict(cacheNames = {
-            CacheConstants.POST_DETAIL_CACHE_NAME,
-            CacheConstants.POST_HOT_CACHE_NAME,
-            CacheConstants.POST_FRONT_CACHE_NAME
+            CacheConstants.POST_DETAIL_CACHE,
+            CacheConstants.POST_HOT_CACHE,
+            CacheConstants.POST_FRONT_CACHE
     }, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id", condition = "#id != null")
     public Mono<Integer> decrementComments(Long id) {
         log.debug("减少文章评论数: ID={}", id);
@@ -656,7 +656,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.POST_HOT_CACHE_NAME, key = "'" + CacheConstants.POST_HOT_KEY + "' + #limit", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.POST_HOT_CACHE, key = "'" + CacheConstants.POST_HOT_KEY + "' + #limit", unless = "#result == null")
     public Flux<Posts> getHotArticles(int limit) {
         log.debug("获取热门文章: limit={}", limit);
 
@@ -676,7 +676,6 @@ public class ArticleServiceImpl implements ArticleService {
         String endTimeParam = StringUtils.hasText(endTime) ? endTime : null;
 
         return postsRepository.countPostsByCondition(titleParam, status, categoryId, tagId, startTimeParam, endTimeParam)
-                .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(total -> buildPageResult(page, size, total, titleParam, status, categoryId, tagId, startTimeParam, endTimeParam))
                 .doOnError(e -> log.error("分页查询文章VO失败: 错误信息={}", e.getMessage()));
     }
@@ -699,7 +698,6 @@ public class ArticleServiceImpl implements ArticleService {
         }
 
         return postsRepository.findPostsByCondition(titleParam, status, categoryId, tagId, startTimeParam, endTimeParam, page * size, size)
-                .subscribeOn(Schedulers.boundedElastic())
                 .collectList()
                 .flatMap(postsList -> buildAdminListVOs(postsList, pageResult));
     }
@@ -801,9 +799,15 @@ public class ArticleServiceImpl implements ArticleService {
             return Mono.just(Collections.emptyMap());
         }
 
-        return Flux.fromIterable(userIds)
-                .flatMap(userId -> getUserInfo(userId).map(userInfo -> Tuples.of(userId, userInfo)))
-                .collectMap(Tuple2::getT1, Tuple2::getT2)
+        return userRepository.findByIdIn(userIds)
+                .collectMap(user -> user.getId(), user -> {
+                    String userName = user.getNickname() != null ? user.getNickname() : user.getUsername();
+                    String avatarUrl = user.getAvatar();
+                    if (avatarUrl == null || avatarUrl.isEmpty()) {
+                        avatarUrl = DEFAULT_AVATAR;
+                    }
+                    return Tuples.of(userName, avatarUrl);
+                })
                 .defaultIfEmpty(Collections.emptyMap())
                 .onErrorResume(e -> {
                     log.error("批量获取用户信息失败: {}", e.getMessage());
@@ -970,7 +974,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.POST_DETAIL_CACHE_NAME, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.POST_DETAIL_CACHE, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id", unless = "#result == null")
     public Mono<PostDetailVO> getArticleDetailVO(Long id) {
         log.info("获取文章详情VO: ID={}", id);
 
@@ -1024,7 +1028,7 @@ public class ArticleServiceImpl implements ArticleService {
                             seoDescription = seoMeta.getOrDefault("seoDescription", "");
                             slug = seoMeta.getOrDefault("slug", "");
                             log.debug("文章[{}]SEO元数据: 标题={}, 描述={}, 别名={}", article.getId(), seoTitle, seoDescription, slug);
-                        } catch (Exception e) {
+                        } catch (JsonProcessingException e) {
                             log.error("解析SEO元数据失败: {}", e.getMessage());
                         }
                     }
@@ -1071,7 +1075,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, key = "'" + CacheConstants.POST_FRONT_KEY + "' + #cursor + ':' + #limit + ':' + #createTime + ':' + #direction", unless = "#result.isEmpty()")
+    @Cacheable(cacheNames = CacheConstants.POST_FRONT_CACHE, key = "'" + CacheConstants.POST_FRONT_KEY + "' + #cursor + ':' + #limit + ':' + #createTime + ':' + #direction", unless = "#result.isEmpty()")
     public Mono<List<PostFrontListVO>> getFrontArticlesVO(String cursor, int limit, String createTime, String direction) {
         log.debug("前台游标分页查询文章VO: cursor={}, limit={}, createTime={}, direction={}", cursor, limit, createTime, direction);
 
@@ -1080,7 +1084,6 @@ public class ArticleServiceImpl implements ArticleService {
         String directionParam = validateDirection(direction);
 
         return postsRepository.findFrontPosts(cursorParam, limit + 1, createTimeParam, directionParam)
-                .subscribeOn(Schedulers.boundedElastic())
                 .collectList()
                 .flatMap(articles -> buildFrontArticlesVOList(articles, limit))
                 .doOnError(e -> log.error("前台游标分页查询文章VO失败: 错误信息={}", e.getMessage()));
@@ -1186,10 +1189,10 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @Caching(evict = {
-            @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE_NAME, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id"),
-            @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE_NAME, allEntries = true),
-            @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE_NAME, allEntries = true),
-            @CacheEvict(cacheNames = CacheConstants.POST_CACHE_NAME, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #id + ':*'")
+            @CacheEvict(cacheNames = CacheConstants.POST_DETAIL_CACHE, key = "'" + CacheConstants.POST_DETAIL_KEY + "' + #id"),
+            @CacheEvict(cacheNames = CacheConstants.POST_FRONT_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.POST_CACHE, key = "'" + CacheConstants.POST_RELATED_KEY + "' + #id + ':*'")
     })
     public Mono<Void> deleteArticle(Long id) {
         log.info("删除文章: ID={}", id);
@@ -1202,7 +1205,7 @@ public class ArticleServiceImpl implements ArticleService {
                         return Mono.error(BusinessException.postAlreadyDeleted());
                     }
 
-                    article.setIsDeleted(SystemConstants.IS_DELETED);
+                    article.setIsDeleted(true);
                     return postsRepository.save(article)
                             .then(removeAllArticleCategories(id))
                             .then();
@@ -1220,8 +1223,8 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = {
-            CacheConstants.POST_FRONT_CACHE_NAME,
-            CacheConstants.POST_HOT_CACHE_NAME
+            CacheConstants.POST_FRONT_CACHE,
+            CacheConstants.POST_HOT_CACHE
     }, allEntries = true)
     public Mono<Void> importMarkdownArticle(FilePart file, Long categoryId, Long userId) {
         log.info("导入Markdown文件: 文件名={}, 分类ID={}, 用户ID={}", file.filename(), categoryId, userId);
@@ -1244,8 +1247,8 @@ public class ArticleServiceImpl implements ArticleService {
                     postCreateDTO.setTitle(title);
                     postCreateDTO.setContent(markdownContent);
                     postCreateDTO.setExcerpt(excerpt);
-                    postCreateDTO.setIsOriginal(SystemConstants.YES);
-                    postCreateDTO.setAllowComment(SystemConstants.YES);
+                    postCreateDTO.setIsOriginal(true);
+                    postCreateDTO.setAllowComment(true);
                     postCreateDTO.setVisibility(Posts.Visibility.PUBLIC);
                     
                     // 创建文章

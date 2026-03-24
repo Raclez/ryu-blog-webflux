@@ -64,7 +64,7 @@ public class PostFrontListVO {
     private Integer commentCount;
     
     @Schema(description = "是否原创")
-    private Integer isOriginal;
+    private Boolean isOriginal;
     
     @Schema(description = "创建时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

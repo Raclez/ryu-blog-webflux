@@ -48,7 +48,13 @@ public abstract class AbstractChatClientProvider implements AiProvider {
                     .chatResponse();
             
             // 提取生成的内容
-            String content = Objects.requireNonNull(response).getResult().getOutput().getContent();
+            var output = response.getResult().getOutput();
+            String content = output != null ? output.getContent() : "";
+            
+            if (content == null || content.isEmpty()) {
+                log.warn("AI生成内容为空");
+                content = "";
+            }
             
             // 提取使用统计
             var usage = response.getMetadata().getUsage();

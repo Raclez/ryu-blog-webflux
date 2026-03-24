@@ -130,10 +130,10 @@ public interface FileService {
     /**
      * 更新文件信息
      * @param fileId 文件ID
-     * @param filesDTO 文件信息
+     * @param fileUpdateDTO 文件信息
      * @return 更新后的文件信息
      */
-    Mono<FileInfoVO> updateFileInfo(Long fileId, FilesDTO filesDTO);
+    Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO);
     
     /**
      * 获取文件版本历史

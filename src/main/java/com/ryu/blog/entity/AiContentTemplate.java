@@ -59,7 +59,7 @@ public class AiContentTemplate extends BaseEntity {
      * 系统模板不可删除
      */
     @Column("is_system")
-    private Integer isSystem;
+    private Boolean isSystem;
 
     /**
      * 创建用户ID（自定义模板）

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -39,15 +40,10 @@ public class MinioUtils {
      * @return MinIO客户端对象
      */
     public static MinioClient createMinioClient(String endpoint, String accessKey, String secretKey, boolean secure) {
-        try {
-            return MinioClient.builder()
-                    .endpoint(endpoint)
-                    .credentials(accessKey, secretKey)
-                    .build();
-        } catch (Exception e) {
-            log.error("创建MinIO客户端失败: {}", e.getMessage(), e);
-            throw new RuntimeException("创建MinIO客户端失败", e);
-        }
+        return MinioClient.builder()
+                .endpoint(endpoint)
+                .credentials(accessKey, secretKey)
+                .build();
     }
 
     /**
@@ -66,8 +62,11 @@ public class MinioUtils {
                     log.info("创建存储桶成功: {}", bucketName);
                 }
                 return true;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("检查或创建存储桶失败: {}", e.getMessage(), e);
+                return false;
+            } catch (IOException e) {
+                log.error("检查或创建存储桶失败-IO异常: {}", e.getMessage(), e);
                 return false;
             }
         });
@@ -104,8 +103,11 @@ public class MinioUtils {
                             
                             log.debug("文件上传成功: {}/{}", bucketName, objectName);
                             return objectName;
-                        } catch (Exception e) {
+                        } catch (io.minio.errors.MinioException e) {
                             log.error("文件上传失败: {}", e.getMessage(), e);
+                            throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+                        } catch (IOException e) {
+                            log.error("文件上传失败-IO异常: {}", e.getMessage(), e);
                             throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
                         }
                     });
@@ -137,8 +139,11 @@ public class MinioUtils {
                 
                 log.debug("文件下载成功: {}/{}", bucketName, objectName);
                 return data;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("文件下载失败: {}", e.getMessage(), e);
+                throw new RuntimeException("文件下载失败: " + e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("文件下载失败-IO异常: {}", e.getMessage(), e);
                 throw new RuntimeException("文件下载失败: " + e.getMessage(), e);
             }
         });
@@ -165,8 +170,11 @@ public class MinioUtils {
                 
                 log.debug("文件删除成功: {}/{}", bucketName, objectName);
                 return true;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("文件删除失败: {}", e.getMessage(), e);
+                return false;
+            } catch (IOException e) {
+                log.error("文件删除失败-IO异常: {}", e.getMessage(), e);
                 return false;
             }
         });
@@ -182,48 +190,38 @@ public class MinioUtils {
      */
     public static Mono<Map<String, Boolean>> batchDeleteFiles(MinioClient minioClient, String bucketName, List<String> objectNames) {
         return Mono.fromCallable(() -> {
-            try {
-                Map<String, Boolean> results = new HashMap<>();
-                
-                // 创建删除对象列表
-                List<DeleteObject> objects = objectNames.stream()
-                        .map(DeleteObject::new)
-                        .collect(Collectors.toList());
-                
-                // 执行批量删除
-                Iterable<io.minio.Result<DeleteError>> deleteResults = minioClient.removeObjects(
-                    RemoveObjectsArgs.builder()
-                        .bucket(bucketName)
-                        .objects(objects)
-                        .build()
-                );
-                
-                // 初始化所有为成功
-                for (String objectName : objectNames) {
-                    results.put(objectName, true);
-                }
-                
-                // 记录失败的对象
-                for (io.minio.Result<DeleteError> result : deleteResults) {
-                    try {
-                        DeleteError error = result.get();
-                        results.put(error.objectName(), false);
-                        log.error("删除对象失败: {}, 错误: {}", error.objectName(), error.message());
-                    } catch (Exception e) {
-                        log.error("获取删除结果失败: {}", e.getMessage(), e);
-                    }
-                }
-                
-                return results;
-            } catch (Exception e) {
-                log.error("批量删除文件失败: {}", e.getMessage(), e);
-                // 所有对象标记为删除失败
-                Map<String, Boolean> results = new HashMap<>();
-                for (String objectName : objectNames) {
-                    results.put(objectName, false);
-                }
-                return results;
+            Map<String, Boolean> results = new HashMap<>();
+
+            // 创建删除对象列表
+            List<DeleteObject> objects = objectNames.stream()
+                    .map(DeleteObject::new)
+                    .collect(Collectors.toList());
+
+            // 执行批量删除
+            Iterable<io.minio.Result<DeleteError>> deleteResults = minioClient.removeObjects(
+                RemoveObjectsArgs.builder()
+                    .bucket(bucketName)
+                    .objects(objects)
+                    .build()
+            );
+
+            // 初始化所有为成功
+            for (String objectName : objectNames) {
+                results.put(objectName, true);
             }
+
+            // 记录失败的对象
+            for (io.minio.Result<DeleteError> result : deleteResults) {
+                try {
+                    DeleteError error = result.get();
+                    results.put(error.objectName(), false);
+                    log.error("删除对象失败: {}, 错误: {}", error.objectName(), error.message());
+                } catch (io.minio.errors.MinioException e) {
+                    log.error("获取删除结果失败: {}", e.getMessage(), e);
+                }
+            }
+
+            return results;
         });
     }
 
@@ -248,16 +246,19 @@ public class MinioUtils {
                 
                 log.debug("文件存在: {}/{}", bucketName, objectName);
                 return true;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 if (e instanceof ErrorResponseException) {
                     ErrorResponseException ere = (ErrorResponseException) e;
-                    if (ere.errorResponse().code().equals("NoSuchKey") || 
+                    if (ere.errorResponse().code().equals("NoSuchKey") ||
                         ere.errorResponse().code().equals("NoSuchBucket")) {
                         log.debug("文件不存在: {}/{}", bucketName, objectName);
                         return false;
                     }
                 }
                 log.error("检查文件是否存在失败: {}", e.getMessage());
+                return false;
+            } catch (IOException e) {
+                log.error("检查文件是否存在失败-IO异常: {}", e.getMessage(), e);
                 return false;
             }
         });
@@ -292,8 +293,11 @@ public class MinioUtils {
                 
                 log.debug("获取文件元数据成功: {}/{}", bucketName, objectName);
                 return metadata;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("获取文件元数据失败: {}", e.getMessage(), e);
+                throw new RuntimeException("获取文件元数据失败: " + e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("获取文件元数据失败-IO异常: {}", e.getMessage(), e);
                 throw new RuntimeException("获取文件元数据失败: " + e.getMessage(), e);
             }
         });
@@ -323,8 +327,11 @@ public class MinioUtils {
                 
                 log.debug("生成文件预览URL成功: {}", url);
                 return url;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("生成文件预览URL失败: {}", e.getMessage(), e);
+                throw new RuntimeException("生成文件预览URL失败: " + e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("生成文件预览URL失败-IO异常: {}", e.getMessage(), e);
                 throw new RuntimeException("生成文件预览URL失败: " + e.getMessage(), e);
             }
         });
@@ -359,8 +366,11 @@ public class MinioUtils {
                 
                 log.debug("生成文件下载URL成功: {}", url);
                 return url;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("生成文件下载URL失败: {}", e.getMessage(), e);
+                throw new RuntimeException("生成文件下载URL失败: " + e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("生成文件下载URL失败-IO异常: {}", e.getMessage(), e);
                 throw new RuntimeException("生成文件下载URL失败: " + e.getMessage(), e);
             }
         });
@@ -383,17 +393,12 @@ public class MinioUtils {
                     }
                     
                     return Mono.fromCallable(() -> {
-                        try {
-                            // 使用PutObject方式上传，MinIO的Java SDK不直接支持创建分片上传请求
-                            // 这里使用一个唯一ID作为uploadId，实际使用时可能需要根据具体实现调整
-                            String uploadId = java.util.UUID.randomUUID().toString();
-                            
-                            log.debug("初始化分片上传成功: {}/{}, uploadId={}", bucketName, objectName, uploadId);
-                            return uploadId;
-                        } catch (Exception e) {
-                            log.error("初始化分片上传失败: {}", e.getMessage(), e);
-                            throw new RuntimeException("初始化分片上传失败: " + e.getMessage(), e);
-                        }
+                        // 使用PutObject方式上传，MinIO的Java SDK不直接支持创建分片上传请求
+                        // 这里使用一个唯一ID作为uploadId，实际使用时可能需要根据具体实现调整
+                        String uploadId = java.util.UUID.randomUUID().toString();
+
+                        log.debug("初始化分片上传成功: {}/{}, uploadId={}", bucketName, objectName, uploadId);
+                        return uploadId;
                     });
                 });
     }
@@ -429,8 +434,11 @@ public class MinioUtils {
                 
                 log.debug("上传分片成功: {}/{}, uploadId={}, partNumber={}, etag={}", bucketName, objectName, uploadId, partNumber, etag);
                 return etag;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("上传分片失败: {}", e.getMessage(), e);
+                throw new RuntimeException("上传分片失败: " + e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("上传分片失败-IO异常: {}", e.getMessage(), e);
                 throw new RuntimeException("上传分片失败: " + e.getMessage(), e);
             }
         });
@@ -497,8 +505,11 @@ public class MinioUtils {
                 
                 log.debug("完成分片上传成功: {}/{}, uploadId={}, parts={}", bucketName, objectName, uploadId, parts.size());
                 return objectName;
-            } catch (Exception e) {
+            } catch (io.minio.errors.MinioException e) {
                 log.error("完成分片上传失败: {}", e.getMessage(), e);
+                throw new RuntimeException("完成分片上传失败: " + e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("完成分片上传失败-IO异常: {}", e.getMessage(), e);
                 throw new RuntimeException("完成分片上传失败: " + e.getMessage(), e);
             }
         });
@@ -538,7 +549,7 @@ public class MinioUtils {
                                 .object(partObjectName)
                                 .build()
                         );
-                    } catch (Exception e) {
+                    } catch (io.minio.errors.MinioException e) {
                         // 如果分片不存在，则停止检查
                         if (e instanceof ErrorResponseException) {
                             ErrorResponseException ere = (ErrorResponseException) e;
@@ -551,8 +562,8 @@ public class MinioUtils {
                 
                 log.debug("终止分片上传成功: {}/{}, uploadId={}", bucketName, objectName, uploadId);
                 return true;
-            } catch (Exception e) {
-                log.error("终止分片上传失败: {}", e.getMessage(), e);
+            } catch (IOException e) {
+                log.error("终止分片上传失败-IO异常: {}", e.getMessage(), e);
                 return false;
             }
         });

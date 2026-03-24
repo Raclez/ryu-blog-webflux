@@ -39,7 +39,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
     @Override
     public Mono<StorageConfig> getEnabledStrategy() {
         log.debug("查询已启用存储策略");
-        return storageConfigRepository.findOneByIsEnableAndIsDeleted(1, 0)
+        return storageConfigRepository.findOneByIsEnableAndIsDeleted(true, false)
                 .doOnNext(config -> log.info("获取到已启用的存储策略: {}, config: {}", config.getStrategyName(), config.getConfig()))
                 .doOnError(e -> log.error("查询已启用存储策略出错", e))
                 .doOnSuccess(config -> {
@@ -120,10 +120,10 @@ public class StorageConfigServiceImpl implements StorageConfigService {
                 .then();
         
         return disableOthers
-                .then(storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, 0))
+                .then(storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, false))
                 .switchIfEmpty(Mono.error(new RuntimeException("存储策略不存在: " + strategyKey)))
                 .flatMap(config -> {
-                    config.setIsEnable(isEnabled ? 1 : 0);
+                    config.setIsEnable(isEnabled);
                     config.setUpdateTime(LocalDateTime.now());
                     return storageConfigRepository.save(config);
                 })
@@ -140,7 +140,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
         log.debug("分页查询存储策略, 页码: {}, 每页数量: {}", queryDTO.getCurrentPage(), queryDTO.getPageSize());
         
         // 构建条件查询
-        return storageConfigRepository.findAllByIsDeleted(0)
+        return storageConfigRepository.findAllByIsDeleted(false)
                 .filter(config -> {
                     // 按名称过滤
                     if (queryDTO.getStrategyName() != null && !queryDTO.getStrategyName().isEmpty()) {
@@ -161,7 +161,7 @@ public class StorageConfigServiceImpl implements StorageConfigService {
                 .switchIfEmpty(Mono.error(new RuntimeException("存储策略不存在: " + id)))
                 .flatMap(config -> {
                     // 逻辑删除
-                    config.setIsDeleted(1);
+                    config.setIsDeleted(true);
                     config.setUpdateTime(LocalDateTime.now());
                     return storageConfigRepository.save(config)
                             .doOnNext(savedConfig -> {
@@ -178,10 +178,10 @@ public class StorageConfigServiceImpl implements StorageConfigService {
      * @return 操作结果
      */
     private Mono<Void> disableAllStrategies() {
-        return storageConfigRepository.findAllByIsDeleted(0)
-                .filter(config -> Integer.valueOf(1).equals(config.getIsEnable()))
+        return storageConfigRepository.findAllByIsDeleted(false)
+                .filter(config -> Boolean.TRUE.equals(config.getIsEnable()))
                 .flatMap(config -> {
-                    config.setIsEnable(0);
+                    config.setIsEnable(false);
                     config.setUpdateTime(LocalDateTime.now());
                     return storageConfigRepository.save(config);
                 })
