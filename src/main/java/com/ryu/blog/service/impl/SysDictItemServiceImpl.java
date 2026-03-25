@@ -389,9 +389,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
      * @return 丰富后的字典项VO
      */
     private Mono<SysDictItemVO> enrichWithDictType(SysDictItem dictItem, SysDictType dictType) {
-        SysDictItemVO vo = sysDictItemMapper.toVO(dictItem);
-        sysDictItemMapper.setDictTypeInfo(vo, dictType);
-        return Mono.just(vo);
+        return Mono.just(sysDictItemMapper.toVOWithDictType(dictItem, dictType));
     }
     
     /**

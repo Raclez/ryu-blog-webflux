@@ -251,42 +251,42 @@ public class CacheConstants {
     // 用于 @Cacheable(key = "...") 或 @CacheEvict(key = "...")
 
     /** 文章缓存完整键 */
-    public static final String POST_DETAIL_KEY = "'" + POST_KEY_PREFIX + "detail:' + #id";
-    public static final String POST_HOT_KEY = "'" + POST_KEY_PREFIX + "hot:' + #limit";
-    public static final String POST_RELATED_KEY = "'" + POST_KEY_PREFIX + "related:' + #postId + ':' + #limit";
-    public static final String POST_FRONT_KEY = "'" + POST_KEY_PREFIX + "front:' + #cursor + ':' + #limit + ':' + #createTime + ':' + #direction";
-    public static final String POST_PAGE_KEY = "'" + POST_KEY_PREFIX + "page:' + #page + ':' + #size";
+    public static final String POST_DETAIL_KEY = POST_KEY_PREFIX + "detail:";
+    public static final String POST_HOT_KEY = POST_KEY_PREFIX + "hot:";
+    public static final String POST_RELATED_KEY = POST_KEY_PREFIX + "related:";
+    public static final String POST_FRONT_KEY = POST_KEY_PREFIX + "front:";
+    public static final String POST_PAGE_KEY = POST_KEY_PREFIX + "page:";
 
     /** 用户缓存完整键 */
-    public static final String USER_DETAIL_KEY = "'" + USER_KEY_PREFIX + "detail:' + #id";
-    public static final String USER_PERMISSIONS_KEY = "'" + USER_KEY_PREFIX + "permissions:' + #userId";
-    public static final String USER_ROLES_KEY = "'" + USER_KEY_PREFIX + "roles:' + #userId";
+    public static final String USER_DETAIL_KEY = USER_KEY_PREFIX + "detail:";
+    public static final String USER_PERMISSIONS_KEY = USER_KEY_PREFIX + "permissions:";
+    public static final String USER_ROLES_KEY = USER_KEY_PREFIX + "roles:";
 
     /** 标签缓存完整键 */
-    public static final String TAG_ALL_KEY = "'" + TAG_KEY_PREFIX + "all:'";
-    public static final String TAG_DETAIL_KEY = "'" + TAG_KEY_PREFIX + "detail:' + #id";
-    public static final String TAG_PAGE_KEY = "'" + TAG_KEY_PREFIX + "page:' + #page + ':' + #size";
+    public static final String TAG_ALL_KEY = TAG_KEY_PREFIX + "all:";
+    public static final String TAG_DETAIL_KEY = TAG_KEY_PREFIX + "detail:";
+    public static final String TAG_PAGE_KEY = TAG_KEY_PREFIX + "page:";
 
     /** 分类缓存完整键 */
-    public static final String CATEGORY_ALL_KEY = "'" + CATEGORY_KEY_PREFIX + "all'";
-    public static final String CATEGORY_TREE_KEY = "'" + CATEGORY_KEY_PREFIX + "tree'";
-    public static final String CATEGORY_DETAIL_KEY = "'" + CATEGORY_KEY_PREFIX + "detail:' + #id";
+    public static final String CATEGORY_ALL_KEY = CATEGORY_KEY_PREFIX + "all";
+    public static final String CATEGORY_TREE_KEY = CATEGORY_KEY_PREFIX + "tree";
+    public static final String CATEGORY_DETAIL_KEY = CATEGORY_KEY_PREFIX + "detail:";
 
     /** 评论缓存完整键 */
-    public static final String COMMENT_COUNT_KEY = "'" + COMMENT_KEY_PREFIX + "count:' + #postId";
-    public static final String COMMENT_ARTICLE_COUNT_KEY = "'" + COMMENT_KEY_PREFIX + "article-count:' + #articleId";
+    public static final String COMMENT_COUNT_KEY = COMMENT_KEY_PREFIX + "count:";
+    public static final String COMMENT_ARTICLE_COUNT_KEY = COMMENT_KEY_PREFIX + "article-count:";
 
     /** 字典缓存完整键 */
-    public static final String DICT_TYPE_ALL_KEY = "'all'";
-    public static final String DICT_TYPE_BY_ID_KEY = "'id:' + #id";
-    public static final String DICT_TYPE_BY_CODE_KEY = "'code:' + #dictType";
+    public static final String DICT_TYPE_ALL_KEY = "all";
+    public static final String DICT_TYPE_BY_ID_KEY = "id:";
+    public static final String DICT_TYPE_BY_CODE_KEY = "code:";
 
     /** 菜单缓存完整键 */
-    public static final String MENUS_TREE_KEY = "'tree'";
-    public static final String MENUS_ALL_KEY = "'all'";
+    public static final String MENUS_TREE_KEY = "tree";
+    public static final String MENUS_ALL_KEY = "all";
 
     /** 系统配置缓存完整键 */
-    public static final String CONFIG_VALUE_KEY = "'value:' + #key";
+    public static final String CONFIG_VALUE_KEY = "value:";
     public static final String CONFIG_USER_VALUE_KEY = "'userValue:' + #userId + ':' + #key";
     public static final String CONFIG_INFO_KEY = "'config:' + #key";
     public static final String CONFIG_INFO_BY_ID_KEY = "'configById:' + #id";

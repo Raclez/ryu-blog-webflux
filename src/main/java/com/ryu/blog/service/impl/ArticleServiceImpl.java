@@ -739,7 +739,6 @@ public class ArticleServiceImpl implements ArticleService {
     private PostAdminListVO buildPostAdminListVO(Posts post,
                                                   Map<Long, Tuple2<Long, String>> categoryMap,
                                                   Map<Long, Tuple2<String, String>> userMap) {
-        PostAdminListVO vo = postMapper.toAdminListVO(post);
         Long postId = post.getId();
         Long userId = post.getUserId();
 
@@ -757,7 +756,7 @@ public class ArticleServiceImpl implements ArticleService {
             authorName = userInfo.getT1();
         }
 
-        return postMapper.setAdminExtraProperties(vo, categoryIdValue, categoryName, authorName);
+        return postMapper.toAdminListVO(post, categoryIdValue, categoryName, authorName);
     }
 
     /**
@@ -918,7 +917,6 @@ public class ArticleServiceImpl implements ArticleService {
                                                   Map<Long, Tuple2<String, String>> userMap,
                                                   Map<Long, Tuple2<Integer, Integer>> statsMap,
                                                   Map<Long, String> coverMap) {
-        PostFrontListVO vo = postMapper.toFrontListVO(post);
         Long pid = post.getId();
         Long userId = post.getUserId();
 
@@ -954,7 +952,7 @@ public class ArticleServiceImpl implements ArticleService {
             coverImageUrl = coverMap.get(coverImageId);
         }
 
-        return postMapper.setFrontExtraProperties(vo, categoryIdValue, categoryName, tags,
+        return postMapper.toFrontListVO(post, categoryIdValue, categoryName, tags,
                 authorName, authorAvatar, coverImageUrl, commentCount, likeCount);
     }
 

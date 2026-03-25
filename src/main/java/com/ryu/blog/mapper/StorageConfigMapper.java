@@ -1,15 +1,11 @@
 package com.ryu.blog.mapper;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ryu.blog.dto.StorageConfigCreateDTO;
 import com.ryu.blog.dto.StorageConfigUpdateDTO;
 import com.ryu.blog.entity.StorageConfig;
 import org.mapstruct.*;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * 存储策略实体与DTO转换工具类
@@ -24,14 +20,8 @@ public interface StorageConfigMapper {
         return value != null && value == 1;
     }
 
-    /**
-     * 将创建DTO转换为实体
-     *
-     * @param dto 创建DTO
-     * @return 实体
-     */
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "config", ignore = true) // 配置项通过自定义方法处理
+    @Mapping(target = "config", ignore = true)
     @Mapping(target = "maxFileSize", constant = "0L")
     @Mapping(target = "defaultExpiry", constant = "0L")
     @Mapping(target = "creatorId", constant = "0L")
@@ -41,13 +31,8 @@ public interface StorageConfigMapper {
     @Mapping(target = "isEnable", qualifiedByName = "mapIsEnable")
     StorageConfig toEntity(StorageConfigCreateDTO dto);
 
-    /**
-     * 将更新DTO转换为实体
-     *
-     * @param dto 更新DTO
-     * @return 实体
-     */
-    @Mapping(target = "config", ignore = true) // 配置项通过自定义方法处理
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "config", ignore = true)
     @Mapping(target = "maxFileSize", constant = "0L")
     @Mapping(target = "defaultExpiry", constant = "0L")
     @Mapping(target = "creatorId", constant = "0L")
@@ -56,46 +41,44 @@ public interface StorageConfigMapper {
     @Mapping(target = "isDeleted", ignore = true)
     @Mapping(target = "isEnable", qualifiedByName = "mapIsEnable")
     StorageConfig toEntity(StorageConfigUpdateDTO dto);
-    
-    /**
-     * 更新实体的部分字段
-     *
-     * @param dto 更新DTO
-     * @param entity 目标实体
-     */
-    @Mapping(target = "config", ignore = true) // 配置项通过自定义方法处理
-    @Mapping(target = "updateTime", expression = "java(LocalDateTime.now())")
-    @Mapping(target = "createTime", ignore = true)
-    @Mapping(target = "isDeleted", ignore = true)
+
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "config", ignore = true)
     @Mapping(target = "maxFileSize", ignore = true)
     @Mapping(target = "defaultExpiry", ignore = true)
     @Mapping(target = "creatorId", ignore = true)
+    @Mapping(target = "createTime", ignore = true)
+    @Mapping(target = "updateTime", expression = "java(LocalDateTime.now())")
+    @Mapping(target = "isDeleted", ignore = true)
     @Mapping(target = "isEnable", qualifiedByName = "mapIsEnable")
     void updateEntityFromDto(StorageConfigUpdateDTO dto, @MappingTarget StorageConfig entity);
-    
-    /**
-     * 在映射完成后处理配置项
-     *
-     * @param dto    源对象
-     * @param entity 目标对象
-     */
-    @AfterMapping
-    default void handleConfig(StorageConfigCreateDTO dto, @MappingTarget StorageConfig entity) {
+
+    default StorageConfig toEntityWithConfig(StorageConfigCreateDTO dto) {
+        if (dto == null) {
+            return null;
+        }
+        StorageConfig entity = toEntity(dto);
+        if (entity != null && dto.getConfig() != null) {
+            entity.setConfigMap(dto.getConfig());
+        }
+        return entity;
+    }
+
+    default StorageConfig toEntityWithConfig(StorageConfigUpdateDTO dto) {
+        if (dto == null) {
+            return null;
+        }
+        StorageConfig entity = toEntity(dto);
+        if (entity != null && dto.getConfig() != null) {
+            entity.setConfigMap(dto.getConfig());
+        }
+        return entity;
+    }
+
+    default void updateEntityWithConfig(StorageConfigUpdateDTO dto, @MappingTarget StorageConfig entity) {
+        updateEntityFromDto(dto, entity);
         if (dto.getConfig() != null) {
             entity.setConfigMap(dto.getConfig());
         }
     }
-    
-    /**
-     * 在映射完成后处理配置项
-     *
-     * @param dto    源对象
-     * @param entity 目标对象
-     */
-    @AfterMapping
-    default void handleConfig(StorageConfigUpdateDTO dto, @MappingTarget StorageConfig entity) {
-        if (dto.getConfig() != null) {
-            entity.setConfigMap(dto.getConfig());
-        }
-    }
-} 
+}

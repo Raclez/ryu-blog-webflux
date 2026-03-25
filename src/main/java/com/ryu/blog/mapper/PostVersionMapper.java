@@ -20,11 +20,12 @@ public interface PostVersionMapper {
     
     /**
      * 将PostVersion实体转换为PostVersionVO
-     * 
+     *
      * @param postVersion 文章版本实体
      * @return PostVersionVO
      */
     @Mapping(target = "latest", source = "isLatest")
+    @Mapping(target = "editor", ignore = true)
     PostVersionVO toPostVersionVO(PostVersion postVersion);
     
     /**
@@ -50,11 +51,12 @@ public interface PostVersionMapper {
     
     /**
      * 将PostVersion实体转换为PostVersionDetailVO
-     * 
+     *
      * @param postVersion 文章版本实体
      * @return PostVersionDetailVO
      */
     @Mapping(target = "latest", source = "isLatest")
+    @Mapping(target = "editor", ignore = true)
     PostVersionDetailVO toPostVersionDetailVO(PostVersion postVersion);
     
     /**
