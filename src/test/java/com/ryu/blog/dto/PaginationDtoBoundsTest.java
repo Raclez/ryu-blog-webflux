@@ -51,8 +51,6 @@ class PaginationDtoBoundsTest {
             SysDictTypeQueryDTO.class,
             PostQueryDTO.class,
             RoleListDTO.class,
-            ResourceGroupQueryDTO.class,
-            GroupFileQueryDTO.class,
             UserListDTO.class);
 
     /** 页码字段的候选名（不同 DTO 的命名不统一）。 */

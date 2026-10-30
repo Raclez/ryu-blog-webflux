@@ -182,10 +182,6 @@ public final class CacheConstants {
     public static final String CONFIG_ALL_KEY_PREFIX = CONFIG_KEY_PREFIX + "all";
     public static final String CONFIG_BY_KEY_PREFIX = CONFIG_KEY_PREFIX + "key:";
 
-    /** 资源组相关缓存键前缀 */
-    public static final String RESOURCE_GROUP_KEY_PREFIX = "resource:group:";
-    public static final String RESOURCE_GROUP_CACHE_PREFIX = "resource:group:";
-
     /** 防重复提交缓存键前缀 */
     public static final String REPEAT_SUBMIT_KEY_PREFIX = "repeat:submit:";
 

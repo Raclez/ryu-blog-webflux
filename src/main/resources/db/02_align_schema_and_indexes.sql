@@ -51,10 +51,6 @@ ALTER TABLE `t_post_tags`
     ADD COLUMN `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     ADD COLUMN `is_deleted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0-未删除，1-已删除';
 
--- ResourceGroupFileRel 实体继承 BaseEntity。
-ALTER TABLE `t_resource_group_file_rels`
-    ADD COLUMN `is_deleted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0-未删除，1-已删除';
-
 -- AiGenerationHistory 实体继承 BaseEntity。
 ALTER TABLE `t_ai_generation_history`
     ADD COLUMN `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间';
@@ -206,9 +202,6 @@ ALTER TABLE `t_menus`
 ALTER TABLE `t_storage_config`
     ADD INDEX `idx_sc_strategy` (`strategy_name`),
     ADD INDEX `idx_sc_enable` (`is_enable`);
-
-ALTER TABLE `t_resource_group_file_rels`
-    ADD INDEX `idx_rgfr_file` (`file_id`);
 
 ALTER TABLE `t_user_roles`
     ADD INDEX `idx_ur_role` (`role_id`);

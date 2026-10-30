@@ -51,11 +51,6 @@ public class FileSearchDTO {
     private Long maxSize;
     
     /**
-     * 分组ID
-     */
-    private Long groupId;
-    
-    /**
      * 排序字段
      */
     private String orderBy = "uploadTime";

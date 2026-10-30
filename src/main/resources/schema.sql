@@ -335,31 +335,6 @@ CREATE TABLE IF NOT EXISTS `t_file` (
     KEY `idx_file_checksum` (`checksum`(64), `is_deleted`),
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '文件表';
 
-CREATE TABLE IF NOT EXISTS `t_resource_groups` (
-    `id`          bigint      NOT NULL AUTO_INCREMENT COMMENT '资源组ID',
-    `group_name`  varchar(50) NOT NULL COMMENT '资源组名称',
-    `description` varchar(255) DEFAULT NULL COMMENT '描述',
-    `creator_id`  bigint      NOT NULL COMMENT '创建者ID',
-    `sort`        int         DEFAULT 0 COMMENT '排序',
-    `create_time` datetime    NOT NULL COMMENT '创建时间',
-    `update_time` datetime    NOT NULL COMMENT '更新时间',
-    `is_deleted`  tinyint(1)  DEFAULT 0 COMMENT '是否删除',
-    PRIMARY KEY (`id`),
-    KEY `idx_resource_groups_user` (`creator_id`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '资源分组表';
-
-CREATE TABLE IF NOT EXISTS `t_resource_group_file_rels` (
-    `id`          bigint      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `group_id`    bigint      NOT NULL COMMENT '资源组ID',
-    `file_id`     bigint      NOT NULL COMMENT '文件ID',
-    `create_time` datetime    NOT NULL COMMENT '创建时间',
-    `update_time` datetime    NOT NULL COMMENT '更新时间',
-    `is_deleted`  tinyint(1)  NOT NULL DEFAULT 0 COMMENT '是否删除',
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_group_file` (`group_id`, `file_id`),
-    KEY `idx_rgfr_file` (`file_id`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '资源组文件关联表';
-
 CREATE TABLE IF NOT EXISTS `t_storage_config` (
     `id`            bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '配置ID',
     `strategy_name` varchar(255) DEFAULT NULL COMMENT '策略名称',

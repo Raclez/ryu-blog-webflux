@@ -4,7 +4,6 @@ import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.FileSearchDTO;
 import com.ryu.blog.dto.FileUpdateDTO;
 import com.ryu.blog.dto.OperatorContext;
-import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.UploadOptionsDTO;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.service.FileService;
@@ -13,7 +12,6 @@ import com.ryu.blog.service.impl.file.FileDownloadService;
 import com.ryu.blog.service.impl.file.FileMetadataService;
 import com.ryu.blog.service.impl.file.FileUploadService;
 import com.ryu.blog.vo.FileDownloadVO;
-import com.ryu.blog.vo.FileGroupItemVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
 import com.ryu.blog.vo.FileVersionVO;
@@ -203,11 +201,6 @@ public class FileServiceImpl implements FileService {
     @Transactional
     public Mono<Map<Long, Boolean>> batchDeleteFiles(List<Long> fileIds, OperatorContext ctx) {
         return fileAdminService.batchDeleteFiles(fileIds, ctx);
-    }
-
-    @Override
-    public Mono<PageResult<FileGroupItemVO>> getGroupFiles(ResourceGroupQueryDTO groupFileQueryDTO, OperatorContext ctx) {
-        return fileAdminService.getGroupFiles(groupFileQueryDTO, ctx);
     }
 
     @Override

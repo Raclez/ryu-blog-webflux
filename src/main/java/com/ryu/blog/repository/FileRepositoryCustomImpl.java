@@ -33,8 +33,6 @@ public class FileRepositoryCustomImpl implements FileRepositoryCustom {
 
     private final R2dbcEntityTemplate template;
 
-    private final ResourceGroupFileRelRepository groupFileRelRepository;
-
     @Override
     public Flux<File> searchFiles(FileSearchDTO searchDTO, int limit, long offset) {
         Sort.Direction direction = "asc".equalsIgnoreCase(searchDTO.getOrderDirection())
@@ -62,37 +60,6 @@ public class FileRepositoryCustomImpl implements FileRepositoryCustom {
                 .from("t_file")
                 .matching(Query.query(searchCriteria(searchDTO)))
                 .count();
-    }
-
-    @Override
-    public Flux<File> findByGroupId(Long groupId, int limit, long offset) {
-        if (groupId == null) {
-            return Flux.empty();
-        }
-        // 分组与文件是多对多关系（t_resource_group_file_rels），
-        // 先取分组的文件ID再取文件，避免 JOIN 带来的列名歧义。
-        return groupFileRelRepository.findFileIdsByGroupId(groupId, limit, offset)
-                .collectList()
-                // collectList() 得到的是 Mono，Mono.flatMap 要求 lambda 返回 Mono；
-                // 这里要返回 Flux，所以必须用 flatMapMany
-                .flatMapMany(ids -> ids.isEmpty()
-                        ? Flux.<File>empty()
-                        : template.select(File.class)
-                                .from("t_file")
-                                .matching(Query.query(Criteria.where("id").in(ids)
-                                        .and("is_deleted").is(0)))
-                                .all()
-                                // 保持关联表返回的顺序
-                                .sort((a, b) -> Integer.compare(
-                                        ids.indexOf(a.getId()), ids.indexOf(b.getId()))));
-    }
-
-    @Override
-    public Mono<Long> countByGroupId(Long groupId) {
-        if (groupId == null) {
-            return Mono.just(0L);
-        }
-        return groupFileRelRepository.countByGroupId(groupId);
     }
 
     @Override

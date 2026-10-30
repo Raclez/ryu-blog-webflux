@@ -3,7 +3,6 @@ package com.ryu.blog.service;
 import com.ryu.blog.dto.*;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.vo.FileDownloadVO;
-import com.ryu.blog.vo.FileGroupItemVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
 import com.ryu.blog.vo.FileVersionVO;
@@ -115,14 +114,6 @@ public interface FileService {
      */
     Mono<Map<Long, Boolean>> batchDeleteFiles(List<Long> fileIds, OperatorContext ctx);
 
-    /**
-     * 获取文件分组
-     * @param groupFileQueryDTO 查询参数
-     * @return 分页结果（条目是 {@link com.ryu.blog.vo.FileGroupItemVO}，
-     *         不返回 {@link File} 实体 —— 实体上的校验和 / 分享凭证等内部字段不该外泄）
-     */
-    Mono<PageResult<FileGroupItemVO>> getGroupFiles(ResourceGroupQueryDTO groupFileQueryDTO, OperatorContext ctx);
-    
     /**
      * 获取文件详细信息
      * @param fileId 文件ID

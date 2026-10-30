@@ -9,7 +9,6 @@ import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDateTime;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -110,11 +109,6 @@ public class FileInfoVO {
      * 文件下载链接
      */
     private String downloadUrl;
-    
-    /**
-     * 所属分组列表
-     */
-    private List<ResourceGroupVO> groups;
     
     /**
      * 文件元数据

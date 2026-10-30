@@ -34,24 +34,6 @@ public interface FileRepositoryCustom {
     Mono<Long> countFiles(FileSearchDTO searchDTO);
 
     /**
-     * 分页查询某个资源分组下的文件
-     *
-     * @param groupId 分组ID
-     * @param limit   每页大小
-     * @param offset  偏移量
-     * @return 文件列表
-     */
-    Flux<File> findByGroupId(Long groupId, int limit, long offset);
-
-    /**
-     * 统计某个资源分组下的文件数量
-     *
-     * @param groupId 分组ID
-     * @return 文件数量
-     */
-    Mono<Long> countByGroupId(Long groupId);
-
-    /**
      * 按存储路径查询文件
      *
      * @param path     存储路径

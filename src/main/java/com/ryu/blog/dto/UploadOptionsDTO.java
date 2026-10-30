@@ -7,7 +7,6 @@ import lombok.ToString;
 @ToString
 public class UploadOptionsDTO {
     private String storage;
-    private Long group;
     private String access;
     private String versionPolicy;
     private String versionTag;

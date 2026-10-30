@@ -184,17 +184,6 @@ class CapabilityCheckCoverageTest {
         // 全部端点已补上 @SaCheckPermission（读 content:post:view / 写 content:post:edit），
         // 且 Service 层还有文章可见性 / 归属校验。
 
-        // ---------- ResourceGroupController ----------
-        CAPABILITY_FREE.put("ResourceGroupController.createResourceGroup", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.updateResourceGroup", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.deleteResourceGroup", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.getCurrentUserResourceGroups", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.addFilesToGroup", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.removeFilesFromGroup", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.getGroupFileIds", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.checkGroupNameExists", "自身数据：资源分组");
-        CAPABILITY_FREE.put("ResourceGroupController.getFileResourceGroups", "自身数据：资源分组");
-
         // ---------- StorageConfigController ----------
         // （类级 @SaCheckPermission(system:storage:view)，整类都要权限，不登记）
 

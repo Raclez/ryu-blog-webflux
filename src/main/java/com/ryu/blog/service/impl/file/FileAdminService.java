@@ -2,7 +2,6 @@ package com.ryu.blog.service.impl.file;
 
 import com.ryu.blog.dto.FileSearchDTO;
 import com.ryu.blog.dto.OperatorContext;
-import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.exception.ResourceNotFoundException;
@@ -10,7 +9,6 @@ import com.ryu.blog.repository.FileRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.strategy.StorageStrategyRegistry;
 import com.ryu.blog.utils.FileUtils;
-import com.ryu.blog.vo.FileGroupItemVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
@@ -149,103 +147,6 @@ public class FileAdminService {
                     })
                 )
                 .then(Mono.just(results));
-    }
-
-    /**
-     * 把文件实体转成分组列表条目。
-     *
-     * <p><b>只挑列表页要展示的字段</b>：校验和、分享凭证、存储类型这些
-     * 内部字段不出现在响应里 —— 详见 {@link FileGroupItemVO}。
-     *
-     * <p>{@code filePath} 放的是<b>可直接访问的公开URL</b>（前端拿它当
-     * {@code <img src>} 用），不是存储侧的相对路径。
-     *
-     * @param file 文件实体
-     * @return 列表条目
-     */
-    private Mono<FileGroupItemVO> toGroupItemVO(File file) {
-        return strategyRegistry.getStrategy(file.getStorageType())
-                .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
-                // 策略缺失时不静默丢文件 —— 列表少一条比给一条打不开的记录更容易被忽略
-                .switchIfEmpty(Mono.just(file.getFilePath()))
-                .flatMap(publicUrl -> {
-                    FileGroupItemVO vo = FileGroupItemVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(publicUrl)
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-
-                    if (file.getCreatorId() == null) {
-                        return Mono.just(vo);
-                    }
-                    return userRepository.findById(file.getCreatorId())
-                            .doOnNext(user -> vo.setCreatorName(user.getUsername()))
-                            .thenReturn(vo)
-                            .switchIfEmpty(Mono.just(vo));
-                });
-    }
-
-    /**
-     * 分页获取资源分组下的文件
-     *
-     * <p>分组是共享的，但文件本身仍有归属：分组里混着别人的私有文件时，
-     * 不可见的部分直接剔除，而不是把整组都拒掉。
-     *
-     * @param groupFileQueryDTO 查询参数
-     * @param ctx               操作者上下文
-     */
-    public Mono<PageResult<FileGroupItemVO>> getGroupFiles(ResourceGroupQueryDTO groupFileQueryDTO, OperatorContext ctx) {
-        log.info("获取文件分组: groupFileQueryDTO={}", groupFileQueryDTO);
-
-        // 获取分页参数
-        int rawPage = groupFileQueryDTO.getCurrentPage() != null ? groupFileQueryDTO.getCurrentPage().intValue() : 1;
-        int rawSize = groupFileQueryDTO.getPageSize() != null ? groupFileQueryDTO.getPageSize().intValue() : 20;
-        // 防御：pageSize 由客户端控制，除零会让下面的总页数计算炸掉
-        // （final 副本：page/size 会被后面的 lambda 捕获，必须是不可变引用）
-        final int page = Math.max(1, rawPage);
-        final int size = Math.max(1, Math.min(rawSize, MAX_PAGE_SIZE));
-        final int skip = (page - 1) * size;
-
-        // 执行查询：分组与文件是多对多关系，走关联表
-        // ⚠️ concatMap（串行）：这里每条文件都要回一次库取创建者名，
-        // 并发起来会同时占满连接池。列表页一屏最多 100 条，串行足够。
-        Mono<List<FileGroupItemVO>> filesMono = fileRepository.findByGroupId(groupFileQueryDTO.getGroupId(), size, skip)
-                .filter(file -> FileAccessPolicy.canRead(file, ctx))
-                .concatMap(this::toGroupItemVO)
-                .collectList();
-
-        // 获取总数
-        Mono<Long> countMono = fileRepository.countByGroupId(groupFileQueryDTO.getGroupId());
-
-        // 组合结果
-        // ⚠️ 这里不在 @Transactional 内（只有读），zip 并发取连接是安全的
-        return Mono.zip(filesMono, countMono)
-                .map(tuple -> {
-                    List<FileGroupItemVO> files = tuple.getT1();
-                    Long total = tuple.getT2();
-
-                    // 创建分页结果
-                    PageResult<FileGroupItemVO> pageResult = new PageResult<>();
-                    pageResult.setRecords(files);
-                    pageResult.setTotal(total);
-                    pageResult.setCurrent(page);
-                    pageResult.setSize(size);
-                    pageResult.setPages((total + size - 1) / size);
-
-                    return pageResult;
-                })
-                .doOnSuccess(result -> log.info("获取分组文件成功: groupId={}, 总数={}",
-                        groupFileQueryDTO.getGroupId(), result.getTotal()))
-                .doOnError(error -> log.error("获取分组文件失败: groupId={}",
-                        groupFileQueryDTO.getGroupId(), error));
     }
 
     /**

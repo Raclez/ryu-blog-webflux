@@ -6,23 +6,19 @@ import com.ryu.blog.constant.PermissionConstants;
 import com.ryu.blog.dto.FileSearchDTO;
 import com.ryu.blog.dto.FileUpdateDTO;
 import com.ryu.blog.dto.OperatorContext;
-import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.UploadOptionsDTO;
 import com.ryu.blog.entity.File;
 import com.ryu.blog.service.FileService;
 import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.utils.Result;
-import com.ryu.blog.vo.FileGroupItemVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
 import com.ryu.blog.vo.FileVersionVO;
-import com.ryu.blog.vo.PageResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.InvalidMediaTypeException;
@@ -408,20 +404,6 @@ public class FileController {
                 .collectList()
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取文件版本历史成功: id={}, 版本数={}", id, result.getData().size()));
-    }
-
-    /**
-     * 获取资源组中的文件
-     *
-     * @param queryDTO 查询参数
-     * @return 文件列表分页结果
-     */
-    @GetMapping("/group")
-    @SaCheckPermission(PermissionConstants.FILE_VIEW)
-    @Operation(summary = "获取资源组文件列表", description = "分页获取资源组中的文件ID列表")
-    public Mono<Result<PageResult<FileGroupItemVO>>> getGroupFiles(@ParameterObject @Valid ResourceGroupQueryDTO queryDTO) {
-        return fileService.getGroupFiles(queryDTO, OperatorContext.current())
-                .map(Result::success);
     }
 
     /**

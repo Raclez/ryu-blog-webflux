@@ -31,9 +31,4 @@ public class FileUpdateDTO {
      * 文件状态
      */
     private Integer status;
-
-    /**
-     * 所属分组ID
-     */
-    private Long groupId;
 } 
