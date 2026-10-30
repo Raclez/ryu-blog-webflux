@@ -38,9 +38,6 @@ public class FileDownloadService {
      * <p>
      * 内容以流的形式返回，文件不会整体驻留内存。
      *
-     * <p><b>可见性</b>：公开文件人人可读；非公开文件只有创建者与管理员可读。
-     * 判定规则见 {@link FileAccessPolicy}。
-     *
      * @param fileId 文件ID
      * @param ctx    操作者上下文
      * @return 文件下载结果
@@ -51,7 +48,6 @@ public class FileDownloadService {
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
                 .flatMap(file -> {
-                    FileAccessPolicy.requireCanRead(file, ctx);
                     return strategyRegistry.getStrategy(file.getStorageType())
                             .flatMap(strategy -> strategy.downloadFile(file.getFilePath())
                                     .map(dataBufferFlux -> FileDownloadVO.builder()
@@ -75,10 +71,9 @@ public class FileDownloadService {
      * 而按 ID 的路由（{@code /files/preview/{id}}）每次访问都要
      * {@code system:file:view} 权限 + 请求头 —— 博客正文里的图根本渲染不出来。
      *
-     * <p><b>应用内必须再判一次 {@code access_type}</b>：这条路由是匿名的，
-     * 路由本身不带任何「这个人能不能看这个文件」的信息。
-     * 判定只看「这个文件是不是公开的」，不看操作者 ——
-     * 操作者在这里根本不存在（匿名请求）。
+     * <p>这条路由匿名可达，且<b>不再做可见性判定</b>：文件可见性已下线
+     * （对象存储桶本身匿名可读，那个字段只制造错觉）。它服务的正是
+     * {@code <img src>} 这类带不了 {@code Authorization} 头的场景。
      *
      * @param path 存储路径
      * @return 文件内容
@@ -96,10 +91,6 @@ public class FileDownloadService {
         return fileRepository.findByFilePathAndIsDeleted(normalizedPath, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除: " + normalizedPath)))
                 .flatMap(file -> {
-                    if (!FileAccessPolicy.isPublic(file)) {
-                        log.warn("非公开文件被匿名访问，已拒绝: path={}, fileId={}", path, file.getId());
-                        return Mono.error(PermissionDeniedException.accessDenied("该文件不是公开文件"));
-                    }
                     return strategyRegistry.getStrategy(file.getStorageType())
                             .flatMap(strategy -> strategy.downloadFile(file.getFilePath())
                                     .map(dataBufferFlux -> FileDownloadVO.builder()
@@ -163,10 +154,7 @@ public class FileDownloadService {
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
-                .flatMap(file -> {
-                    FileAccessPolicy.requireCanRead(file, ctx);
-                    return Mono.just("/files/preview/" + fileId);
-                })
+                .flatMap(file -> Mono.just("/files/preview/" + fileId))
                 .doOnSuccess(url -> log.info("生成预览URL成功: fileId={}, url={}", fileId, url))
                 .doOnError(error -> log.error("生成预览URL失败: fileId={}", fileId, error));
     }
@@ -186,10 +174,7 @@ public class FileDownloadService {
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
-                .flatMap(file -> {
-                    FileAccessPolicy.requireCanRead(file, ctx);
-                    return Mono.just("/files/download/" + fileId);
-                })
+                .flatMap(file -> Mono.just("/files/download/" + fileId))
                 .doOnSuccess(url -> log.info("生成下载URL成功: fileId={}, url={}", fileId, url))
                 .doOnError(error -> log.error("生成下载URL失败: fileId={}", fileId, error));
     }

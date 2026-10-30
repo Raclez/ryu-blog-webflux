@@ -15,13 +15,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>这条规则是 Stage 6 补上的安全边界：整改前文件模块
  * <b>整条链路（读 / 写 / 删 / 列表 / 搜索）都没有归属校验</b>，
- * 任何登录用户都能下载别人的文件、改别人的文件信息、删别人的文件。
+ * 任何登录用户都能改别人的文件信息、删别人的文件。
+ *
+ * <p><b>现在只管写</b>：文件可见性（{@code access_type}）已下线 ——
+ * 对象存储桶本身匿名可读，那个字段挡不住直链，只制造「私有文件是安全的」这种错觉。
+ * 所以这里只剩下「主人 / 他人 / 管理员」× 「有归属 / 无归属」两维。
  *
  * <p>规则本身是纯函数（不碰 Spring、不碰数据库），所以这里不 mock 任何东西 ——
  * 依赖越少，测试越不容易假失败。
  *
- * <p>用例覆盖四个维度：<b>主人 / 他人 / 管理员</b> ×
- * <b>公开 / 私有 / 无归属</b>。
+ * @author ryu
  */
 class FileAccessPolicyTest {
 
@@ -37,159 +40,71 @@ class FileAccessPolicyTest {
     /** 匿名上下文 */
     private static final OperatorContext ANONYMOUS = OperatorContext.ANONYMOUS;
 
-    // ------------------------------------------------------------------
-    // 构造工具
-    // ------------------------------------------------------------------
-
-    private static File file(Long creatorId, Integer accessType) {
+    private static File file(Long creatorId) {
         File file = new File();
         file.setId(1L);
         file.setFileName("test.png");
         file.setCreatorId(creatorId);
-        file.setAccessType(accessType);
         return file;
     }
 
-    private static File publicFile(Long creatorId) {
-        return file(creatorId, FileAccessPolicy.ACCESS_PUBLIC);
-    }
-
-    private static File privateFile(Long creatorId) {
-        return file(creatorId, FileAccessPolicy.ACCESS_PRIVATE);
-    }
-
-    // ------------------------------------------------------------------
-    // 读
-    // ------------------------------------------------------------------
-
     @Test
-    @DisplayName("公开文件：任何登录用户都能读")
-    void publicFileIsReadableByAnyone() {
-        assertTrue(FileAccessPolicy.canRead(publicFile(OWNER_ID), NORMAL));
-        assertTrue(FileAccessPolicy.canRead(publicFile(OWNER_ID), STRANGER));
-        assertTrue(FileAccessPolicy.canRead(publicFile(OWNER_ID), ADMIN));
-        assertTrue(FileAccessPolicy.isPublic(publicFile(OWNER_ID)));
-    }
-
-    @Test
-    @DisplayName("私有文件：只有创建者与管理员能读")
-    void privateFileIsOnlyReadableByOwnerAndAdmin() {
-        assertTrue(FileAccessPolicy.canRead(privateFile(OWNER_ID), NORMAL));
-        assertFalse(FileAccessPolicy.canRead(privateFile(OWNER_ID), STRANGER));
-        assertTrue(FileAccessPolicy.canRead(privateFile(OWNER_ID), ADMIN));
-    }
-
-    @Test
-    @DisplayName("私有文件：他人读取抛 403")
-    void privateFileThrowsWhenStrangerReads() {
-        assertThrows(PermissionDeniedException.class,
-                () -> FileAccessPolicy.requireCanRead(privateFile(OWNER_ID), STRANGER));
-
-        // 本人与管理员不应抛
-        FileAccessPolicy.requireCanRead(privateFile(OWNER_ID), NORMAL);
-        FileAccessPolicy.requireCanRead(privateFile(OWNER_ID), ADMIN);
-    }
-
-    @Test
-    @DisplayName("无归属文件（creatorId 为 null）：只有管理员能读")
-    void fileWithoutOwnerIsOnlyReadableByAdmin() {
-        File orphan = privateFile(null);
-
-        assertFalse(FileAccessPolicy.canRead(orphan, NORMAL));
-        assertFalse(FileAccessPolicy.canRead(orphan, STRANGER));
-        assertTrue(FileAccessPolicy.canRead(orphan, ADMIN));
-    }
-
-    @Test
-    @DisplayName("没有操作者上下文 → 一律拒绝")
-    void nullContextIsRejected() {
-        assertFalse(FileAccessPolicy.canRead(privateFile(OWNER_ID), null));
-        assertFalse(FileAccessPolicy.canModify(privateFile(OWNER_ID), null));
-        assertFalse(FileAccessPolicy.canDelete(privateFile(OWNER_ID), null));
-    }
-
-    @Test
-    @DisplayName("匿名上下文 → 私有文件不可读")
-    void anonymousCannotReadPrivateFile() {
-        assertFalse(FileAccessPolicy.canRead(privateFile(OWNER_ID), ANONYMOUS));
-    }
-
-    @Test
-    @DisplayName("file 为 null → 一律拒绝")
-    void nullFileIsRejected() {
-        assertFalse(FileAccessPolicy.canRead(null, NORMAL));
-        assertFalse(FileAccessPolicy.canModify(null, ADMIN));
-        assertFalse(FileAccessPolicy.isPublic(null));
-    }
-
-    // ------------------------------------------------------------------
-    // 写（改 / 删）
-    // ------------------------------------------------------------------
-
-    @Test
-    @DisplayName("公开文件：他人依然不能改、不能删")
-    void publicFileIsStillNotWritableByStranger() {
-        File pub = publicFile(OWNER_ID);
-
-        assertFalse(FileAccessPolicy.canModify(pub, STRANGER));
-        assertFalse(FileAccessPolicy.canDelete(pub, STRANGER));
-        assertThrows(PermissionDeniedException.class,
-                () -> FileAccessPolicy.requireCanModify(pub, STRANGER));
-        assertThrows(PermissionDeniedException.class,
-                () -> FileAccessPolicy.requireCanDelete(pub, STRANGER));
-    }
-
-    @Test
-    @DisplayName("私有文件：主人能改能删")
+    @DisplayName("主人：能改能删")
     void ownerCanModifyAndDeleteOwnFile() {
-        File priv = privateFile(OWNER_ID);
+        File own = file(OWNER_ID);
 
-        assertTrue(FileAccessPolicy.canModify(priv, NORMAL));
-        assertTrue(FileAccessPolicy.canDelete(priv, NORMAL));
-        FileAccessPolicy.requireCanModify(priv, NORMAL);
-        FileAccessPolicy.requireCanDelete(priv, NORMAL);
+        assertTrue(FileAccessPolicy.canModify(own, NORMAL));
+        assertTrue(FileAccessPolicy.canDelete(own, NORMAL));
+        FileAccessPolicy.requireCanModify(own, NORMAL);
+        FileAccessPolicy.requireCanDelete(own, NORMAL);
     }
 
     @Test
-    @DisplayName("私有文件：管理员能改能删")
+    @DisplayName("管理员：能改能删任何人的文件")
     void adminCanModifyAndDeleteAnyFile() {
-        File priv = privateFile(OWNER_ID);
+        File others = file(OWNER_ID);
 
-        assertTrue(FileAccessPolicy.canModify(priv, ADMIN));
-        assertTrue(FileAccessPolicy.canDelete(priv, ADMIN));
+        assertTrue(FileAccessPolicy.canModify(others, ADMIN));
+        assertTrue(FileAccessPolicy.canDelete(others, ADMIN));
     }
 
     @Test
-    @DisplayName("私有文件：他人改、删都抛 403")
+    @DisplayName("他人：改、删都抛 403")
     void strangerCannotModifyOrDelete() {
-        File priv = privateFile(OWNER_ID);
+        File others = file(OWNER_ID);
 
+        assertFalse(FileAccessPolicy.canModify(others, STRANGER));
+        assertFalse(FileAccessPolicy.canDelete(others, STRANGER));
         assertThrows(PermissionDeniedException.class,
-                () -> FileAccessPolicy.requireCanModify(priv, STRANGER));
+                () -> FileAccessPolicy.requireCanModify(others, STRANGER));
         assertThrows(PermissionDeniedException.class,
-                () -> FileAccessPolicy.requireCanDelete(priv, STRANGER));
+                () -> FileAccessPolicy.requireCanDelete(others, STRANGER));
     }
 
     @Test
-    @DisplayName("无归属文件：只有管理员能改能删")
+    @DisplayName("无归属文件（creatorId 为 null）：只有管理员能改能删")
     void fileWithoutOwnerIsOnlyWritableByAdmin() {
-        File orphan = privateFile(null);
+        File orphan = file(null);
 
         assertFalse(FileAccessPolicy.canModify(orphan, NORMAL));
-        assertFalse(FileAccessPolicy.canDelete(orphan, NORMAL));
         assertTrue(FileAccessPolicy.canModify(orphan, ADMIN));
         assertTrue(FileAccessPolicy.canDelete(orphan, ADMIN));
     }
 
     @Test
-    @DisplayName("自定义 / 链接访问类型：按私有处理")
-    void customAndLinkAccessTreatedAsPrivate() {
-        File custom = file(OWNER_ID, FileAccessPolicy.ACCESS_CUSTOM);
-        File link = file(OWNER_ID, FileAccessPolicy.ACCESS_LINK);
+    @DisplayName("没有操作者上下文 / 匿名上下文：一律拒绝")
+    void missingContextIsRejected() {
+        File own = file(OWNER_ID);
 
-        assertFalse(FileAccessPolicy.canRead(custom, STRANGER));
-        assertFalse(FileAccessPolicy.canRead(link, STRANGER));
-        assertTrue(FileAccessPolicy.canRead(custom, NORMAL));
-        assertTrue(FileAccessPolicy.canRead(link, NORMAL));
+        assertFalse(FileAccessPolicy.canModify(own, null));
+        assertFalse(FileAccessPolicy.canModify(own, ANONYMOUS));
+    }
+
+    @Test
+    @DisplayName("file 为 null：一律拒绝")
+    void nullFileIsRejected() {
+        assertFalse(FileAccessPolicy.canModify(null, NORMAL));
+        assertFalse(FileAccessPolicy.canModify(null, ADMIN));
+        assertFalse(FileAccessPolicy.canDelete(null, ADMIN));
     }
 }

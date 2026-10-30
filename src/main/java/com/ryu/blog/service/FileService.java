@@ -218,8 +218,8 @@ public interface FileService {
     /**
      * 批量获取文件永久访问URL（适用于博客图片等公开内容）
      *
-     * <p><b>只返回公开文件</b>（{@code access_type = 0}）——
-     * 这个 URL 不带任何身份凭证，能拿到就能取到内容。
+     * <p>这个 URL <b>不带任何身份凭证</b>，能拿到就能取到内容 ——
+     * 文件可见性下线后，所有文件都按公开处理。
      *
      * @param fileIds 文件ID列表
      * @return 文件ID到永久URL的映射
@@ -230,7 +230,7 @@ public interface FileService {
      * 按存储路径取公开文件
      *
      * <p>公开直链 {@code GET /files/public/{path}} 的后端实现。
-     * 只服务 {@code access_type = 0} 的文件；私有文件一律 403。
+     * 匿名可达，不做可见性判定。
      *
      * @param path 存储路径
      * @return 文件内容

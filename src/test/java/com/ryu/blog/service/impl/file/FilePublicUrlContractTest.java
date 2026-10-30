@@ -155,11 +155,10 @@ class FilePublicUrlContractTest {
     // ==================================================================
 
     @Test
-    @DisplayName("批量永久 URL：私有文件不返回（后门必须关掉）")
-    void permanentUrls_excludePrivateFiles() {
-        File publicFile = file(1L, PUBLIC_PATH, FileAccessPolicy.ACCESS_PUBLIC, 100L);
-        File privateFile = file(2L, "documents/2026/10/30/secret.pdf",
-                FileAccessPolicy.ACCESS_PRIVATE, 200L);
+    @DisplayName("批量永久 URL：所有文件都返回（可见性已下线，不再有私有文件）")
+    void permanentUrls_returnsEveryFile() {
+        File publicFile = file(1L, PUBLIC_PATH, 100L);
+        File privateFile = file(2L, "documents/2026/10/30/secret.pdf", 200L);
         when(fileRepository.findByIdAndIsDeleted(anyLong(), anyInt()))
                 .thenAnswer(inv -> {
                     Long id = inv.getArgument(0);
@@ -175,9 +174,9 @@ class FilePublicUrlContractTest {
         Map<Long, String> urls = metadataService.getBatchFilePermanentUrls(List.of(1L, 2L)).block();
 
         assertNotNull(urls);
-        assertTrue(urls.containsKey(1L), "公开文件应当拿到永久 URL");
-        assertFalse(urls.containsKey(2L),
-                "私有文件的存储路径不能发给调用方 —— 这条接口不过可见性判定，是个后门");
+        assertTrue(urls.containsKey(1L), "文件应当拿到永久 URL");
+        assertTrue(urls.containsKey(2L),
+                "文件可见性下线后不存在「私有文件不返回」这条规则 —— 所有文件都按公开处理");
     }
 
     // ==================================================================
@@ -210,11 +209,10 @@ class FilePublicUrlContractTest {
     }
 
     @Test
-    @DisplayName("按路径取公开文件：私有文件 403，不存在 404，公开文件正常返回内容")
-    void publicAccess_enforcesAccessType() {
-        File publicFile = file(1L, PUBLIC_PATH, FileAccessPolicy.ACCESS_PUBLIC, 100L);
-        File privateFile = file(2L, "documents/2026/10/30/secret.pdf",
-                FileAccessPolicy.ACCESS_PRIVATE, 200L);
+    @DisplayName("按路径取文件：匿名可达，不再区分公开/私有；不存在仍 404")
+    void publicAccess_servesEveryFile() {
+        File publicFile = file(1L, PUBLIC_PATH, 100L);
+        File privateFile = file(2L, "documents/2026/10/30/secret.pdf", 200L);
         when(fileRepository.findByFilePathAndIsDeleted(anyString(), anyInt()))
                 .thenAnswer(inv -> {
                     String path = inv.getArgument(0);
@@ -242,9 +240,8 @@ class FilePublicUrlContractTest {
                 .block();
         assertArrayEquals(CONTENT, bytes);
 
-        // 私有文件 → 403
-        assertThrows(PermissionDeniedException.class,
-                () -> downloadPublic(privateFile.getFilePath()).block());
+        // 曾经的「私有文件」现在同样匿名可读
+        assertNotNull(downloadPublic(privateFile.getFilePath()).block());
 
         // 不存在 → 404
         assertThrows(ResourceNotFoundException.class,
@@ -273,14 +270,13 @@ class FilePublicUrlContractTest {
         return strategy;
     }
 
-    private File file(Long id, String path, int accessType, Long creatorId) {
+    private File file(Long id, String path, Long creatorId) {
         File file = new File();
         file.setId(id);
         file.setFileName(path.substring(path.lastIndexOf('/') + 1));
         file.setFilePath(path);
         file.setFileSize((long) CONTENT.length);
         file.setMimeType("image/png");
-        file.setAccessType(accessType);
         file.setStorageType("local");
         file.setCreatorId(creatorId);
         return file;

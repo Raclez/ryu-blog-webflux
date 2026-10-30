@@ -67,10 +67,7 @@ public class FileMetadataService {
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
-                .flatMap(file -> {
-                    FileAccessPolicy.requireCanRead(file, ctx);
-                    return buildFileInfoVO(file);
-                })
+                .flatMap(this::buildFileInfoVO)
                 .flatMap(fileInfoVO -> enrichWithCreatorAndUrls(fileInfoVO, fileId, ctx))
                 .doOnSuccess(fileInfo -> log.info("获取文件详情成功: fileId={}", fileId))
                 .doOnError(error -> log.error("获取文件详情失败: fileId={}", fileId, error));
@@ -130,7 +127,6 @@ public class FileMetadataService {
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
                 .flatMapMany(file -> {
-                    FileAccessPolicy.requireCanRead(file, ctx);
                     // 注意：file 必须留在这层 lambda 里 ——
                     // 后面再 flatMap 一次的话，file 已经出了作用域，
                     // 只能拿到 strategy 和 url，拿不到大小/创建者这些字段。
@@ -188,27 +184,11 @@ public class FileMetadataService {
 
         // 执行查询（动态条件 / 动态排序 / 分页都在 Repository 片段里）
         return fileRepository.searchFiles(searchDTO, size, skip)
-                .map(file -> {
-                    // 构建文件详情VO
-                    return FileInfoVO.builder()
-                            .id(file.getId())
-                            .fileName(file.getFileName())
-                            .filePath(file.getFilePath())
-                            .fileSize(file.getFileSize())
-                            .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                            .fileType(file.getFileType())
-                            .mimeType(file.getMimeType())
-                            .uploadTime(Date.from(file.getUploadTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .updateTime(Date.from(file.getUpdateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                            .creatorId(file.getCreatorId())
-                            .status(file.getStatus())
-                            .storageType(file.getStorageType())
-                            .description(file.getDescription())
-                            .checksum(file.getChecksum())
-                            .accessType(file.getAccessType())
-                            .createTime(file.getCreateTime())
-                            .build();
-                })
+                // 复用 buildFileInfoVO：filePath「存储相对路径 → 可直接访问地址」的转换
+                // 只在那一处做。早先这里是手搓的另一个 builder，漏掉了 getPublicUrl ——
+                // 于是 /files/search 返回裸路径、/files/detail 返回完整 URL，
+                // 同一个字段两个接口两种东西。
+                .concatMap(this::buildFileInfoVO)
                 // 获取用户信息
                 .flatMap(fileInfoVO -> {
                     if (fileInfoVO.getCreatorId() != null) {
@@ -270,9 +250,6 @@ public class FileMetadataService {
                 // is_deleted 是 Boolean，直接和 int 常量比较会恒为 false，
                 // 必须用 Boolean.FALSE.equals(...) 判断。
                 .filter(file -> !Boolean.TRUE.equals(file.getIsDeleted()))
-                // 可见性过滤：不可见的文件不返回，也不报错 ——
-                // 批量接口里「某几条没有权限」不该让整个请求失败。
-                .filter(file -> FileAccessPolicy.canRead(file, ctx))
                 .flatMap(file -> buildFileInfoVO(file)
                         .doOnNext(fileInfoVO -> result.put(file.getId(), fileInfoVO))
                         .thenReturn(file.getId())
@@ -307,15 +284,9 @@ public class FileMetadataService {
      * {@code /files/public/**} 路由），用于文章里的图片渲染。
      * 路径里带随机 UUID，不可枚举。
      *
-     * <p><b>只返回公开文件</b>：这个 URL 天生是<b>不带任何身份凭证</b>的
-     * —— 拿到它的人就能直接取到内容（{@code <img src>} 带不了
-     * {@code Authorization} 头）。所以它只能指向 {@code access_type = 0} 的文件；
-     * 私有文件的 URL 由 {@link #getBatchFileUrls(List, OperatorContext)} 负责
-     * （那条路返回的是按 ID 的应用内路由，每次访问都会重新判定可见性）。
-     *
-     * <p>早先这里<b>不过可见性判定</b>，等于开了一条后门：
-     * 任何调用方都能拿到私有文件的存储路径 —— 对本地存储是目录结构，
-     * 对对象存储则可能是桶里的<b>可直接访问</b>的地址。
+     * <p>这个 URL 天生是<b>不带任何身份凭证</b>的 —— 拿到它的人就能直接取到内容
+     * （{@code <img src>} 带不了 {@code Authorization} 头）。
+     * 文件可见性下线后，所有文件都按公开处理，这里不再过滤。
      *
      * <p>因此本方法的结果<b>与操作者无关</b>（只由「是否公开」决定），
      * 缓存 key 里不需要带操作者身份。
@@ -337,8 +308,6 @@ public class FileMetadataService {
         return Flux.fromIterable(fileIds)
                 .flatMap(fileId ->
                     fileRepository.findByIdAndIsDeleted(fileId, 0)
-                        // 非公开文件一律不返回 URL（后门）
-                        .filter(FileAccessPolicy::isPublic)
                         .flatMap(file -> {
                             // 根据存储策略生成永久URL
                             String storageType = file.getStorageType();
@@ -380,7 +349,6 @@ public class FileMetadataService {
         return Flux.fromIterable(fileIds)
                 .flatMap(fileId ->
                     fileRepository.findByIdAndIsDeleted(fileId, 0)
-                        .filter(file -> FileAccessPolicy.canRead(file, ctx))
                         .flatMap(file -> fileDownloadService.generateDownloadUrl(fileId, 3600, ctx)
                                 .doOnNext(url -> result.put(fileId, url)))
                         .onErrorResume(e -> {
@@ -416,7 +384,6 @@ public class FileMetadataService {
                 .storageType(file.getStorageType())
                 .description(file.getDescription())
                 .checksum(file.getChecksum())
-                .accessType(file.getAccessType())
                 .createTime(file.getCreateTime())
                 .build();
 
@@ -424,7 +391,8 @@ public class FileMetadataService {
         return strategyRegistry.getStrategy(file.getStorageType())
                 .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
                 .doOnNext(fileInfoVO::setFilePath)
-                .thenReturn(fileInfoVO);
+                .then(Mono.just(fileInfoVO))
+                .switchIfEmpty(Mono.just(fileInfoVO));
     }
 
     /**

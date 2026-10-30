@@ -93,10 +93,4 @@ public class File extends BaseEntity {
     @Column("description")
     private String description;
 
-    /**
-     * 文件访问权限类型：0-公开(所有人可读), 1-私有(仅创建者), 2-自定义(指定用户)，3-链接访问
-     */
-    @Column("access_type")
-    private Integer accessType;
-
 }

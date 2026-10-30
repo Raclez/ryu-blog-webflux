@@ -65,7 +65,6 @@ class PublicFileRouteContractTest {
         file.setFileName("a.png");
         file.setFilePath("images/2026/10/30/a.png");
         file.setStorageType("local");
-        file.setAccessType(0);
         file.setFileSize(3L);
         file.setMimeType("image/png");
 

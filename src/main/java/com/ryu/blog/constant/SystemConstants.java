@@ -33,7 +33,7 @@ public final class SystemConstants {
     /**
      * 应用内「公开文件」路由前缀。
      *
-     * <p>公开文件（{@code access_type = 0}）对外只暴露这一条路：
+     * <p>文件对外只暴露这一条路：
      * {@code GET /files/public/{存储路径}}。
      *
      * <p><b>为什么需要它</b>：存储策略的 {@code getPublicUrl} 在没有配置对象存储访问地址时

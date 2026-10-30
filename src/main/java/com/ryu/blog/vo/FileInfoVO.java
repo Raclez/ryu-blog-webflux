@@ -33,7 +33,14 @@ public class FileInfoVO {
     private String fileName;
     
     /**
-     * 文件路径
+     * 文件的可直接访问地址
+     *
+     * <p>= {@code strategy.getPublicUrl(存储路径)}：对象存储是
+     * {@code {endpoint}/{bucket}/{object}}，本地存储 / 未配 accessUrl 时兜底成
+     * 应用内公开路由 {@code /files/public/{path}}。
+     *
+     * <p><b>这是唯一能直接塞进 {@code <img src>} / {@code <video src>} 的字段</b>
+     * —— {@link #previewUrl} / {@link #downloadUrl} 都要 {@code Authorization} 头。
      */
     private String filePath;
     
@@ -101,12 +108,17 @@ public class FileInfoVO {
     
     
     /**
-     * 文件预览链接
+     * 文件预览链接（应用内按 ID 的路由 {@code /files/preview/{id}}）
+     *
+     * <p>需要 {@code Authorization} 头 + {@code system:file:view} 权限，
+     * 响应带 {@code nosniff} / {@code CSP: sandbox}。
+     * <b>不能</b>当图片地址用 —— {@code <img>} 带不了请求头。要展示图片用 {@link #filePath}。
      */
     private String previewUrl;
     
     /**
-     * 文件下载链接
+     * 文件下载链接（{@code /files/download/{id}}），鉴权要求同 {@link #previewUrl}，
+     * 响应多一个 {@code Content-Disposition: attachment}
      */
     private String downloadUrl;
     
@@ -130,11 +142,6 @@ public class FileInfoVO {
      */
     private String thumbnailUrl;
     
-    
-    /**
-     * 访问类型
-     */
-    private Integer accessType;
     
     /**
      * 创建时间

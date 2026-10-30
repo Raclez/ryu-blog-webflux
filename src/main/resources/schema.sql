@@ -323,7 +323,6 @@ CREATE TABLE IF NOT EXISTS `t_file` (
     `storage_type`      varchar(50)  DEFAULT NULL COMMENT '存储类型',
     `checksum`          varchar(255) DEFAULT NULL COMMENT '校验和',
     `description`       text         DEFAULT NULL COMMENT '描述',
-    `access_type`       int          DEFAULT NULL COMMENT '访问权限：0-公开，1-私有，2-指定用户，3-分享链接',
     `create_time`       datetime     DEFAULT NULL COMMENT '创建时间',
     `update_time`       datetime     DEFAULT NULL COMMENT '更新时间',
     `is_deleted`        tinyint(1)   DEFAULT 0 COMMENT '是否删除',

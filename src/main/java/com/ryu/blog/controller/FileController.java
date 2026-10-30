@@ -431,10 +431,8 @@ public class FileController {
      * 存储策略 {@code getPublicUrl} 在没有配置对象存储访问地址时（本地存储），
      * 兜底地址就指向这里。
      *
-     * <p><b>它是匿名的，但应用内必须再判一次可见性</b>：路由白名单只保证
-     * 「不用登录」，不保证「这个文件可以公开看」。判定在
-     * {@code FileDownloadService#downloadPublicByPath} 里 ——
-     * {@code access_type != 0} 一律 403。
+     * <p><b>它是匿名的，且不做可见性判定</b>：文件可见性已下线
+     * （对象存储桶本身匿名可读，那个字段只制造「私有文件是安全的」这种错觉）。
      *
      * <p>响应头与预览接口一致：{@code nosniff} 禁止 MIME 嗅探，
      * {@code CSP: sandbox} 让内联 HTML/SVG 无法执行脚本。
@@ -443,7 +441,7 @@ public class FileController {
      * @return 文件资源
      */
     @GetMapping("/public/{*path}")
-    @Operation(summary = "公开文件访问", description = "按存储路径访问公开文件（仅限 access_type=0）")
+    @Operation(summary = "公开文件访问", description = "按存储路径访问文件（匿名可达）")
     public Mono<ResponseEntity<Flux<DataBuffer>>> publicFile(@PathVariable("path") String path) {
         log.info("访问公开文件: path={}", path);
 

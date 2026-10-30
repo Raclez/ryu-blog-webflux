@@ -159,7 +159,6 @@ public class FileUploadService {
         private Long fileSize;
         private Long userId;
         private String description;
-        private Boolean isPublic;
         private String tempDir;
 
         /**
@@ -537,9 +536,6 @@ public class FileUploadService {
                                     if (options.getDescription() != null) {
                                         metadata.put("description", options.getDescription());
                                     }
-                                    if (options.getAccess() != null) {
-                                        metadata.put("access", options.getAccess());
-                                    }
                                     if (options.getStorage() != null) {
                                         metadata.put("storage", options.getStorage());
                                     }
@@ -552,7 +548,6 @@ public class FileUploadService {
                                         // 会话归属真实登录用户，不用客户端可控的参数当身份
                                         .userId(uploaderId)
                                         .description(options != null ? options.getDescription() : null)
-                                        .isPublic(options != null && "public".equals(options.getAccess()))
                                         // 钉住会话创建时的策略：中途切策略会让分片找不到家
                                         .strategyKey(strategy.getStrategyKey())
                                         .createTime(LocalDateTime.now())
@@ -1008,7 +1003,6 @@ public class FileUploadService {
         // 导致归属校验（删除/修改只能操作自己的文件）完全没有意义。
         file.setCreatorId(uploaderId);
         file.setDescription(options != null ? options.getDescription() : null);
-        file.setAccessType(options != null && "public".equals(options.getAccess()) ? 0 : 1); // 0-公开, 1-私有
         file.setStatus(1); // 1-激活
         file.setStorageType(storageType);
         file.setChecksum(checksum);
@@ -1054,7 +1048,6 @@ public class FileUploadService {
         // 如果用户提供了选项，复制这些选项
         if (options != null) {
             mergedOptions.setDescription(options.getDescription());
-            mergedOptions.setAccess(options.getAccess());
             mergedOptions.setStorage(options.getStorage());
             mergedOptions.setVersionPolicy(options.getVersionPolicy());
             mergedOptions.setVersionTag(options.getVersionTag());
@@ -1064,9 +1057,6 @@ public class FileUploadService {
         // 从上传信息中填充缺失的选项
         if (mergedOptions.getDescription() == null && uploadInfo.getDescription() != null) {
             mergedOptions.setDescription(uploadInfo.getDescription());
-        }
-        if (mergedOptions.getAccess() == null && uploadInfo.getIsPublic() != null) {
-            mergedOptions.setAccess(uploadInfo.getIsPublic() ? "public" : "private");
         }
 
         return mergedOptions;

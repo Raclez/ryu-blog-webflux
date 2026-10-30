@@ -252,20 +252,17 @@ class FileLifecycleAcceptanceTest {
     // ==================================================================
 
     @Test
-    @DisplayName("跨用户访问私有文件 → 403 / 搜不到")
-    void strangerCannotTouchPrivateFile() {
+    @DisplayName("跨用户访问：读放开（文件一律公开），写仍然只有主人/管理员")
+    void strangerCanReadButCannotWrite() {
         FileUploadVO uploaded = uploadService
                 .handleFileUpload(filePart("private.txt", CONTENT), new UploadOptionsDTO(), OWNER_ID)
                 .block();
         Long fileId = uploaded.getFileId();
 
-        // 下载 → 403
-        assertThrows(PermissionDeniedException.class,
-                () -> downloadService.downloadById(fileId, STRANGER).block());
-
-        // 详情 → 403
-        assertThrows(PermissionDeniedException.class,
-                () -> metadataService.getFileInfo(fileId, STRANGER).block());
+        // 读 → 放行：文件可见性已下线（对象存储桶本身匿名可读，
+        // 那个字段挡不住直链，只制造「私有文件是安全的」这种错觉）
+        assertNotNull(downloadService.downloadById(fileId, STRANGER).block());
+        assertNotNull(metadataService.getFileInfo(fileId, STRANGER).block());
 
         // 删除 → 403
         assertThrows(PermissionDeniedException.class,
@@ -279,24 +276,6 @@ class FileLifecycleAcceptanceTest {
 
         // 文件还在（越权删除没有生效）
         assertTrue(Boolean.FALSE.equals(store.get(fileId).getIsDeleted()));
-    }
-
-    @Test
-    @DisplayName("公开文件：其他登录用户可读，但依然不可改不可删")
-    void publicFileIsReadableByStrangerButNotWritable() {
-        UploadOptionsDTO options = new UploadOptionsDTO();
-        options.setAccess("public");
-        FileUploadVO uploaded = uploadService
-                .handleFileUpload(filePart("public.txt", CONTENT), options, OWNER_ID)
-                .block();
-        Long fileId = uploaded.getFileId();
-
-        // 公开 → 他人能读
-        assertNotNull(downloadService.downloadById(fileId, STRANGER).block());
-
-        // 但公开不等于可写
-        assertThrows(PermissionDeniedException.class,
-                () -> adminService.deleteFile(fileId, STRANGER).block());
     }
 
     // ==================================================================

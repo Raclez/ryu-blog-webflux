@@ -114,8 +114,7 @@ public class SaTokenConfig {
                         // 匿名可访问 —— <img src> 带不了 Authorization 头，
                         // 按 ID 的预览路由每次访问都要 system:file:view 权限 + 请求头，
                         // 博客正文里的图根本渲染不出来。
-                        // 注意：白名单只保证「不用登录」，
-                        // 「这个文件能不能公开看」由 FileDownloadService 再判一次 access_type。
+                        // 文件可见性已下线（桶本身就是匿名可读的），这条路由不再做权限判定。
                         "/files/public/**"
                 )
                 // 鉴权方法：每次访问进入
