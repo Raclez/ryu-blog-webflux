@@ -5,7 +5,6 @@ import com.ryu.blog.entity.File;
 import com.ryu.blog.vo.FileDownloadVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
-import com.ryu.blog.vo.FileVersionVO;
 import com.ryu.blog.vo.PageResult;
 import org.springframework.http.codec.multipart.FilePart;
 import reactor.core.publisher.Flux;
@@ -130,14 +129,6 @@ public interface FileService {
      * @return 更新后的文件信息
      */
     Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO, OperatorContext ctx);
-
-    /**
-     * 获取文件版本历史
-     * @param fileId 文件ID
-     * @param ctx   操作者上下文 —— 用于可见性判定
-     * @return 版本历史列表
-     */
-    Flux<FileVersionVO> getFileVersions(Long fileId, OperatorContext ctx);
 
     /**
      * 搜索文件

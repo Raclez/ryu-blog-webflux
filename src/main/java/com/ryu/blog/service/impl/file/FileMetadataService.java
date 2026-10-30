@@ -10,7 +10,6 @@ import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.strategy.StorageStrategyRegistry;
 import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.vo.FileInfoVO;
-import com.ryu.blog.vo.FileVersionVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -111,47 +110,6 @@ public class FileMetadataService {
                 })
                 .doOnSuccess(fileInfo -> log.info("更新文件信息成功: fileId={}", fileId))
                 .doOnError(error -> log.error("更新文件信息失败: fileId={}", fileId, error));
-    }
-
-    /**
-     * 获取文件版本历史
-     *
-     * @param fileId 文件ID
-     * @param ctx    操作者上下文 —— 用于可见性判定
-     * @return 版本历史
-     */
-    public Flux<FileVersionVO> getFileVersions(Long fileId, OperatorContext ctx) {
-        log.info("获取文件版本历史: fileId={}", fileId);
-
-        // 先查询文件信息，确保文件存在
-        return fileRepository.findByIdAndIsDeleted(fileId, 0)
-                .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
-                .flatMapMany(file -> {
-                    // 注意：file 必须留在这层 lambda 里 ——
-                    // 后面再 flatMap 一次的话，file 已经出了作用域，
-                    // 只能拿到 strategy 和 url，拿不到大小/创建者这些字段。
-                    return strategyRegistry.getStrategy(file.getStorageType())
-                            .flatMap(strategy -> strategy.getPublicUrl(file.getFilePath()))
-                            .map(fullUrl -> {
-                                // TODO: 替换为实际的版本查询逻辑
-                                // 当前版本库（t_file_versions）没有对应的实体与仓储，
-                                // 因此这里只返回当前版本作为占位。
-                                return FileVersionVO.builder()
-                                        .id(1L) // 版本ID通常不同于文件ID
-                                        .fileId(fileId)
-                                        .versionNumber(1)
-                                        .versionTag("v1")
-                                        .filePath(fullUrl) // 使用完整URL
-                                        .fileSize(file.getFileSize())
-                                        .formattedSize(FileUtils.formatFileSize(file.getFileSize()))
-                                        .creatorId(file.getCreatorId())
-                                        .isCurrent(true)
-                                        .createTime(Date.from(file.getCreateTime().atZone(ZoneId.systemDefault()).toInstant()))
-                                        .build();
-                            });
-                })
-                .doOnComplete(() -> log.info("获取文件版本历史完成: fileId={}", fileId))
-                .doOnError(error -> log.error("获取文件版本历史失败: fileId={}", fileId, error));
     }
 
     /**

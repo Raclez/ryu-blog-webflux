@@ -247,7 +247,6 @@ public final class CacheConstants {
     public static final String FILE_INFO_KEY_PREFIX = "info:";
     public static final String FILE_URL_KEY_PREFIX = "url:";
     public static final String FILE_DOWNLOAD_KEY_PREFIX = "download:";
-    public static final String FILE_VERSIONS_KEY_PREFIX = "versions:";
     public static final String FILE_USER_KEY_PREFIX = "user:";
     public static final String FILE_TYPE_KEY_PREFIX = "type:";
     public static final String FILE_INFOS_KEY_PREFIX = "infos:";
@@ -323,7 +322,6 @@ public final class CacheConstants {
     public static final String FILE_INFO_KEY = FILE_INFO_KEY_PREFIX;
     public static final String FILE_URL_KEY = FILE_URL_KEY_PREFIX;
     public static final String FILE_DOWNLOAD_KEY = FILE_DOWNLOAD_KEY_PREFIX;
-    public static final String FILE_VERSIONS_KEY = FILE_VERSIONS_KEY_PREFIX;
     public static final String FILE_USER_KEY = FILE_USER_KEY_PREFIX;
     public static final String FILE_TYPE_KEY = FILE_TYPE_KEY_PREFIX;
     public static final String FILE_INFOS_KEY = FILE_INFOS_KEY_PREFIX;

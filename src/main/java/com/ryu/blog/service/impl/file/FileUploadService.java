@@ -1049,8 +1049,6 @@ public class FileUploadService {
         if (options != null) {
             mergedOptions.setDescription(options.getDescription());
             mergedOptions.setStorage(options.getStorage());
-            mergedOptions.setVersionPolicy(options.getVersionPolicy());
-            mergedOptions.setVersionTag(options.getVersionTag());
             mergedOptions.setDuplicateStrategy(options.getDuplicateStrategy());
         }
 

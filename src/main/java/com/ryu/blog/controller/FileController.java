@@ -13,7 +13,6 @@ import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
-import com.ryu.blog.vo.FileVersionVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -387,23 +386,6 @@ public class FileController {
         return fileService.updateFileInfo(id, fileUpdateDTO, OperatorContext.current())
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("更新文件信息成功: id={}", id));
-    }
-
-    /**
-     * 获取文件版本历史
-     * @param id 文件ID
-     * @return 版本历史列表
-     */
-    @GetMapping("/{id}/versions")
-    @SaCheckPermission(PermissionConstants.FILE_VIEW)
-    @Operation(summary = "获取文件版本历史", description = "获取文件的所有版本历史")
-    public Mono<Result<List<FileVersionVO>>> getFileVersions(@PathVariable("id") Long id) {
-        log.info("获取文件版本历史: id={}", id);
-
-        return fileService.getFileVersions(id, OperatorContext.current())
-                .collectList()
-                .map(Result::success)
-                .doOnSuccess(result -> log.debug("获取文件版本历史成功: id={}, 版本数={}", id, result.getData().size()));
     }
 
     /**

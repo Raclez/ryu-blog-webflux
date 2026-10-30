@@ -127,11 +127,7 @@ public class FileInfoVO {
      */
     private Map<String, Object> metadata;
     
-    /**
-     * 最新版本信息
-     */
-    private FileVersionVO latestVersion;
-    
+   
     /**
      * 文件图标
      */

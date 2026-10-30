@@ -14,7 +14,6 @@ import com.ryu.blog.service.impl.file.FileUploadService;
 import com.ryu.blog.vo.FileDownloadVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
-import com.ryu.blog.vo.FileVersionVO;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -141,16 +140,6 @@ public class FileServiceImpl implements FileService {
     @CacheEvict(cacheNames = CacheConstants.FILE_CACHE, allEntries = true)
     public Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO, OperatorContext ctx) {
         return fileMetadataService.updateFileInfo(fileId, fileUpdateDTO, ctx);
-    }
-
-    @Override
-    @Cacheable(cacheNames = CacheConstants.FILE_CACHE,
-            key = "'" + CacheConstants.FILE_VERSIONS_KEY + "' + #fileId"
-                    + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentUserIdOrNull()"
-                    + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentCanManageOthers()",
-            unless = "#result == null")
-    public Flux<FileVersionVO> getFileVersions(Long fileId, OperatorContext ctx) {
-        return fileMetadataService.getFileVersions(fileId, ctx);
     }
 
     @Override

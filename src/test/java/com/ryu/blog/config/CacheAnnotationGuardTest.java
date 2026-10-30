@@ -459,7 +459,7 @@ class CacheAnnotationGuardTest {
     @DisplayName("文件缓存 key 必须带上当前用户身份与管理员标记")
     void fileCacheKeys_mustDependOnCurrentUser() throws Exception {
         List<String> cachedFileMethods = List.of(
-                "getFileInfo", "getFileVersions", "getBatchFileInfos",
+                "getFileInfo", "getBatchFileInfos",
                 "getBatchFileUrls", "getUserFiles", "getFilesByType");
 
         for (String name : cachedFileMethods) {
