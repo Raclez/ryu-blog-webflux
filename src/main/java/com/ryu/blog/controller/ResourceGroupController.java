@@ -6,7 +6,6 @@ import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.ResourceGroupUpdateDTO;
 import com.ryu.blog.service.ResourceGroupService;
 import com.ryu.blog.utils.Result;
-import com.ryu.blog.utils.SaTokenUtils;
 import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.ResourceGroupVO;
@@ -15,9 +14,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
@@ -46,10 +45,11 @@ public class ResourceGroupController {
      */
     @PostMapping("/save")
     @Operation(summary = "创建资源组", description = "创建新的资源组")
-    public Mono<Result<Void>> createResourceGroup(@Valid @RequestBody ResourceGroupCreateDTO dto, ServerWebExchange exchange) {
+    public Mono<Result<Void>> createResourceGroup(@Valid @RequestBody ResourceGroupCreateDTO dto) {
         log.info("创建资源组: name={}", dto.getGroupName());
-        
-        return resourceGroupService.createResourceGroup(dto, exchange)
+
+        Long userId = StpUtil.getLoginIdAsLong();
+        return resourceGroupService.createResourceGroup(dto, userId)
                 .then(Mono.just(Result.<Void>success()))
                 .doOnSuccess(result -> log.info("创建资源组成功: name={}", dto.getGroupName()));
     }
@@ -89,21 +89,18 @@ public class ResourceGroupController {
     /**
      * 获取当前用户的资源组
      *
-     * @param exchange 服务器交换器
      * @return 资源组列表
      */
     @GetMapping("/list")
     @Operation(summary = "获取当前用户资源组", description = "获取当前登录用户的所有资源组")
-    public Mono<Result<List<ResourceGroupVO>>> getCurrentUserResourceGroups(ServerWebExchange exchange) {
-        return SaTokenUtils.exec(exchange, StpUtil::getLoginIdAsLong)
-                .flatMap(userId -> {
-                    log.info("获取当前用户资源组: userId={}", userId);
-                    return resourceGroupService.getUserResourceGroups(userId)
-                            .collectList()
-                            .map(Result::success)
-                            .doOnSuccess(result -> log.debug("获取当前用户资源组成功: userId={}, 数量={}", 
-                                    userId, result.getData().size()));
-                });
+    public Mono<Result<List<ResourceGroupVO>>> getCurrentUserResourceGroups() {
+        Long userId = StpUtil.getLoginIdAsLong();
+        log.info("获取当前用户资源组: userId={}", userId);
+        return resourceGroupService.getUserResourceGroups(userId)
+                .collectList()
+                .map(Result::success)
+                .doOnSuccess(result -> log.debug("获取当前用户资源组成功: userId={}, 数量={}",
+                        userId, result.getData().size()));
     }
 
     /**
@@ -148,7 +145,7 @@ public class ResourceGroupController {
      */
     @GetMapping("/files")
     @Operation(summary = "获取资源组文件列表", description = "分页获取资源组中的文件ID列表，不传groupId则查询所有文件")
-    public Mono<Result<PageResult<Long>>> getGroupFileIds(@Valid ResourceGroupQueryDTO queryDTO) {
+    public Mono<Result<PageResult<Long>>> getGroupFileIds(@Valid @ParameterObject ResourceGroupQueryDTO queryDTO) {
         return resourceGroupService.getGroupFileIds(queryDTO)
                 .map(Result::success);
     }

@@ -1,7 +1,7 @@
 package com.ryu.blog.service;
 
 import net.jqwik.api.*;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -29,7 +29,7 @@ public class AiTemplateServicePropertyTest {
      * <p>验证：需求4.4
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
+    @Label("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
     void templateVariableReplacementCorrectness(
             @ForAll("templates") String template,
             @ForAll("variableMaps") Map<String, String> variables) {
@@ -65,7 +65,7 @@ public class AiTemplateServicePropertyTest {
      * 验证空变量映射不会破坏模板
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
+    @Label("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
     void emptyVariablesDoNotBreakTemplate(@ForAll("templates") String template) {
         Map<String, String> emptyVariables = new HashMap<>();
         
@@ -80,7 +80,7 @@ public class AiTemplateServicePropertyTest {
      * 验证所有变量都被替换后，不应该有占位符
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
+    @Label("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
     void allVariablesReplacedNoPlaceholders(
             @ForAll("simpleTemplates") String template,
             @ForAll("completeVariableMaps") Map<String, String> variables) {
@@ -105,7 +105,7 @@ public class AiTemplateServicePropertyTest {
      * 验证特殊字符在变量值中被正确处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
+    @Label("Feature: ai-blog-writer, Property 4: 模板变量替换正确性")
     void specialCharactersInVariableValues(
             @ForAll("simpleTemplates") String template,
             @ForAll("specialCharVariables") Map<String, String> variables) {

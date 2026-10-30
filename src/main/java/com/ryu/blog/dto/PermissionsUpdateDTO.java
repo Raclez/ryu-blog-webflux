@@ -1,6 +1,7 @@
 package com.ryu.blog.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
@@ -15,6 +16,7 @@ public class PermissionsUpdateDTO {
     @Schema(description = "权限描述")
     private String description;
 
+    @NotNull(message = "权限ID不能为空")
     private Long id;
     private Boolean isActive;
 }

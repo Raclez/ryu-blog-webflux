@@ -26,9 +26,18 @@ blog:
   ai:
     # 是否启用AI功能模块
     # true: 启用AI功能，加载所有AI相关Bean（默认）
-    # false: 禁用AI功能，不加载任何AI相关Bean，节省资源
+    # false: 禁用AI功能，不注册任何AI相关的Bean与Controller（真正关得掉）
     # 注意：启用后具体使用哪个AI提供商由数据库 t_sys_config 表配置决定
-    enabled: true
+    #
+    # 本文件通过 spring.profiles.include: ai 保证被加载
+    # （application.yml 里配置），否则 profile 不是 ai 时这份配置完全不生效。
+    enabled: ${BLOG_AI_ENABLED:true}
+
+    # 同时在飞的 AI 请求数上限（并发闸门）。
+    # Spring AI M5 的 ChatClient 底层是阻塞 RestClient，一次调用会占住一个
+    # boundedElastic 线程直到响应结束；不设上限的话并发一高会把弹性线程池打满。
+    # 超出上限直接快速失败，不排队堆积。
+    max-concurrent-requests: ${BLOG_AI_MAX_CONCURRENT:8}
 
 # ============================================
 # AI功能业务配置

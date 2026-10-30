@@ -3,6 +3,7 @@ package com.ryu.blog.service.impl;
 import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.enums.TaskType;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiBlogService;
 import com.ryu.blog.service.TaskHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 @Component
+@ConditionalOnAiEnabled
 public class AiGenerationTaskHandler implements TaskHandler<AiGenerationRequest, AiGenerationResult> {
     
     private final AiBlogService aiBlogService;
@@ -28,6 +30,14 @@ public class AiGenerationTaskHandler implements TaskHandler<AiGenerationRequest,
     @Override
     public TaskType getTaskType() {
         return TaskType.AI_GENERATION;
+    }
+
+    /**
+     * 声明请求类型：任务在 DB 里存的是 JSON，执行前由注册器按这个类型还原。
+     */
+    @Override
+    public Class<AiGenerationRequest> getRequestType() {
+        return AiGenerationRequest.class;
     }
     
     @Override

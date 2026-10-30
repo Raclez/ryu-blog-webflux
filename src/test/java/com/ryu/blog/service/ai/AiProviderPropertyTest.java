@@ -6,7 +6,7 @@ import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.NotBlank;
 import net.jqwik.api.constraints.StringLength;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 /**
  * AI提供商属性测试
@@ -32,7 +32,7 @@ public class AiProviderPropertyTest {
      * 3. 验证基本的内容质量指标（非空、长度合理）
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 7: 提供商切换透明性")
+    @Label("Feature: ai-blog-writer, Property 7: 提供商切换透明性")
     void providerInterfaceConsistency(
             @ForAll @NotBlank @StringLength(min = 10, max = 100) String prompt,
             @ForAll @IntRange(min = 100, max = 2000) int length,
@@ -64,7 +64,7 @@ public class AiProviderPropertyTest {
      * 验证生成结果的结构一致性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 7: 提供商切换透明性")
+    @Label("Feature: ai-blog-writer, Property 7: 提供商切换透明性")
     void resultStructureConsistency(@ForAll("generationResults") AiGenerationResult result) {
         // 验证所有提供商返回的结果都包含必要的字段
         assert result.getContent() != null;

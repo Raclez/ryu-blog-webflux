@@ -1,7 +1,9 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.AiContentTemplate;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiBlogService;
 import com.ryu.blog.service.AiTemplateService;
 import com.ryu.blog.utils.Result;
@@ -20,7 +22,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import javax.validation.Valid;
-import javax.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +39,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Validated
 @Tag(name = "AI模板", description = "AI内容模板管理接口")
+@ConditionalOnAiEnabled
 public class AiTemplateController {
 
     private final AiTemplateService templateService;
@@ -147,8 +149,9 @@ public class AiTemplateController {
     })
     public Mono<Result<AiGenerationResult>> generateWithTemplate(
             @Parameter(description = "模板ID") @PathVariable Long id,
-            @Parameter(description = "模板变量") @RequestBody Map<String, String> variables,
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+            @Parameter(description = "模板变量") @RequestBody Map<String, String> variables) {
+        // 用户身份以登录态为准：传别人的 userId 会去消耗别人的配额
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("使用模板生成: templateId={}, userId={}", id, userId);
         return aiBlogService.generateWithTemplate(id, variables, userId)
                 .map(Result::success);

@@ -95,11 +95,20 @@ public interface ResourceGroupFileRelRepository extends R2dbcRepository<Resource
     /**
      * 分页查询所有文件ID（不按资源组过滤）
      *
+     * <p><b>为什么不是 {@code SELECT DISTINCT ... ORDER BY create_time}</b>：
+     * MySQL 8 在 {@code DISTINCT} 下要求 {@code ORDER BY} 的表达式出现在
+     * {@code SELECT} 列表里，否则报 {@code ERROR 3065}：
+     * {@code Expression #1 of ORDER BY clause is not in SELECT list}。
+     *
+     * <p>改用 {@code GROUP BY file_id} + {@code ORDER BY MAX(create_time)}：
+     * 语义与 {@code DISTINCT} 一致（每个 file_id 一行），排序取该文件<b>最近一次</b>
+     * 关联的时间 —— 这也正是原来 {@code DISTINCT + ORDER BY create_time} 想表达的意思。
+     *
      * @param limit 分页大小
      * @param offset 偏移量
      * @return 文件ID列表
      */
-    @Query("SELECT DISTINCT file_id FROM t_resource_group_file_rels ORDER BY create_time DESC LIMIT :limit OFFSET :offset")
+    @Query("SELECT file_id FROM t_resource_group_file_rels GROUP BY file_id ORDER BY MAX(create_time) DESC LIMIT :limit OFFSET :offset")
     Flux<Long> findAllFileIds(int limit, long offset);
     
     /**

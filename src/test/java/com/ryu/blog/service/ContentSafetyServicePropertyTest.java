@@ -4,7 +4,7 @@ import net.jqwik.api.*;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -35,7 +35,7 @@ public class ContentSafetyServicePropertyTest {
      * <p>验证：需求11.1, 11.2
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void contentSafetyConsistency(
             @ForAll @StringLength(min = 50, max = 500) @AlphaChars String content) {
         
@@ -66,7 +66,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证敏感词检测的准确性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void sensitiveKeywordDetectionAccuracy(
             @ForAll("contentWithSensitiveKeyword") String content) {
         
@@ -91,7 +91,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证安全检查的幂等性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void safetyCheckIdempotency(
             @ForAll @StringLength(min = 50, max = 200) @AlphaChars String content) {
         
@@ -115,7 +115,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证空内容的处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void emptyContentHandling() {
         String emptyContent = "";
         
@@ -133,7 +133,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证大小写不敏感的检测
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void caseInsensitiveDetection(@ForAll("mixedCaseSensitiveContent") String content) {
         
         SafetyCheckResult result = checkContentSafety(content);
@@ -157,7 +157,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证多个敏感词的检测
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void multipleSensitiveKeywordsDetection(
             @ForAll @IntRange(min = 1, max = 5) int keywordCount) {
         
@@ -184,7 +184,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证安全内容的通过
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void safeContentPassThrough(
             @ForAll @StringLength(min = 50, max = 200) @AlphaChars String safeContent) {
         
@@ -213,7 +213,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证日志记录的完整性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void safetyCheckLoggingCompleteness(
             @ForAll @StringLength(min = 50, max = 200) String content) {
         
@@ -237,7 +237,7 @@ public class ContentSafetyServicePropertyTest {
      * 验证部分匹配的处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 9: 内容安全一致性")
+    @Label("Feature: ai-blog-writer, Property 9: 内容安全一致性")
     void partialMatchHandling(
             @ForAll @StringLength(min = 3, max = 10) @AlphaChars String prefix,
             @ForAll @StringLength(min = 3, max = 10) @AlphaChars String suffix) {
@@ -272,20 +272,22 @@ public class ContentSafetyServicePropertyTest {
         }
         
         // 敏感词检查
+        // 注意：isSafe 必须在这里显式赋值。原来的写法是
+        //   if (!result.isSafe) { 拒绝原因 } else { result.isSafe = true; }
+        // 而 isSafe 的初始值是 false，于是「没有命中任何敏感词」的内容
+        // 会走进 !isSafe 分支，被判成不安全，且 detectedIssues 为空。
         String lowerContent = content.toLowerCase();
         for (String keyword : SENSITIVE_KEYWORDS) {
             if (lowerContent.contains(keyword.toLowerCase())) {
-                result.isSafe = false;
                 result.detectedIssues.add(keyword);
             }
         }
-        
+
+        result.isSafe = result.detectedIssues.isEmpty();
         if (!result.isSafe) {
             result.rejectionReason = "内容包含敏感词: " + result.detectedIssues;
-        } else {
-            result.isSafe = true;
         }
-        
+
         return result;
     }
 

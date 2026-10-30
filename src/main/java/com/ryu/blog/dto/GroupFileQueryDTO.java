@@ -12,6 +12,7 @@ public class GroupFileQueryDTO {
 
     @NotNull(message = "页码不能为空")
     @Min(value = 1, message = "页码最小为1")
+    @Max(value = 10000, message = "页码最大为10000")
     private Long currentPage;
 
     @NotNull(message = "每页数量不能为空")

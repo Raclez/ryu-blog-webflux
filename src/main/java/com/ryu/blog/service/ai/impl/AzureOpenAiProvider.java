@@ -2,14 +2,12 @@ package com.ryu.blog.service.ai.impl;
 
 import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiModelInfo;
-import com.ryu.blog.dto.AiProviderConfigValue;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
 import org.springframework.ai.azure.openai.AzureOpenAiChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.List;
 
 /**
@@ -119,23 +117,5 @@ public class AzureOpenAiProvider extends AbstractChatClientProvider {
                         .available(true)
                         .build()
         ));
-    }
-
-    @Override
-    public Mono<Boolean> validateConfig(AiProviderConfigValue config) {
-        return Mono.fromCallable(() -> {
-            try {
-                String response = chatClient.prompt()
-                        .user("Hello")
-                        .call()
-                        .content();
-                return response != null && !response.isEmpty();
-            } catch (Exception e) {
-                log.error("Azure OpenAI配置验证失败", e);
-                return false;
-            }
-        })
-        .timeout(Duration.ofSeconds(10))
-        .onErrorReturn(false);
     }
 }

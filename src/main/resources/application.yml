@@ -16,13 +16,26 @@ spring:
   application:
     name: ryu-blog
   profiles:
-    active: dev
-    include: resilience4j
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+    # include 里的 profile 恒生效，与 SPRING_PROFILES_ACTIVE 无关。
+    # ai 必须在这里：application-ai.yml 里定义了 blog.ai.enabled（AI 总开关）、
+    # ai.retry.*（重试策略）等一整套 AI 配置，只有 profile 为 ai 时该文件才会被加载。
+    # 原先没有 include，这些配置全是死的——开关读不到、重试参数也不生效。
+    include: resilience4j,ai
   output:
     ansi:
       enabled: always
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  task:
+    scheduling:
+      # 定时任务线程池大小。默认是 1 —— 所有 @Scheduled 任务共用同一个线程：
+      # 任何一个慢任务（比如每天凌晨的浏览量同步、过期任务清理）都会把
+      # AsyncTaskExecutor 每 5 秒一次的队列轮询一起卡住，异步任务队列直接停摆。
+      # 调成 4 让彼此互不阻塞。
+      pool:
+        size: 4
+      thread-name-prefix: ryu-sched-
   webflux:
     base-path: /
   jackson:
@@ -104,8 +117,11 @@ logging:
     org.springframework.r2dbc: info
     io.r2dbc.pool: info
     cn.dev33.satoken: debug
+  # 注意：logback-spring.xml 把「目录」当变量用，因此这里配置的是 path 而不是 name。
+  # 原先配置 logging.file.name=logs/ryu-blog.log，logback 又在后面拼 `/${APP_NAME}-error.log`
+  # → 实际路径变成 logs/ryu-blog.log/ryu-blog-error.log（把文件当目录），四个滚动文件全部写不出来。
   file:
-    name: logs/ryu-blog.log
+    path: logs
   logback:
     rollingpolicy:
       max-file-size: 10MB
@@ -115,11 +131,13 @@ logging:
 management:
   endpoints:
     web:
+      # 只暴露健康检查与指标；env / heapdump / loggers（可被 POST 改日志级别）
+      # 一律不开放 —— 这些端点一旦暴露，任意登录用户都能读到内存中的密钥。
       exposure:
-        include: "*"
+        include: health,info,metrics
   endpoint:
     health:
-      show-details: always
+      show-details: when_authorized
   metrics:
     export:
       simple:

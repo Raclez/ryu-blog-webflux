@@ -24,7 +24,7 @@ import org.springframework.data.relational.core.mapping.Table;
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 @Table("t_ai_content_template")
 public class AiContentTemplate extends BaseEntity {
 

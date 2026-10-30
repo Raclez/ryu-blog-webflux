@@ -1,6 +1,7 @@
 package com.ryu.blog.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 /**
@@ -22,6 +23,7 @@ public class ViewHistoryDTO {
      * 被浏览文章的唯一标识
      */
     @Schema(description = "被浏览文章的唯一标识")
+    @NotNull(message = "文章ID不能为空")
     private Long postId;
 
     @Schema(description = "浏览时长（秒）")

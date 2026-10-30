@@ -56,6 +56,9 @@ public class PostAdminListVO {
     @Schema(description = "是否允许评论")
     private Boolean allowComment;
 
+    @Schema(description = "是否置顶")
+    private Boolean isSticky;
+
 
     private String visibility;
 

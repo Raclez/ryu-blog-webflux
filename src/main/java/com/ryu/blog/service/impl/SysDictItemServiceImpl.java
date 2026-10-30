@@ -16,10 +16,12 @@ import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictItemVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -50,6 +52,20 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     private final SysDictTypeRepository dictTypeRepository;
     private final SysDictTypeService dictTypeService;
     private final SysDictItemMapper sysDictItemMapper;
+
+    /**
+     * 自身代理 —— 让类内部的调用也能命中 {@code @Cacheable}。
+     *
+     * <p>Spring AOP 的 CGLIB 代理中，目标对象内部的 {@code this} 指向目标实例而不是代理，
+     * 拦截器不会触发 —— 直接写 {@code getDictItemsByType(...)} 是<b>自调用</b>，
+     * 缓存形同虚设。{@code @Lazy} 用来打破「代理依赖自己」的循环依赖。
+     */
+    private SysDictItemService self;
+
+    @Autowired
+    public void setSelf(@Lazy SysDictItemService self) {
+        this.self = self;
+    }
 
     /**
      * 基础查询方法
@@ -103,7 +119,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
         
         return Flux.fromIterable(dictTypes)
                 .flatMap(dictType -> 
-                    getDictItemsByType(dictType)
+                    self.getDictItemsByType(dictType)
                         .collectList()
                         .map(items -> Map.entry(dictType, items))
                 )
@@ -120,7 +136,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
         
         return Flux.fromIterable(dictTypeIds)
                 .flatMap(dictTypeId -> 
-                    getDictItemsByTypeId(dictTypeId)
+                    self.getDictItemsByTypeId(dictTypeId)
                         .collectList()
                         .map(items -> Map.entry(dictTypeId, items))
                 )
@@ -141,7 +157,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     
     @Override
     public Mono<String> getDictItemValue(String dictType, String key, String defaultValue) {
-        return getDictItemValue(dictType, key)
+        return self.getDictItemValue(dictType, key)
                 .defaultIfEmpty(defaultValue);
     }
     
@@ -156,7 +172,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     
     @Override
     public Mono<String> getDictItemValueById(Long dictTypeId, String key, String defaultValue) {
-        return getDictItemValueById(dictTypeId, key)
+        return self.getDictItemValueById(dictTypeId, key)
                 .defaultIfEmpty(defaultValue);
     }
 
@@ -245,7 +261,10 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     @Transactional
     @Caching(evict = {
             @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_KEY + "' + #saveDTO.dictTypeId"),
-            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+            // 按类型编码（typeCode）的那个 key 需要先查出字典类型才知道编码，
+            // 而响应式下 #result 取不到实体的属性 → 干脆清空整个字典项缓存
+            // （字典项改动很少，代价可以接受）
+            @CacheEvict(allEntries = true)
     })
     public Mono<SysDictItemVO> createDictItem(SysDictItemSaveDTO saveDTO) {
         log.debug("创建字典项: {}", saveDTO);
@@ -279,7 +298,8 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     @Caching(evict = {
             @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #dictItemDTO.id"),
             @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_KEY + "' + #dictItemDTO.dictTypeId"),
-            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_TYPE_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+            // 同上：类型编码这一维的 key 只能靠清空整个缓存来保证一致
+            @CacheEvict(allEntries = true)
     })
     public Mono<SysDictItemVO> updateDictItem(SysDictItemUpdateDTO dictItemDTO) {
         log.debug("更新字典项: {}", dictItemDTO);

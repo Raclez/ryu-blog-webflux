@@ -72,12 +72,35 @@ public interface AiGenerationHistoryRepository extends ReactiveCrudRepository<Ai
     /**
      * 根据用户ID统计总成本
      *
+     * <p>注意：表里的列名是 {@code cost}，原先这里写的是 {@code estimated_cost}，
+     * 一旦调用就是 SQL 报错（Unknown column）。
+     *
      * @param userId 用户ID
      * @param isDeleted 是否删除
      * @return 总成本
      */
-    @Query("SELECT COALESCE(SUM(estimated_cost), 0.0) FROM t_ai_generation_history WHERE user_id = :userId AND is_deleted = :isDeleted")
+    @Query("SELECT COALESCE(SUM(cost), 0.0) FROM t_ai_generation_history WHERE user_id = :userId AND is_deleted = :isDeleted")
     Mono<Double> sumCostByUserIdAndIsDeleted(Long userId, Integer isDeleted);
+
+    /**
+     * 根据用户ID、删除标记与时间范围查询生成历史
+     *
+     * <p>原先的 {@code findByUserIdAndCreateTimeBetween(userId, start, end, isDeleted)}
+     * 派生查询里根本没有 isDeleted 这个条件（方法名没写），多出来的第 4 个参数被静默忽略，
+     * 于是已删除的记录也被算进统计。
+     *
+     * @param userId 用户ID
+     * @param isDeleted 删除标记
+     * @param startTime 开始时间
+     * @param endTime 结束时间
+     * @return 生成历史
+     */
+    @Query("SELECT * FROM t_ai_generation_history "
+            + "WHERE user_id = :userId AND is_deleted = :isDeleted "
+            + "AND create_time BETWEEN :startTime AND :endTime ORDER BY create_time DESC")
+    Flux<AiGenerationHistory> findByUserIdAndIsDeletedAndCreateTimeBetween(Long userId, Integer isDeleted,
+                                                                             LocalDateTime startTime,
+                                                                             LocalDateTime endTime);
 
     /**
      * 查询所有生成历史（按创建时间倒序）
@@ -99,11 +122,16 @@ public interface AiGenerationHistoryRepository extends ReactiveCrudRepository<Ai
     /**
      * 根据用户ID和时间范围查询生成历史
      *
+     * <p>⚠️ 不要再用这个方法：派生查询里没有 isDeleted 条件（方法名里没写），
+     * 多出来的第 4 个参数会被<b>静默忽略</b>，已删除的记录也会被查出来。
+     * 请改用 {@link #findByUserIdAndIsDeletedAndCreateTimeBetween}。
+     *
      * @param userId 用户ID
      * @param startTime 开始时间
      * @param endTime 结束时间
-     * @param isDeleted 是否删除
+     * @param isDeleted 是否删除（被忽略）
      * @return 生成历史列表
      */
+    @Deprecated
     Flux<AiGenerationHistory> findByUserIdAndCreateTimeBetween(Long userId, LocalDateTime startTime, LocalDateTime endTime, Integer isDeleted);
 }

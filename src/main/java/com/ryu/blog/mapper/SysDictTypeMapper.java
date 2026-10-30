@@ -5,6 +5,8 @@ import com.ryu.blog.dto.SysDictTypeUpdateDTO;
 import com.ryu.blog.entity.SysDictType;
 import com.ryu.blog.vo.SysDictTypeVO;
 import org.mapstruct.Mapper;
+import org.mapstruct.ReportingPolicy;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
 import org.mapstruct.MappingTarget;
 
@@ -15,7 +17,7 @@ import java.util.List;
  *
  * @author ryu 475118582@qq.com
  */
-@Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
+@Mapper(unmappedTargetPolicy = ReportingPolicy.ERROR, componentModel = MappingConstants.ComponentModel.SPRING)
 public interface SysDictTypeMapper {
 
     /**
@@ -37,9 +39,16 @@ public interface SysDictTypeMapper {
     /**
      * 添加DTO转实体
      *
+     * <p>id / createTime / updateTime / isDeleted 由服务端掌控，
+     * 显式忽略，避免客户端通过 DTO 越权写入（mass assignment）。
+     *
      * @param dto 添加DTO
      * @return 实体
      */
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "createTime", ignore = true)
+    @Mapping(target = "updateTime", ignore = true)
+    @Mapping(target = "isDeleted", ignore = true)
     SysDictType toEntity(SysDictTypeAddDTO dto);
 
     /**
@@ -48,14 +57,20 @@ public interface SysDictTypeMapper {
      * @param dto 更新DTO
      * @return 实体
      */
+    @Mapping(target = "createTime", ignore = true)
+    @Mapping(target = "updateTime", ignore = true)
+    @Mapping(target = "isDeleted", ignore = true)
     SysDictType toEntity(SysDictTypeUpdateDTO dto);
 
     /**
      * 更新实体
      *
      * @param dto 更新DTO
-     * @param entity 要更新的实体
+     * @param entity 现有实体
      * @return 更新后的实体
      */
+    @Mapping(target = "createTime", ignore = true)
+    @Mapping(target = "updateTime", ignore = true)
+    @Mapping(target = "isDeleted", ignore = true)
     SysDictType updateEntity(SysDictTypeUpdateDTO dto, @MappingTarget SysDictType entity);
-} 
+}

@@ -1,9 +1,12 @@
 package com.ryu.blog.strategy.impl;
 
+import com.ryu.blog.constant.SystemConstants;
 import com.ryu.blog.entity.StorageConfig;
 import com.ryu.blog.event.ConfigChangeEvent;
+import com.ryu.blog.strategy.BatchDeleteCapable;
 import com.ryu.blog.strategy.ConfigurableStorageStrategy;
 import com.ryu.blog.strategy.FileStorageStrategy;
+import com.ryu.blog.strategy.MultipartCapable;
 import com.ryu.blog.strategy.StorageConfigManager;
 import com.ryu.blog.utils.FileUtils;
 import jakarta.annotation.PostConstruct;
@@ -31,7 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @RequiredArgsConstructor
-public abstract class AbstractFileStorageStrategy implements ConfigurableStorageStrategy, FileStorageStrategy {
+public abstract class AbstractFileStorageStrategy implements ConfigurableStorageStrategy, FileStorageStrategy,
+        MultipartCapable, BatchDeleteCapable {
     
     // 分片上传缓存
     protected final Map<String, Map<String, Object>> multipartUploadCache = new ConcurrentHashMap<>();
@@ -268,7 +272,13 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
         return "";
     }
     
-    @Override
+    /**
+     * 把 {@link FilePart} 转成流再交给 {@link #uploadFile(Flux, String, long)}。
+     *
+     * <p>它已经<b>不在核心接口上</b>了：核心接口只保留真正通用的那 6 个方法，
+     * 带 {@code FilePart} 的重载只有极少数调用方需要，不该让每个策略都去实现。
+     * 这里留着是为了不打断已有的子类覆写。
+     */
     public Mono<String> uploadFile(FilePart filePart) {
         // 默认实现：将FilePart转换为DataBuffer流，然后调用另一个uploadFile方法
         String fileName = filePart.filename();
@@ -309,67 +319,12 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
                         result.values().stream().filter(Boolean::booleanValue).count()));
     }
     
-    @Override
-    public Mono<Boolean> fileExists(String path) {
-        // 默认实现：不支持检查文件是否存在，子类需要覆盖此方法
-        log.warn("[{}] 不支持检查文件是否存在: path={}", getStrategyKey(), path);
-        return Mono.just(false);
-    }
-    
-    @Override
-    public Mono<Map<String, Object>> getMetadata(String path) {
-        // 默认实现：不支持获取文件元数据，子类需要覆盖此方法
-        log.warn("[{}] 不支持获取文件元数据: path={}", getStrategyKey(), path);
-        return Mono.just(new HashMap<>());
-    }
-    
-    @Override
-    public Mono<String> generatePreviewUrl(String path, long expireSeconds) {
-        // 默认实现：直接使用公共URL
-        log.debug("[{}] 生成文件预览URL: path={}, expireSeconds={}", getStrategyKey(), path, expireSeconds);
-        return getPublicUrl(path);
-    }
-    
-    @Override
-    public Mono<String> generateDownloadUrl(String path, long expireSeconds) {
-        // 默认实现：使用公共URL，添加下载参数
-        log.debug("[{}] 生成文件下载URL: path={}, expireSeconds={}", getStrategyKey(), path, expireSeconds);
-        String filename = extractFileName(path);
-        
-        return getPublicUrl(path)
-            .map(url -> {
-                // 添加下载参数
-                if (url.contains("?")) {
-                    url += "&";
-                } else {
-                    url += "?";
-                }
-                
-                url += "download=true";
-                
-                if (StringUtils.hasText(filename)) {
-                    url += "&filename=" + filename;
-                }
-                
-                return url;
-            });
-    }
-    
-    @Override
-    public Mono<String> calculateFileChecksum(String path) {
-        // 默认实现：不支持计算文件校验和，子类需要覆盖此方法
-        log.warn("[{}] 不支持计算文件校验和: path={}", getStrategyKey(), path);
-        return Mono.error(new UnsupportedOperationException("不支持计算文件校验和"));
-    }
-    
-    @Override
-    public Mono<String> generateThumbnail(String filePath, String thumbnailPath, int width, int height) {
-        // 默认实现：不支持生成缩略图
-        log.warn("[{}] 不支持生成缩略图: filePath={}, thumbnailPath={}, width={}, height={}", 
-                getStrategyKey(), filePath, thumbnailPath, width, height);
-        return Mono.error(new UnsupportedOperationException("不支持生成缩略图"));
-    }
-    
+    // 元数据 / 校验和 / 缩略图 / 签名 URL 这几项能力已经从核心接口上拆走，
+    // 默认实现也一并删掉：留着「返回 false / 返回空 Map / 抛 UnsupportedOperationException」
+    // 只会让不支持的策略看起来像支持的。要提供这些能力，子类就去实现对应的
+    // MetadataCapable / ChecksumCapable / ThumbnailCapable / PresignCapable ——
+    // 没实现的策略会在调用前被 StorageCapabilities 拒绝。
+
     @Override
     public Mono<Map<String, String>> initiateMultipartUpload(String fileName, long fileSize, Map<String, String> storageParams) {
         // 默认实现：创建一个简单的内存缓存，用于模拟分片上传
@@ -464,26 +419,31 @@ public abstract class AbstractFileStorageStrategy implements ConfigurableStorage
     /**
      * 获取文件的公共永久URL（不需要身份验证，适用于博客图片等公开内容）
      * 默认实现使用基本的访问URL构建，子类可以根据需要覆盖此方法
-     * 
+     *
+     * <p><b>兜底地址必须指向真实存在的路由</b>：没有配置对象存储访问地址时
+     * （本地存储就是这样），返回应用内的公开直链
+     * {@code GET /files/public/{path}}。早先这里兜底到 {@code /api/files/public/**}，
+     * 而项目根本没有 {@code /api} 前缀（{@code webflux.base-path: /}）——
+     * 那是一条死链，前端拿到 URL 才发现图裂了。
+     *
      * @param path 文件路径
      * @return 公共永久URL
      */
     @Override
     public Mono<String> getPublicUrl(String path) {
-        return getAccessUrlAsync()
-            .map(accessUrl -> {
+        String normalizedPath = normalizePath(path);
 
-                // 处理路径和URL拼接
-                String normalizedPath = normalizePath(path);
+        return getAccessUrlAsync()
+            // 空串等价于「没配」：DB 里的 access_url 可能是 NULL，也可能是 ''
+            .filter(StringUtils::hasText)
+            .map(accessUrl -> {
                 if (accessUrl.endsWith("/")) {
                     accessUrl = accessUrl.substring(0, accessUrl.length() - 1);
                 }
-                if (normalizedPath.startsWith("/")) {
-                    normalizedPath = normalizedPath.substring(1);
-                }
                 return accessUrl + "/" + normalizedPath;
             })
-            .defaultIfEmpty("/api/files/public/" + path); // 如果没有配置访问URL，使用默认API路径
+            // 没有配置访问地址 → 走应用内公开路由
+            .defaultIfEmpty(SystemConstants.PUBLIC_FILE_ROUTE_PREFIX + normalizedPath);
     }
 
     /**

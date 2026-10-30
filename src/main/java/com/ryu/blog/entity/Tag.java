@@ -20,7 +20,7 @@ import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_tags")
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 public class Tag extends BaseEntity {
 
     /**

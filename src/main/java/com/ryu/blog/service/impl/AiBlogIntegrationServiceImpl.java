@@ -4,6 +4,7 @@ import com.ryu.blog.constant.SystemConstants;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.Posts;
 import com.ryu.blog.repository.PostsRepository;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiBlogIntegrationService;
 import com.ryu.blog.service.AiContentAnalyzer;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import java.util.List;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class AiBlogIntegrationServiceImpl implements AiBlogIntegrationService {
 
     private final PostsRepository postsRepository;

@@ -22,7 +22,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_file")
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 public class File extends BaseEntity {
 
     /**
@@ -81,13 +81,7 @@ public class File extends BaseEntity {
     @Column("storage_type")
     private String storageType;
 
-    /**
-     * 文件URL
-     */
-    @Column("cdn_url")
-    private String cdnUrl;
-
-    /**
+        /**
      * 文件校验码（MD5）
      */
     @Column("checksum")
@@ -105,29 +99,4 @@ public class File extends BaseEntity {
     @Column("access_type")
     private Integer accessType;
 
-    /**
-     * 分享访问秘钥，用于链接分享
-     */
-    @Column("share_key")
-    private String shareKey;
-
-    /**
-     * 分享访问过期时间
-     */
-    @Column("share_expire_time")
-    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime shareExpireTime;
-
-    /**
-     * 是否有缩略图
-     */
-    @Column("has_thumbnail")
-    private Boolean hasThumbnail;
-
-    /**
-     * 缩略图路径
-     */
-    @Column("thumbnail_path")
-    private String thumbnailPath;
-} 
+}

@@ -1,5 +1,6 @@
 package com.ryu.blog.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.experimental.SuperBuilder;
 import lombok.Data;
@@ -20,7 +21,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_users")
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 public class User extends BaseEntity {
     
     /**
@@ -45,7 +46,12 @@ public class User extends BaseEntity {
 
     /**
      * 用户密码的哈希值
+     *
+     * <p>{@code @JsonIgnore}：绝不能随响应体序列化出去。
+     * 即便所有对外接口都改用 VO，这层保险也要留着 ——
+     * 任何一处「返回实体」都会立刻变成密码哈希泄漏。
      */
+    @JsonIgnore
     private String password;
 
     /**

@@ -18,7 +18,7 @@ import org.springframework.data.relational.core.mapping.Table;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_resource_groups")
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 public class ResourceGroup extends BaseEntity {
 
     /**

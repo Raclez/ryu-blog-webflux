@@ -1,11 +1,18 @@
 package com.ryu.blog.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.constant.CacheConstants;
+import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.constant.SystemConstants;
+import com.ryu.blog.dto.OperatorContext;
+import com.ryu.blog.dto.RegisterDTO;
 import com.ryu.blog.dto.UserDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
+import com.ryu.blog.entity.Role;
 import com.ryu.blog.entity.User;
 import com.ryu.blog.entity.UserRole;
 import com.ryu.blog.exception.BusinessException;
+import com.ryu.blog.exception.PermissionDeniedException;
 import com.ryu.blog.mapper.UserMapper;
 import com.ryu.blog.repository.RoleRepository;
 import com.ryu.blog.repository.UserRepository;
@@ -16,22 +23,29 @@ import com.ryu.blog.vo.UserInfoVO;
 import com.ryu.blog.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
-import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -48,12 +62,20 @@ public class UserServiceImpl implements UserService {
     private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
     private final UserMapper userMapper;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final UserPermissionCache permissionCache;
+    private final UserPermissionResolver userPermissionResolver;
+    private final CacheManager cacheManager;
 
     private UserService self;
 
-    private static final String USER_CACHE_KEY = "user:";
-    private static final String USER_LIST_CACHE_KEY = "user:list:";
     private static final String USER_COUNT_CACHE_KEY = "user:count";
+
+    /** 随机口令的字符集 */
+    private static final String PASSWORD_CHARS =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    /** 随机口令长度 */
+    private static final int PASSWORD_LENGTH = 12;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     public UserServiceImpl(
             UserRepository userRepository,
@@ -61,13 +83,19 @@ public class UserServiceImpl implements UserService {
             UserRoleRepository userRoleRepository,
             ReactiveRedisTemplate<String, Object> reactiveRedisTemplate,
             UserMapper userMapper,
-            BCryptPasswordEncoder passwordEncoder) {
+            BCryptPasswordEncoder passwordEncoder,
+            UserPermissionCache permissionCache,
+            UserPermissionResolver userPermissionResolver,
+            CacheManager cacheManager) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
         this.reactiveRedisTemplate = reactiveRedisTemplate;
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.permissionCache = permissionCache;
+        this.userPermissionResolver = userPermissionResolver;
+        this.cacheManager = cacheManager;
     }
     
     // Setter 注入 self，使用 @Lazy 避免循环依赖
@@ -103,110 +131,67 @@ public class UserServiceImpl implements UserService {
     }
 
     private Mono<User> createUserInternal(User user) {
+        // 【安全】客户端可能带了 id —— 必须清掉。
+        // Spring Data R2DBC 的 save() 在 id 非空时走 UPDATE 分支（isNew == false），
+        // 不清 id 的话 `POST /auth/register {"id":1,...}` 会直接改写 id=1 那一行，
+        // 连 admin 的密码一起换掉 —— 未认证即可接管任意账号。
+        user.setId(null);
+
         // 设置默认值
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         user.setIsDeleted(false);
-        
-        if (user.getStatus() == null) {
-            user.setStatus(1);
-        }
-        
-        // 使用HuTool的SecureUtil加密密码
+
+        // 新建用户一律「正常」：状态有专用的改状态接口（system:user:status），
+        // 不接受调用方在建号时就把状态定下来。
+        user.setStatus(1);
+
+        // 使用 BCrypt 加密密码
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        
+
         return userRepository.save(user)
                 .flatMap(savedUser -> clearUserCache(savedUser.getId())
                         .then(reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).then())
+                        .then(assignDefaultRole(savedUser.getId()))
                         .thenReturn(savedUser));
     }
 
-    @Override
-    @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #user.id", condition = "#user.id != null")
-    public Mono<User> updateUser(User user) {
-        return userRepository.findById(user.getId())
-                .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
-                .flatMap(existingUser -> {
-                    // 如果用户名有变化，需要检查是否已存在
-                    if (user.getUsername() != null && !user.getUsername().equals(existingUser.getUsername())) {
-                        return checkUsernameExists(user.getUsername())
-                                .flatMap(exists -> {
-                                    if (Boolean.TRUE.equals(exists)) {
-                                        return Mono.error(BusinessException.usernameExists());
-                                    }
-                                    return updateUserFields(existingUser, user);
-                                });
-                    }
-                    
-                    // 如果邮箱有变化，需要检查是否已存在
-                    if (user.getEmail() != null && !user.getEmail().equals(existingUser.getEmail())) {
-                        return checkEmailExists(user.getEmail())
-                                .flatMap(exists -> {
-                                    if (Boolean.TRUE.equals(exists)) {
-                                        return Mono.error(BusinessException.emailExists());
-                                    }
-                                    return updateUserFields(existingUser, user);
-                                });
-                    }
-                    
-                    return updateUserFields(existingUser, user);
-                });
-    }
-
-    private Mono<User> updateUserFields(User existingUser, User user) {
-        // 更新基本信息
-        if (user.getUsername() != null) {
-            existingUser.setUsername(user.getUsername());
-        }
-        if (user.getNickname() != null) {
-            existingUser.setNickname(user.getNickname());
-        }
-        if (user.getAvatar() != null) {
-            existingUser.setAvatar(user.getAvatar());
-        }
-        if (user.getEmail() != null) {
-            existingUser.setEmail(user.getEmail());
-        }
-        if (user.getPhone() != null) {
-            existingUser.setPhone(user.getPhone());
-        }
-        if (user.getBio() != null) {
-            existingUser.setBio(user.getBio());
-        }
-        if (user.getStatus() != null) {
-            existingUser.setStatus(user.getStatus());
-        }
-        
-        if (user.getPassword() != null && !user.getPassword().isEmpty()) {
-            existingUser.setPassword(passwordEncoder.encode(user.getPassword()));
-        }
-        
-        existingUser.setUpdateTime(LocalDateTime.now());
-        
-        return userRepository.save(existingUser)
-                .doOnSuccess(savedUser -> {
-                    // 清除缓存
-                    clearUserCache(savedUser.getId());
+    /**
+     * 给新用户分配默认角色
+     *
+     * <p>原先注册流程完全不写 {@code t_user_roles}，而 {@code getDefaultRole()}
+     * 全仓库只有 {@code GET /roles/default} 一个读取点 —— 结果是
+     * <b>注册出来的用户永远没有任何角色</b>。
+     *
+     * <p>显式指定角色的场景（{@code createUserWithRoles}）会在之后覆盖这个默认值。
+     */
+    private Mono<Void> assignDefaultRole(Long userId) {
+        return roleRepository.findDefaultRoles()
+                .next()
+                .flatMap(role -> {
+                    UserRole userRole = new UserRole();
+                    userRole.setUserId(userId);
+                    userRole.setRoleId(role.getId());
+                    userRole.setCreateTime(LocalDateTime.now());
+                    userRole.setUpdateTime(LocalDateTime.now());
+                    return userRoleRepository.save(userRole).then();
+                })
+                .doOnSuccess(v -> log.debug("已为新用户分配默认角色: userId={}", userId))
+                .onErrorResume(e -> {
+                    log.warn("分配默认角色失败: userId={}, error={}", userId, e.getMessage());
+                    return Mono.empty();
                 });
     }
 
     @Override
     @Cacheable(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<User> getUserById(Long id) {
-        // 先尝试从缓存中获取
-        String key = USER_CACHE_KEY + id;
-        return reactiveRedisTemplate.opsForValue().get(key)
-                .cast(User.class)
-                .switchIfEmpty(
-                        userRepository.findById(id)
-                                .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
-                                .flatMap(user -> {
-                                    // 更新缓存
-                                    return reactiveRedisTemplate.opsForValue().set(key, user, Duration.ofHours(1))
-                                            .thenReturn(user);
-                                })
-                );
+        // 只保留 @Cacheable 一层缓存。
+        // 原先这里同时维护了手写 Redis（键 "user:{id}"，TTL 1 小时）与 @Cacheable
+        // （键 "user:id:{id}"，TTL 30 分钟）两套键空间，而 clearUserCache 只删前者 ——
+        // 两层的 TTL 与失效规则对不上，改密后旧密码能在 TTL 内继续登录。
+        return userRepository.findById(id)
+                .switchIfEmpty(Mono.error(BusinessException.userNotFound()));
     }
 
     @Override
@@ -218,8 +203,10 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
-    public Mono<Void> deleteUser(Long id) {
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
+    public Mono<Void> deleteUser(OperatorContext ctx, Long id) {
+        requireNotSelf(ctx, id, "不能删除自己");
+        requireNotSuperAdmin(id, "不能删除超级管理员");
         return userRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                 .flatMap(user -> {
@@ -230,7 +217,11 @@ public class UserServiceImpl implements UserService {
                             .flatMap(savedUser -> {
                                 return userRoleRepository.deleteByUserId(savedUser.getId())
                                         .then(clearUserCache(user.getId()))
-                                        .then(reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).then());
+                                        .then(reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).then())
+                                        // 吊销该用户已签发的 token，否则删除后仍能继续访问
+                                        .then(kickout(savedUser.getId()))
+                                        // 权限快照失效
+                                        .then(permissionCache.evict(savedUser.getId()));
                             });
                 });
     }
@@ -252,23 +243,32 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
-    public Mono<Integer> updateUserStatus(Long id, Integer status) {
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
+    public Mono<Integer> updateUserStatus(OperatorContext ctx, Long id, Integer status) {
+        requireNotSelf(ctx, id, "不能修改自己的状态");
+        requireNotSuperAdmin(id, "不能修改超级管理员的状态");
         return userRepository.updateStatus(id, status)
-                .doOnSuccess(result -> {
-                    // 清除缓存
-                    clearUserCache(id);
-                });
+                .flatMap(result -> clearUserCache(id)
+                        .then(kickout(id))
+                        .then(permissionCache.evict(id))
+                        .thenReturn(result));
     }
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
-    public Mono<Void> updateUserRoles(Long userId, List<Long> roleIds) {
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
+    public Mono<Void> updateUserRoles(OperatorContext ctx, Long userId, List<Long> roleIds) {
+        // 【安全】不能给自己改角色 —— 这是最直接的提权路径：
+        // 「给自己一个 admin 角色」比任何别的漏洞都好利用。
+        requireNotSelf(ctx, userId, "不能修改自己的角色");
+        requireNotSuperAdmin(userId, "不能修改超级管理员的角色");
+
         // 先删除原有的用户角色关联
         return userRoleRepository.deleteByUserId(userId)
                 .then(Flux.fromIterable(roleIds)
-                        .flatMap(roleId -> {
+                        .concatMap(roleId -> {
+                            // concatMap：@Transactional 内共用同一条 R2DBC 连接，
+                            // flatMap 的并发执行会让语句在同一连接上交错
                             UserRole userRole = new UserRole();
                             userRole.setUserId(userId);
                             userRole.setRoleId(roleId);
@@ -276,11 +276,11 @@ public class UserServiceImpl implements UserService {
                             userRole.setUpdateTime(LocalDateTime.now());
                             return userRoleRepository.save(userRole);
                         })
-                        .then()
-                        .doOnSuccess(v -> {
-                            // 清除缓存
-                            clearUserCache(userId);
-                        }));
+                        .then())
+                // 清除缓存（必须串进响应式链，doOnSuccess 里构造的 Mono 不会被订阅）
+                .then(clearUserCache(userId))
+                // 角色变了，权限快照必须立刻重建，否则旧的权限还能继续用
+                .then(permissionCache.refresh(userId));
     }
 
     @Override
@@ -303,20 +303,35 @@ public class UserServiceImpl implements UserService {
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
     public Mono<Integer> updateLastLogin(Long id, String ip) {
         return userRepository.updateLastLogin(id, ip)
-                .doOnSuccess(result -> {
-                    // 清除缓存
-                    clearUserCache(id);
-                });
+                .flatMap(result -> clearUserCache(id).thenReturn(result));
     }
     
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
-    public Mono<Void> batchDeleteUsers(List<Long> ids) {
+    public Mono<Void> batchDeleteUsers(OperatorContext ctx, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Mono.empty();
+        }
+        // 自我保护与超管保护
+        for (Long id : ids) {
+            requireNotSelf(ctx, id, "不能删除自己");
+            requireNotSuperAdmin(id, "不能删除超级管理员");
+        }
+        // 统一为逻辑删除 —— 原先这里是物理 DELETE，与 deleteUser 的软删语义分裂，
+        // 而且不清 user:count 缓存，导致用户总数最多错 1 小时
         return Flux.fromIterable(ids)
-                .flatMap(id -> userRoleRepository.deleteByUserId(id)
-                        .then(userRepository.deleteById(id))
-                        .doOnSuccess(v -> clearUserCache(id)))
+                .concatMap(id -> userRepository.findById(id)
+                        .flatMap(user -> {
+                            user.setIsDeleted(true);
+                            user.setUpdateTime(LocalDateTime.now());
+                            return userRepository.save(user);
+                        })
+                        .flatMap(saved -> userRoleRepository.deleteByUserId(saved.getId())
+                                .then(clearUserCache(saved.getId()))
+                                .then(kickout(saved.getId()))
+                                .then(permissionCache.evict(saved.getId()))
+                                .then(reactiveRedisTemplate.delete(USER_COUNT_CACHE_KEY).then())))
                 .then();
     }
     
@@ -328,22 +343,63 @@ public class UserServiceImpl implements UserService {
         QueryResult queryResult = selectQuery(queryType, username, email, status, pageRequest);
 
         return Mono.zip(queryResult.users().collectList(), queryResult.count())
-                .map(tuple -> {
+                .flatMap(tuple -> {
                     List<User> users = tuple.getT1();
                     Long total = tuple.getT2();
 
-                    List<UserVO> userVOs = users.stream()
-                            .map(userMapper::toUserVO)
-                            .collect(Collectors.toList());
+                    // 列表页原先用的是单参 toUserVO，roles / roleIds 恒为 null。
+                    // 这里用两条批量查询（用户→角色关联、角色详情）补齐，避免逐行 N+1。
+                    return loadRolesByUserIds(users)
+                            .map(rolesByUser -> {
+                                List<UserVO> userVOs = users.stream()
+                                        .map(user -> userMapper.toUserVO(user,
+                                                rolesByUser.getOrDefault(user.getId(), List.of())))
+                                        .collect(Collectors.toList());
 
-                    PageResult<UserVO> pageResult = new PageResult<>();
-                    pageResult.setRecords(userVOs);
-                    pageResult.setTotal(total);
-                    pageResult.setSize(size);
-                    pageResult.setCurrent(page + 1);
-                    pageResult.setPages((total + size - 1) / size);
+                                PageResult<UserVO> pageResult = new PageResult<>();
+                                pageResult.setRecords(userVOs);
+                                pageResult.setTotal(total);
+                                pageResult.setSize(size);
+                                pageResult.setCurrent(page + 1);
+                                pageResult.setPages((total + size - 1) / size);
+                                return pageResult;
+                            });
+                });
+    }
 
-                    return pageResult;
+    /**
+     * 批量加载「用户 → 启用中的角色」，用于用户列表补齐 roleIds / roles
+     */
+    private Mono<Map<Long, List<Role>>> loadRolesByUserIds(List<User> users) {
+        List<Long> userIds = users.stream().map(User::getId).filter(java.util.Objects::nonNull).toList();
+        if (userIds.isEmpty()) {
+            return Mono.just(Map.of());
+        }
+
+        return userRoleRepository.findByUserIdIn(userIds)
+                .collectList()
+                .flatMap(links -> {
+                    Set<Long> roleIds = links.stream()
+                            .map(UserRole::getRoleId)
+                            .filter(java.util.Objects::nonNull)
+                            .collect(Collectors.toSet());
+
+                    if (roleIds.isEmpty()) {
+                        return Mono.just(Map.<Long, List<Role>>of());
+                    }
+
+                    return roleRepository.findActiveByIdIn(roleIds)
+                            .collectMap(Role::getId)
+                            .map(roleMap -> {
+                                Map<Long, List<Role>> rolesByUser = new HashMap<>();
+                                for (UserRole link : links) {
+                                    Role role = roleMap.get(link.getRoleId());
+                                    if (role != null) {
+                                        rolesByUser.computeIfAbsent(link.getUserId(), k -> new ArrayList<>()).add(role);
+                                    }
+                                }
+                                return rolesByUser;
+                            });
                 });
     }
 
@@ -406,8 +462,10 @@ public class UserServiceImpl implements UserService {
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #id")
-    public Mono<String> resetPassword(Long id) {
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
+    public Mono<String> resetPassword(OperatorContext ctx, Long id) {
+        requireNotSelf(ctx, id, "不能重置自己的密码，请使用「修改密码」接口");
+        requireNotSuperAdmin(id, "不能重置超级管理员的密码");
         return userRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.userNotFound()))
                 .flatMap(user -> {
@@ -417,39 +475,115 @@ public class UserServiceImpl implements UserService {
                     user.setPassword(passwordEncoder.encode(newPassword));
                     return userRepository.save(user)
                             .map(savedUser -> newPassword)
-                            .doOnSuccess(password -> clearUserCache(id));
+                            .flatMap(password -> clearUserCache(id)
+                                    // 重置密码后旧 token 也要失效
+                                    .then(kickout(id))
+                                    .thenReturn(password));
                 });
     }
     
     /**
      * 生成随机密码
+     *
+     * <p>用 {@link SecureRandom} 而不是 {@code java.util.Random}：
+     * 后者是 48 位 LCG，观测几个样本就能推出种子、进而预测后续生成的密码。
+     * 长度也从 8 位提到 12 位。
+     *
      * @return 随机密码
      */
     private String generateRandomPassword() {
-        // 生成8位随机密码
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        StringBuilder sb = new StringBuilder();
-        Random random = new Random();
-        for (int i = 0; i < 8; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
+        StringBuilder sb = new StringBuilder(PASSWORD_LENGTH);
+        for (int i = 0; i < PASSWORD_LENGTH; i++) {
+            sb.append(PASSWORD_CHARS.charAt(SECURE_RANDOM.nextInt(PASSWORD_CHARS.length())));
         }
         return sb.toString();
     }
-    
+
+    // =====================================================================
+    // 自我保护 / 超管保护
+    // =====================================================================
+
+    /**
+     * 断言操作者不是在操作自己
+     *
+     * <p>用于「改自己的角色」「删自己」这类操作 —— 它们的正确入口另有其人
+     * （改密码走 {@code PUT /users/password}）。
+     *
+     * @param ctx    操作者上下文
+     * @param target 目标用户ID
+     * @param reason 拒绝原因
+     */
+    private void requireNotSelf(OperatorContext ctx, Long target, String reason) {
+        if (OwnershipPolicy.isSelf(ctx, target)) {
+            throw PermissionDeniedException.accessDenied(reason);
+        }
+    }
+
+    /**
+     * 断言目标不是超级管理员
+     *
+     * @param target 目标用户ID
+     * @param reason 拒绝原因
+     */
+    private void requireNotSuperAdmin(Long target, String reason) {
+        if (SystemConstants.SUPER_ADMIN_ID.equals(target)) {
+            throw PermissionDeniedException.accessDenied(reason);
+        }
+    }
+
+    /**
+     * 吊销某用户已签发的所有 token
+     *
+     * <p>原先改密 / 禁用 / 删除用户后都不吊销 token，而 token 有效期是 30 天 ——
+     * 账号被禁用了还能继续用旧 token 访问。
+     *
+     * @param userId 用户ID
+     */
+    private Mono<Void> kickout(Long userId) {
+        if (userId == null) {
+            return Mono.empty();
+        }
+        return Mono.fromRunnable(() -> StpUtil.kickout(userId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(e -> {
+                    log.warn("吊销用户 token 失败: userId={}, error={}", userId, e.getMessage());
+                    return Mono.empty();
+                })
+                .then();
+    }
+
     /**
      * 清除用户相关缓存
+     *
+     * <p>直接操作 {@link CacheManager}，按键精确驱逐。
+     * 原先这里是手写 Redis 删除（键 {@code "user:" + userId}），
+     * 而真正生效的缓存键是 {@code user:id:{id}} / {@code user:info:{id}} /
+     * {@code user:detail:{id}} / {@code user:username:{name}} —— 键空间根本对不上，
+     * 删了个寂寞。
+     *
+     * <p>注意：<b>username 键不在这里清</b>（这里拿不到用户名），
+     * 改密路径用 {@code @CacheEvict(allEntries = true)} 一次性清空。
+     *
      * @param userId 用户ID
      */
     private Mono<Void> clearUserCache(Long userId) {
-        String userKey = USER_CACHE_KEY + userId;
-        String userListPattern = USER_LIST_CACHE_KEY + "*";
-
-        return reactiveRedisTemplate.delete(userKey)
-                .then(reactiveRedisTemplate.scan(ScanOptions.scanOptions()
-                        .match(userListPattern).count(100).build())
-                        .flatMap(key -> reactiveRedisTemplate.delete(key).then())
-                        .then())
-                .doOnError(e -> log.error("清除用户缓存失败: userId={}, error={}", userId, e.getMessage()));
+        if (userId == null) {
+            return Mono.empty();
+        }
+        return Mono.<Void>fromCallable(() -> {
+                    Cache cache = cacheManager.getCache(CacheConstants.USER_CACHE);
+                    if (cache != null) {
+                        cache.evict(CacheConstants.USER_ID_KEY + userId);
+                        cache.evict(CacheConstants.USER_INFO_KEY + userId);
+                        cache.evict(CacheConstants.USER_DETAIL_KEY + userId);
+                    }
+                    return null;
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(e -> {
+                    log.error("清除用户缓存失败: userId={}, error={}", userId, e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     @Override
@@ -459,9 +593,28 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public Mono<User> register(User user) {
+    public Mono<UserInfoVO> register(RegisterDTO registerDTO) {
+        // 手工建实体，而不是直接反序列化 User：
+        // 实体的 id 若被客户端赋值，R2DBC 的 save() 会走 UPDATE 分支覆盖任意用户行。
+        User user = new User();
+        user.setUsername(registerDTO.getUsername());
+        user.setPassword(registerDTO.getPassword());
+        user.setEmail(registerDTO.getEmail());
+        user.setNickname(registerDTO.getNickname());
+        user.setPhone(registerDTO.getPhone());
+        user.setAvatar(registerDTO.getAvatar());
+        user.setBio(registerDTO.getBio());
+
         // 使用 self 调用，确保事务和缓存生效
-        return self.createUser(user);
+        return self.createUser(user)
+                .flatMap(saved -> roleRepository.findActiveRolesByUserId(saved.getId())
+                        .collectList()
+                        .map(roles -> {
+                            // 返回 VO 而不是实体 —— 实体里带着 BCrypt 密码哈希
+                            UserInfoVO vo = userMapper.toUserInfoVO(saved, roles);
+                            vo.setPermissions(List.of());
+                            return vo;
+                        }));
     }
 
     @Override
@@ -477,15 +630,24 @@ public class UserServiceImpl implements UserService {
         // 使用 self 调用，确保 @Cacheable 生效
         return self.getUserByUsername(username)
                 .flatMap(user -> {
-                    // 检查用户状态
+                    // 已逻辑删除的账号一律不能登录
+                    if (Boolean.TRUE.equals(user.getIsDeleted())) {
+                        return Mono.error(BusinessException.loginFailed());
+                    }
+
+                    // 检查用户状态：0-禁用，2-锁定
+                    // 原先只判 0，status=2 的锁定账号可以直接登录
                     if (user.getStatus() != null && user.getStatus() == 0) {
                         return Mono.error(BusinessException.accountDisabled());
                     }
-                    
+                    if (user.getStatus() != null && user.getStatus() == 2) {
+                        return Mono.error(BusinessException.accountLocked());
+                    }
+
                     if (!passwordEncoder.matches(password, user.getPassword())) {
                         return Mono.error(BusinessException.loginFailed());
                     }
-                    
+
                     // 验证通过，返回用户对象
                     return Mono.just(user);
                 });
@@ -496,61 +658,152 @@ public class UserServiceImpl implements UserService {
     public Mono<UserInfoVO> getCurrentUserInfo(Long userId) {
         // 使用 self 调用，确保缓存生效
         return self.getUserById(userId)
-                .flatMap(user -> roleRepository.findByUserId(userId)
+                .flatMap(user -> roleRepository.findActiveRolesByUserId(userId)
                         .collectList()
-                        .map(roles -> userMapper.toUserInfoVO(user, roles)));
+                        .flatMap(roles -> userPermissionResolver.resolvePermissionIdentities(userId)
+                                .map(permissions -> {
+                                    UserInfoVO vo = userMapper.toUserInfoVO(user, roles);
+                                    // MapStruct 的 toUserInfoVO 把 permissions 标成了 ignore，
+                                    // 这里补上 —— 前端要靠它渲染按钮级权限
+                                    vo.setPermissions(new ArrayList<>(permissions));
+                                    return vo;
+                                })));
     }
-    
+
     @Override
     @Cacheable(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_DETAIL_KEY + "' + #id", unless = "#result == null")
-    public Mono<UserInfoVO> getUserDetailById(Long id) {
+    public Mono<UserInfoVO> getUserDetailById(OperatorContext ctx, Long id) {
+        // 归属校验：只能查自己，或拥有「管理他人」能力
+        OwnershipPolicy.requireCanActOn(ctx, id);
         // 使用 self 调用，确保缓存生效
         return self.getUserById(id)
-                .flatMap(user -> roleRepository.findByUserId(id)
+                .flatMap(user -> roleRepository.findActiveRolesByUserId(id)
                         .collectList()
-                        .map(roles -> userMapper.toUserInfoVO(user, roles)));
+                        .flatMap(roles -> userPermissionResolver.resolvePermissionIdentities(id)
+                                .map(permissions -> {
+                                    UserInfoVO vo = userMapper.toUserInfoVO(user, roles);
+                                    vo.setPermissions(new ArrayList<>(permissions));
+                                    return vo;
+                                })));
     }
     
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
-    public Mono<User> createUserWithRoles(UserDTO userDTO) {
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
+    public Mono<User> createUserWithRoles(OperatorContext ctx, UserDTO userDTO) {
         User user = userMapper.toUser(userDTO);
-        
+
+        // 新建用户时指定角色 = 分配角色，要 system:user:assign。
+        // 不校验的话，「能建用户」就等于「能建一个 admin 用户」——
+        // 那编辑接口上的角色闸门也就形同虚设。
+        boolean assigningRoles = userDTO.getRoleIds() != null && !userDTO.getRoleIds().isEmpty();
+        Mono<Void> assignGuard = assigningRoles
+                ? requireAssignPermission(ctx)
+                : Mono.empty();
+
         // 使用 self 调用，确保事务和缓存生效
-        return self.createUser(user)
+        return assignGuard
+                .then(self.createUser(user))
                 .flatMap(savedUser -> {
-                    if (userDTO.getRoleIds() != null && !userDTO.getRoleIds().isEmpty()) {
-                        return self.updateUserRoles(savedUser.getId(), userDTO.getRoleIds())
+                    if (assigningRoles) {
+                        // 新建的用户还没有角色，self 代理这一层不能带 requireNotSelf 之外的限制，
+                        // 所以这里直接写关联表而不是复用 updateUserRoles（后者会拒绝给自己改角色）
+                        return assignRoles(savedUser.getId(), userDTO.getRoleIds())
                                 .thenReturn(savedUser);
                     }
                     return Mono.just(savedUser);
                 });
     }
-    
+
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userDTO.id", condition = "#userDTO.id != null")
-    public Mono<User> updateUserWithRoles(UserDTO userDTO) {
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
+    public Mono<User> updateUserWithRoles(OperatorContext ctx, UserDTO userDTO) {
+        // 归属校验：只能改自己，或拥有「管理他人」能力
+        OwnershipPolicy.requireCanActOn(ctx, userDTO.getId());
+
         // 使用 self 调用，确保缓存生效
         return self.getUserById(userDTO.getId())
                 .flatMap(existingUser -> {
                     User updatedUser = userMapper.updateUserFromDTO(userDTO, existingUser);
                     return userRepository.save(updatedUser)
-                            .flatMap(savedUser -> {
-                                if (userDTO.getRoleIds() != null) {
-                                    return self.updateUserRoles(savedUser.getId(), userDTO.getRoleIds())
-                                            .thenReturn(savedUser);
-                                }
-                                return Mono.just(savedUser);
-                            });
+                            .flatMap(savedUser -> applyRoleChange(ctx, savedUser.getId(), userDTO.getRoleIds())
+                                    .thenReturn(savedUser));
                 });
     }
-    
+
+    /**
+     * 角色变更闸门 —— 「改资料」和「改角色」不是一回事。
+     *
+     * <p>判定规则见 {@link RoleChangePolicy}（纯函数，可直接单测）：
+     * 改自己 → 忽略 roleIds；角色没变 → 不额外要权限；
+     * 改别人的角色 → 还要 {@code system:user:assign}。
+     */
+    private Mono<Void> applyRoleChange(OperatorContext ctx, Long targetUserId, List<Long> requestedRoleIds) {
+        if (requestedRoleIds == null) {
+            return Mono.empty();
+        }
+        return roleIdsChanged(targetUserId, requestedRoleIds)
+                .flatMap(changed -> {
+                    RoleChangePolicy.Decision decision =
+                            RoleChangePolicy.decide(ctx, targetUserId, changed);
+                    return switch (decision) {
+                        case IGNORED, UNCHANGED -> Mono.empty();
+                        case NEEDS_ASSIGN_PERMISSION ->
+                                requireAssignPermission(ctx).then(assignRoles(targetUserId, requestedRoleIds));
+                    };
+                });
+    }
+
+    /**
+     * 请求的角色集合与当前是否不同
+     */
+    private Mono<Boolean> roleIdsChanged(Long userId, List<Long> requestedRoleIds) {
+        return userRoleRepository.findRoleIdsByUserId(userId)
+                .collect(Collectors.toSet())
+                .map(current -> !current.equals(new HashSet<>(requestedRoleIds)));
+    }
+
+    /**
+     * 断言操作者持有 {@code system:user:assign}
+     *
+     * <p>走 {@link UserPermissionResolver}（权限判定的唯一权威实现），
+     * 不在这里另写一套过滤条件。
+     */
+    private Mono<Void> requireAssignPermission(OperatorContext ctx) {
+        return userPermissionResolver.hasPermission(ctx.userId(), PermissionConstants.USER_ASSIGN)
+                .flatMap(granted -> granted
+                        ? Mono.empty()
+                        : Mono.error(PermissionDeniedException.missingPermission(
+                                PermissionConstants.USER_ASSIGN)));
+    }
+
+    /**
+     * 覆盖式分配角色（先删后插），并刷新权限快照
+     */
+    private Mono<Void> assignRoles(Long userId, List<Long> roleIds) {
+        return userRoleRepository.deleteByUserId(userId)
+                .then(Flux.fromIterable(roleIds)
+                        .concatMap(roleId -> {
+                            UserRole userRole = new UserRole();
+                            userRole.setUserId(userId);
+                            userRole.setRoleId(roleId);
+                            userRole.setCreateTime(LocalDateTime.now());
+                            userRole.setUpdateTime(LocalDateTime.now());
+                            return userRoleRepository.save(userRole);
+                        })
+                        .then())
+                .then(clearUserCache(userId))
+                .then(permissionCache.refresh(userId));
+    }
+
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, key = "'" + CacheConstants.USER_ID_KEY + "' + #userId")
+    @CacheEvict(cacheNames = CacheConstants.USER_CACHE, allEntries = true)
     public Mono<Boolean> updatePassword(Long userId, UserPasswordDTO passwordDTO) {
+        // allEntries=true 而不是只驱逐 user:id:{id}：
+        // getUserByUsername 的缓存键是 user:username:{name}，只驱逐 id 键的话
+        // 改密后旧密码在 TTL（30 分钟）内仍然能登录。
         // 使用 self 调用，确保缓存生效
         return self.getUserById(userId)
                 .flatMap(user -> {
@@ -560,10 +813,13 @@ public class UserServiceImpl implements UserService {
 
                     user.setPassword(passwordEncoder.encode(passwordDTO.getNewPassword()));
                     user.setUpdateTime(LocalDateTime.now());
-                    
+
                     return userRepository.save(user)
                             .map(savedUser -> true)
-                            .doOnSuccess(result -> clearUserCache(userId));
+                            .flatMap(result -> clearUserCache(userId)
+                                    // 改密后旧 token 失效
+                                    .then(kickout(userId))
+                                    .thenReturn(result));
                 });
     }
 

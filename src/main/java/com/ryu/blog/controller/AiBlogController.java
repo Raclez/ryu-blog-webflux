@@ -1,6 +1,7 @@
 package com.ryu.blog.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.AiGenerationHistory;
@@ -43,6 +44,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Validated
 @Tag(name = "AI博客", description = "AI博客生成和管理接口")
+@ConditionalOnAiEnabled
 public class AiBlogController {
 
     private final AiBlogService aiBlogService;
@@ -60,7 +62,11 @@ public class AiBlogController {
     })
     public Mono<Result<AiGenerationResult>> generateBlogContent(
             @Valid @RequestBody AiGenerationRequest request) {
-        log.info("收到博客生成请求: userId={}, mode={}", request.getUserId(), request.getMode());
+        // 用户身份一律以登录态为准，不信任请求体里的 userId
+        // （否则可以拿别人的 userId 去消耗别人的配额、并把生成记录写进别人的历史）
+        Long userId = StpUtil.getLoginIdAsLong();
+        request.setUserId(userId);
+        log.info("收到博客生成请求: userId={}, mode={}", userId, request.getMode());
         return aiBlogService.generateBlogContent(request)
                 .map(Result::success);
     }
@@ -97,8 +103,11 @@ public class AiBlogController {
     })
     public Mono<Result<AiGenerationResult>> refineContent(
             @Valid @RequestBody AiGenerationRequest request) {
-        log.info("收到内容优化请求: userId={}, hasContent={}", 
-                request.getUserId(), request.getContent() != null);
+        // 同上：用户身份以登录态为准
+        Long userId = StpUtil.getLoginIdAsLong();
+        request.setUserId(userId);
+        log.info("收到内容优化请求: userId={}, hasContent={}",
+                userId, request.getContent() != null);
         return aiBlogService.refineContent(request)
                 .map(Result::success);
     }
@@ -111,9 +120,10 @@ public class AiBlogController {
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
     public Mono<Result<List<AiGenerationHistory>>> getGenerationHistory(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId,
             @Parameter(description = "页码（从0开始）") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "20") int size) {
+        // 用户身份以登录态为准：原先传别人的 userId 就能读到别人的生成历史
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取生成历史: userId={}, page={}, size={}", userId, page, size);
         return aiBlogService.getGenerationHistory(userId, PageRequest.of(page, size))
                 .collectList()
@@ -128,8 +138,8 @@ public class AiBlogController {
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
     public Mono<Result<AiGenerationHistory>> getHistoryById(
-            @Parameter(description = "历史记录ID") @PathVariable Long id,
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+            @Parameter(description = "历史记录ID") @PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取历史记录详情: id={}, userId={}", id, userId);
         return aiBlogService.getHistoryById(id, userId)
                 .map(Result::success);
@@ -143,8 +153,8 @@ public class AiBlogController {
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
     public Mono<Result<Boolean>> deleteHistory(
-            @Parameter(description = "历史记录ID") @PathVariable Long id,
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+            @Parameter(description = "历史记录ID") @PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("删除历史记录: id={}, userId={}", id, userId);
         return aiBlogService.deleteHistory(id, userId)
                 .map(Result::success);
@@ -160,8 +170,8 @@ public class AiBlogController {
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
     public Mono<Result<AiGenerationResult>> regenerate(
-            @Parameter(description = "历史记录ID") @PathVariable Long id,
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+            @Parameter(description = "历史记录ID") @PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("重新生成内容: historyId={}, userId={}", id, userId);
         return aiBlogService.regenerate(id, userId)
                 .map(Result::success);
@@ -173,8 +183,8 @@ public class AiBlogController {
             @ApiResponse(responseCode = "200", description = "查询成功"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Result<Long>> countGenerations(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+    public Mono<Result<Long>> countGenerations() {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("统计生成次数: userId={}", userId);
         return aiBlogService.countGenerations(userId)
                 .map(Result::success);

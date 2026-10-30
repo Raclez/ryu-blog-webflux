@@ -18,7 +18,7 @@ import org.springframework.data.relational.core.mapping.Table;
 @Data
 @Table("t_menus")
 @Schema(description = "菜单实体")
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 @AllArgsConstructor
 @NoArgsConstructor
 @SuperBuilder
@@ -49,9 +49,12 @@ public class Menus extends BaseEntity {
     private String component;
     
     /**
-     * 菜单类型 (0: 目录, 1: 菜单, 2: 按钮)
+     * 菜单类型 (0: 目录, 1: 菜单)
+     *
+     * <p>原「2: 按钮」已随「菜单↔权限」模型下线 —— 按钮级能力改由
+     * {@code t_permissions.identity} 表达。
      */
-    @Schema(description = "菜单类型 (0: 目录, 1: 菜单, 2: 按钮)")
+    @Schema(description = "菜单类型 (0: 目录, 1: 菜单)")
     private Integer type;
     
     /**

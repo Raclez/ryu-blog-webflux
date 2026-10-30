@@ -7,7 +7,7 @@ services:
     container_name: ryu-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-475118582}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set (do not commit a default password)}
       TZ: Asia/Shanghai
     volumes:
       - ./docker/mysql/data:/var/lib/mysql
@@ -19,7 +19,7 @@ services:
     networks:
       - ryu-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-475118582}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -82,18 +82,22 @@ services:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
       - SPRING_R2DBC_URL=r2dbc:mysql://mysql:3306/${MYSQL_DATABASE:-ryu_blog}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
       - SPRING_R2DBC_USERNAME=root
-      - SPRING_R2DBC_PASSWORD=${MYSQL_ROOT_PASSWORD:-475118582}
+      - SPRING_R2DBC_PASSWORD=${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
       - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - SERVER_PORT=${API_PORT:-5300}
       - UPLOAD_PATH=/data/uploads
-      - SA_TOKEN_JWT_SECRET=${JWT_SECRET:-abcdefghijklmnopqrstuvwxyz1234567890}
+      # 必须显式提供，且 >= 32 字节：留默认值等于公开了签名密钥，
+      # 任何人都能签发任意 userId 的合法 JWT（prod 下 JwtSecretValidator 也会拒绝启动）
+      - SA_TOKEN_JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to a random string of at least 32 bytes}
       - JAVA_OPTS=-Xms256m -Xmx512m -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/heapdump.hprof
       - REACTOR_DEBUGAGENT_ENABLED=false
       - SPRING_MAIN_ALLOW_BEAN_DEFINITION_OVERRIDING=true
       - LOGGING_LEVEL_ROOT=INFO
-      - LOGGING_LEVEL_COM_RYU_BLOG=DEBUG
+      - LOGGING_LEVEL_COM_RYU_BLOG=INFO
+      # 容器内日志目录（与下方 volume 挂载点一致）
+      - LOGGING_FILE_PATH=/app/logs
     volumes:
       - ./docker/api/uploads:/data/uploads
       - ./docker/api/logs:/app/logs

@@ -15,12 +15,13 @@ public interface ViewHistoryService {
 
     /**
      * 添加浏览历史记录
-     * 同一用户在短时间内多次访问同一文章只会记录一次浏览量
+     * 同一访客在短时间内多次访问同一文章只会记录一次浏览量
      *
      * @param viewHistoryDTO 浏览历史数据传输对象
+     * @param userId         登录用户ID，匿名访客传 null
      * @return 是否添加成功
      */
-    Mono<Boolean> addViewHistory(ViewHistoryDTO viewHistoryDTO);
+    Mono<Boolean> addViewHistory(ViewHistoryDTO viewHistoryDTO, Long userId);
 
     /**
      * 获取用户浏览历史
@@ -33,11 +34,12 @@ public interface ViewHistoryService {
     /**
      * 分页获取用户浏览历史
      *
-     * @param page 页码
-     * @param size 每页大小
+     * @param page   页码
+     * @param size   每页大小
+     * @param userId 用户ID
      * @return 分页结果
      */
-    Mono<Map<String, Object>> getUserViewHistoryPaged(int page, int size);
+    Mono<Map<String, Object>> getUserViewHistoryPaged(int page, int size, Long userId);
 
     /**
      * 获取文章浏览量
@@ -85,4 +87,14 @@ public interface ViewHistoryService {
      * @return 同步的文章数量
      */
     Mono<Integer> syncViewCountsToDatabase();
-} 
+
+    /**
+     * 从数据库获取总访问量（走缓存）
+     *
+     * <p>抽到接口里是为了让实现类能通过<b>自身代理</b>调用它 ——
+     * 类内部直接写方法名是自调用，会绕过 Spring 的 {@code @Cacheable} 拦截器。
+     *
+     * @return 总访问量
+     */
+    Mono<Long> getTotalViewsFromDatabase();
+}

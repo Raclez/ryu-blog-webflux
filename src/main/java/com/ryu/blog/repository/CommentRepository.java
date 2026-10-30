@@ -59,34 +59,6 @@ public interface CommentRepository extends R2dbcRepository<Comment, Long> {
     Mono<Long> countByUserId(Long userId);
 
     /**
-     * 更新评论状态
-     * @param id 评论ID
-     * @param status 状态
-     * @return 更新结果
-     */
-    @Modifying
-    @Query("UPDATE t_comments SET status = :status, update_time = NOW() WHERE id = :id")
-    Mono<Integer> updateStatus(Long id, Integer status);
-
-    /**
-     * 增加文章评论数
-     * @param postId 文章ID
-     * @return 更新结果
-     */
-    @Modifying
-    @Query("UPDATE t_posts SET comments = comments + 1 WHERE id = :postId")
-    Mono<Integer> incrementPostComments(Long postId);
-
-    /**
-     * 减少文章评论数
-     * @param postId 文章ID
-     * @return 更新结果
-     */
-    @Modifying
-    @Query("UPDATE t_posts SET comments = comments - 1 WHERE id = :postId")
-    Mono<Integer> decrementPostComments(Long postId);
-
-    /**
      * 查询所有评论（用于管理员审核）
      * @param status 状态
      * @param pageable 分页参数

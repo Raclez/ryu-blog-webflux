@@ -1,12 +1,15 @@
 package com.ryu.blog.service.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.dto.AiProviderConfigValue;
+import com.ryu.blog.event.ConfigChangeEvent;
 import com.ryu.blog.service.SysConfigService;
 import com.ryu.blog.service.ai.impl.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -32,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class AiProviderFactory {
 
     private final SysConfigService sysConfigService;
@@ -43,6 +47,46 @@ public class AiProviderFactory {
      * Value: AiProvider实例
      */
     private final Map<String, AiProvider> providerCache = new ConcurrentHashMap<>();
+
+    /** AI Provider 配置键前缀 */
+    private static final String AI_PROVIDER_CONFIG_PREFIX = "ai.provider.";
+
+    /** 默认 Provider 配置键 */
+    private static final String DEFAULT_PROVIDER_CONFIG_KEY = "ai.default.provider";
+
+    /**
+     * 配置变更后刷新对应的 Provider 实例
+     *
+     * <p>Provider 实例缓存在 {@link #providerCache} 里，构造时就把 API Key / 模型 / 端点
+     * 读进去生成了 ChatClient。<b>改了 {@code ai.provider.*} 的配置却不刷新，
+     * 新配置不会生效，必须重启应用</b> —— 以前就是因为没人调 refreshProvider。
+     *
+     * @param event 配置变更事件
+     */
+    @EventListener
+    public void onConfigChange(ConfigChangeEvent event) {
+        if (!"sysConfig".equals(event.getConfigType())) {
+            return;
+        }
+        String configKey = event.getConfigKey();
+        if (configKey == null || configKey.isBlank()) {
+            return;
+        }
+
+        if (configKey.startsWith(AI_PROVIDER_CONFIG_PREFIX)) {
+            String providerName = configKey.substring(AI_PROVIDER_CONFIG_PREFIX.length());
+            if (!providerName.isBlank()) {
+                log.info("AI Provider 配置变更，刷新实例: {}", providerName);
+                refreshProvider(providerName);
+                return;
+            }
+        }
+
+        if (DEFAULT_PROVIDER_CONFIG_KEY.equals(configKey)) {
+            log.info("默认 AI Provider 配置变更，清空全部 Provider 实例缓存");
+            refreshProvider(null);
+        }
+    }
 
     /**
      * 获取默认提供商

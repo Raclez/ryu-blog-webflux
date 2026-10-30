@@ -1,12 +1,11 @@
 package com.ryu.blog.service.impl;
 
-import com.ryu.blog.constant.SystemConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.PermissionsAddDTO;
 import com.ryu.blog.dto.PermissionsQueryDTO;
 import com.ryu.blog.dto.PermissionsUpdateDTO;
 import com.ryu.blog.entity.Permissions;
-import com.ryu.blog.entity.RolePermission;
-import com.ryu.blog.repository.MenuPermissionRepository;
+import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.repository.PermissionsRepository;
 import com.ryu.blog.repository.RolePermissionRepository;
 import com.ryu.blog.repository.UserRoleRepository;
@@ -14,23 +13,27 @@ import com.ryu.blog.service.PermissionsService;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.relational.core.query.Criteria;
+import org.springframework.data.relational.core.query.Query;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 权限服务实现类
- * 
+ *
+ * <p><b>权限判定的口径统一到 {@link UserPermissionResolver}</b>：
+ * 原先这里有两条独立的判定路径（{@code getUserPermissionIdentities} 与
+ * {@code hasPermission}），两条都<b>不校验角色是否启用</b> ——
+ * 于是「禁用角色」之后该角色的权限仍然全部生效。
+ *
  * @author ryu 475118582@qq.com
  * @since 1.0.0 2024-08-10
  */
@@ -41,153 +44,160 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     private final PermissionsRepository permissionsRepository;
     private final RolePermissionRepository rolePermissionRepository;
-    private final MenuPermissionRepository menuPermissionRepository;
     private final UserRoleRepository userRoleRepository;
-    
+    private final UserPermissionResolver permissionResolver;
+    private final UserPermissionCache permissionCache;
+    /**
+     * 用于把权限列表的过滤/分页下推到数据库（Criteria 查询）。
+     */
+    private final R2dbcEntityTemplate template;
+
     @Override
     public Flux<Permissions> list() {
-        log.info("获取所有权限");
         return permissionsRepository.findByIsDeletedOrderByIdAsc(0);
     }
 
     @Override
     @Transactional
-    public Mono<Void> updatePermission(PermissionsUpdateDTO permissionsUpdateDTO) {
-        log.info("更新权限: {}", permissionsUpdateDTO);
-        
-        // 查询权限是否存在
+    public Mono<Void> updatePermission(OperatorContext ctx, PermissionsUpdateDTO permissionsUpdateDTO) {
+        log.info("更新权限: id={}", permissionsUpdateDTO.getId());
+
         return permissionsRepository.findById(permissionsUpdateDTO.getId())
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("权限不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.permissionNotExists()))
                 .flatMap(permission -> {
-                    // 更新权限信息
-                    permission.setName(permissionsUpdateDTO.getName());
-                    permission.setIdentity(permissionsUpdateDTO.getIdentity());
-                    permission.setDescription(permissionsUpdateDTO.getDescription());
+                    String newIdentity = permissionsUpdateDTO.getIdentity();
+                    if (newIdentity == null || newIdentity.equals(permission.getIdentity())) {
+                        return Mono.just(permission);
+                    }
+                    // 权限标识必须唯一 —— 它是 @SaCheckPermission 的比对依据，
+                    // 重复的标识会让鉴权结果不可预期
+                    return permissionsRepository.findByIdentity(newIdentity)
+                            .filter(existing -> !existing.getId().equals(permission.getId()))
+                            .flatMap(existing -> Mono.<Permissions>error(
+                                    new IllegalArgumentException("权限标识已存在")))
+                            .defaultIfEmpty(permission);
+                })
+                .flatMap(permission -> {
+                    if (permissionsUpdateDTO.getName() != null) {
+                        permission.setName(permissionsUpdateDTO.getName());
+                    }
+                    if (permissionsUpdateDTO.getIdentity() != null) {
+                        permission.setIdentity(permissionsUpdateDTO.getIdentity());
+                    }
+                    if (permissionsUpdateDTO.getDescription() != null) {
+                        permission.setDescription(permissionsUpdateDTO.getDescription());
+                    }
                     if (permissionsUpdateDTO.getIsActive() != null) {
                         permission.setIsActive(permissionsUpdateDTO.getIsActive());
                     }
                     permission.setUpdateTime(LocalDateTime.now());
-                    
-                    // 保存更新
                     return permissionsRepository.save(permission);
                 })
-                .then();
+                // 权限标识改了 → 持有该权限的用户快照必须重建
+                .then(refreshCacheOfPermission(permissionsUpdateDTO.getId()));
     }
 
     @Override
     public Flux<Permissions> getPermissionsByModule(String modulePrefix) {
-        log.info("获取模块权限, modulePrefix: {}", modulePrefix);
         return permissionsRepository.findByIdentityStartingWithAndIsDeletedOrderByIdAsc(modulePrefix + ":", 0);
     }
 
+    /**
+     * 分页查询权限。
+     *
+     * <p><b>过滤下推到数据库</b>：原先按名称/标识模糊查询时是
+     * 「把整张 {@code t_permissions} 查出来 → 在内存里 filter → 再在内存里分页」，
+     * 数据量一大就是全表扫描 + 全量传输。
+     * 现在改成用 {@link Criteria} 拼 {@code WHERE}，让数据库做过滤和分页。
+     *
+     * <p>没有 {@code @Transactional}：计数与取页是两条独立的只读查询，
+     * 各自从连接池取连接（见 CLAUDE.md 的事务边界约定）。
+     */
     @Override
     public Mono<PageResult<Permissions>> getPermissionsByPage(PermissionsQueryDTO permissionsQuery) {
-        log.info("分页查询权限: {}", permissionsQuery);
-        
-        // 默认分页参数
         long currentPage = permissionsQuery.getCurrentPage() != null ? permissionsQuery.getCurrentPage() : 1;
         long pageSize = permissionsQuery.getPageSize() != null ? permissionsQuery.getPageSize() : 10;
-        
-        // 创建分页请求
-        int page = (int) Math.max(0, currentPage - 1); // Spring Data页码从0开始
+
+        int page = (int) Math.max(0, currentPage - 1);
         int size = (int) pageSize;
-        Pageable pageable = PageRequest.of(page, size);
-        
-        // 根据查询条件选择不同的查询策略
-        if (permissionsQuery.getModulePrefix() != null && !permissionsQuery.getModulePrefix().isEmpty()) {
-            // 按模块前缀查询
-            String prefix = permissionsQuery.getModulePrefix() + ":";
-            return permissionsRepository.countByIdentityStartingWithAndIsDeleted(prefix, 0)
-                    .flatMap(total -> {
-                        if (total == 0) {
-                            return Mono.just(new PageResult<Permissions>());
-                        }
-                        
-                        return permissionsRepository.findByIdentityStartingWithAndIsDeletedOrderByIdAsc(prefix, 0, pageable)
-                                .collectList()
-                                .map(permissions -> {
-                                    PageResult<Permissions> pageResult = new PageResult<>();
-                                    pageResult.setRecords(permissions);
-                                    pageResult.setTotal(total);
-                                    pageResult.setSize(pageSize);
-                                    pageResult.setCurrent(currentPage);
-                                    pageResult.setPages((total + pageSize - 1) / pageSize);
-                                    return pageResult;
-                                });
-                    });
-        } else if (permissionsQuery.getName() != null && !permissionsQuery.getName().isEmpty() ||
-                   permissionsQuery.getIdentity() != null && !permissionsQuery.getIdentity().isEmpty()) {
-            // 按名称或标识模糊查询 - 这种情况仍需内存分页
-            Flux<Permissions> permissionsFlux = permissionsRepository.findByIsDeletedOrderByIdAsc(0)
-                    .filter(permission -> {
-                        boolean matches = true;
-                        if (permissionsQuery.getName() != null && !permissionsQuery.getName().isEmpty()) {
-                            matches = matches && permission.getName().contains(permissionsQuery.getName());
-                        }
-                        if (permissionsQuery.getIdentity() != null && !permissionsQuery.getIdentity().isEmpty()) {
-                            matches = matches && permission.getIdentity().contains(permissionsQuery.getIdentity());
-                        }
-                        return matches;
-                    });
-            
-            return permissionsFlux.collectList()
-                    .map(allPermissions -> {
-                        long total = allPermissions.size();
-                        
-                        // 计算分页
-                        int fromIndex = (int) ((currentPage - 1) * pageSize);
-                        if (fromIndex >= allPermissions.size()) {
-                            fromIndex = 0;
-                        }
-                        
-                        int toIndex = (int) Math.min(fromIndex + pageSize, allPermissions.size());
-                        List<Permissions> pageData = allPermissions.subList(fromIndex, toIndex);
-                        
-                        // 创建分页结果对象
-                        return new PageResult<>(pageData, total, pageSize, currentPage);
-                    });
-        } else {
-            // 查询所有未删除的权限
-            return permissionsRepository.countByIsDeleted(0)
-                    .flatMap(total -> {
-                        if (total == 0) {
-                            return Mono.just(new PageResult<Permissions>());
-                        }
-                        
-                        return permissionsRepository.findByIsDeletedOrderByIdAsc(0, pageable)
-                                .collectList()
-                                .map(permissions -> {
-                                    PageResult<Permissions> pageResult = new PageResult<>();
-                                    pageResult.setRecords(permissions);
-                                    pageResult.setTotal(total);
-                                    pageResult.setSize(pageSize);
-                                    pageResult.setCurrent(currentPage);
-                                    pageResult.setPages((total + pageSize - 1) / pageSize);
-                                    return pageResult;
-                                });
-                    });
+
+        Mono<Long> total = template.select(Permissions.class)
+                .from("t_permissions")
+                .matching(Query.query(buildSearchCriteria(permissionsQuery)))
+                .count();
+
+        Query pageQuery = Query.query(buildSearchCriteria(permissionsQuery))
+                .sort(Sort.by(Sort.Direction.ASC, "id"))
+                .limit(size)
+                .offset((long) page * size);
+
+        Flux<Permissions> records = template.select(Permissions.class)
+                .from("t_permissions")
+                .matching(pageQuery)
+                .all();
+
+        return total.zipWith(records.collectList())
+                .map(tuple -> buildPage(tuple.getT2(), tuple.getT1(), pageSize, currentPage));
+    }
+
+    /**
+     * 构建权限列表的查询条件。
+     *
+     * <p>语义与改造前保持一致：
+     * <ul>
+     *   <li>带 {@code modulePrefix} 时只按前缀过滤（忽略 name/identity）；</li>
+     *   <li>否则 name / identity 各自模糊匹配（两个都传时取交集）；</li>
+     *   <li>都不传就是全部未删除的权限。</li>
+     * </ul>
+     */
+    private Criteria buildSearchCriteria(PermissionsQueryDTO query) {
+        Criteria criteria = Criteria.where("is_deleted").is(0);
+
+        String modulePrefix = query.getModulePrefix();
+        if (modulePrefix != null && !modulePrefix.isEmpty()) {
+            return criteria.and(Criteria.where("identity").like(modulePrefix + ":%"));
         }
+
+        String name = query.getName();
+        if (name != null && !name.isEmpty()) {
+            criteria = criteria.and(Criteria.where("name").like("%" + name + "%"));
+        }
+
+        String identity = query.getIdentity();
+        if (identity != null && !identity.isEmpty()) {
+            criteria = criteria.and(Criteria.where("identity").like("%" + identity + "%"));
+        }
+
+        return criteria;
+    }
+
+    private PageResult<Permissions> buildPage(List<Permissions> records, Long total, long pageSize, long currentPage) {
+        PageResult<Permissions> pageResult = new PageResult<>();
+        long count = total == null ? 0L : total;
+        pageResult.setRecords(records);
+        pageResult.setTotal(count);
+        pageResult.setSize(pageSize);
+        pageResult.setCurrent(currentPage);
+        pageResult.setPages(pageSize <= 0 ? 0 : (count + pageSize - 1) / pageSize);
+        return pageResult;
     }
 
     @Override
     @Transactional
-    public Mono<Void> savePermission(PermissionsAddDTO permissionsAddDTO) {
-        log.info("保存权限: {}", permissionsAddDTO);
-        
-        // 创建权限实体
+    public Mono<Void> savePermission(OperatorContext ctx, PermissionsAddDTO permissionsAddDTO) {
+        log.info("保存权限: identity={}", permissionsAddDTO.getIdentity());
+
         Permissions permission = new Permissions();
         permission.setName(permissionsAddDTO.getName());
         permission.setIdentity(permissionsAddDTO.getIdentity());
         permission.setDescription(permissionsAddDTO.getDescription());
         permission.setIsActive(true);
         permission.setIsDeleted(false);
-        
-        // 设置时间
+
         LocalDateTime now = LocalDateTime.now();
         permission.setCreateTime(now);
         permission.setUpdateTime(now);
-        
-        // 检查权限标识是否已存在
+
         return permissionsRepository.findByIdentity(permissionsAddDTO.getIdentity())
                 .hasElement()
                 .flatMap(exists -> {
@@ -200,67 +210,45 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Void> removeById(Long id) {
+    public Mono<Void> removeById(OperatorContext ctx, Long id) {
         log.info("删除权限, id: {}", id);
-        
-        // 查询权限是否存在
+
         return permissionsRepository.findById(id)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("权限不存在")))
+                .switchIfEmpty(Mono.error(BusinessException.permissionNotExists()))
                 .flatMap(permission -> {
                     // 逻辑删除
                     permission.setIsDeleted(true);
                     permission.setUpdateTime(LocalDateTime.now());
-                    
+
                     return permissionsRepository.save(permission)
                             // 删除角色权限关联
                             .thenMany(rolePermissionRepository.findRoleIdsByPermissionId(id))
-                            .flatMap(roleId -> rolePermissionRepository.deleteByRoleIdAndPermissionIdIn(roleId, List.of(id)))
-                            // 删除菜单权限关联
-                            .thenMany(menuPermissionRepository.findMenuIdsByPermissionIds(List.of(id)))
-                            .flatMap(menuId -> menuPermissionRepository.deleteByMenuId(menuId))
+                            // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）。
+                            // 本方法带 @Transactional，整条链绑定在同一条 R2DBC 连接上；
+                            // 而 r2dbc-mysql 1.4.0 每条连接只有一个 SPSC 的 RequestQueue，
+                            // 且 submit() 时不加锁 —— 并发提交会误判队满，
+                            // 抛 IllegalStateException: Request queue is full。
+                            .concatMap(roleId -> rolePermissionRepository.deleteByRoleIdAndPermissionIdIn(roleId, List.of(id)))
                             .then();
-                });
+                })
+                .then(refreshCacheOfPermission(id));
     }
 
     @Override
-    public Mono<Set<String>> getUserPermissionIdentities(Long userId) {
-        log.info("获取用户权限标识, userId: {}", userId);
-
-        return userRoleRepository.findRoleIdsByUserId(userId)
-                .collectList()
-                .flatMap(roleIds -> {
-                    if (roleIds.isEmpty()) {
-                        return Mono.just(new HashSet<>());
-                    }
-
-                    return rolePermissionRepository.findByRoleIds(roleIds)
-                            .collectList()
-                            .flatMap(rolePermissions -> {
-                                if (rolePermissions.isEmpty()) {
-                                    return Mono.just(new HashSet<>());
-                                }
-
-                                List<Long> permissionIds = rolePermissions.stream()
-                                        .map(RolePermission::getPermissionId)
-                                        .distinct()
-                                        .collect(Collectors.toList());
-
-                                return permissionsRepository.findByIdIn(permissionIds)
-                                        .filter(permission -> Boolean.TRUE.equals(permission.getIsActive())
-                                                && !Boolean.TRUE.equals(permission.getIsDeleted()))
-                                        .map(Permissions::getIdentity)
-                                        .collect(Collectors.toSet());
-                            });
-                });
+    public Mono<Set<String>> getUserPermissionIdentities(OperatorContext ctx, Long userId) {
+        // 归属校验：只能查自己的权限，或持有 system:user:manage
+        OwnershipPolicy.requireCanActOn(ctx, userId);
+        return permissionResolver.resolvePermissionIdentities(userId);
     }
 
     @Override
     public Mono<List<String>> getAllModules() {
-        log.info("获取所有模块");
-        
         return permissionsRepository.findByIsDeletedOrderByIdAsc(0)
                 .map(permission -> {
                     String identity = permission.getIdentity();
+                    if (identity == null) {
+                        return "common";
+                    }
                     int index = identity.indexOf(":");
                     return index > 0 ? identity.substring(0, index) : "common";
                 })
@@ -269,46 +257,14 @@ public class PermissionsServiceImpl implements PermissionsService {
     }
 
     @Override
-    public Mono<Boolean> hasPermission(Long userId, String permissionIdentity) {
-        log.info("检查用户权限, userId: {}, permissionIdentity: {}", userId, permissionIdentity);
-        
-        // 先查询权限ID
-        return permissionsRepository.findByIdentity(permissionIdentity)
-                .switchIfEmpty(Mono.just(new Permissions())) // 权限不存在，返回空对象
-                .flatMap(permission -> {
-                    if (permission.getId() == null 
-                            || !Boolean.TRUE.equals(permission.getIsActive())
-                            || Boolean.TRUE.equals(permission.getIsDeleted())) {
-                        return Mono.just(false);
-                    }
-                    
-                    // 查询拥有该权限的角色ID
-                    return rolePermissionRepository.findRoleIdsByPermissionId(permission.getId())
-                            .collectList()
-                            .flatMap(roleIds -> {
-                                if (roleIds.isEmpty()) {
-                                    return Mono.just(false);
-                                }
-                                
-                                // 查询用户是否拥有这些角色中的任意一个
-                                return userRoleRepository.findRoleIdsByUserId(userId)
-                                        .collectList()
-                                        .map(userRoleIds -> {
-                                            for (Long roleId : roleIds) {
-                                                if (userRoleIds.contains(roleId)) {
-                                                    return true;
-                                                }
-                                            }
-                                            return false;
-                                        });
-                            });
-                });
+    public Mono<Boolean> hasPermission(OperatorContext ctx, Long userId, String permissionIdentity) {
+        // 归属校验：只能查自己的权限，或持有 system:user:manage
+        OwnershipPolicy.requireCanActOn(ctx, userId);
+        return permissionResolver.hasPermission(userId, permissionIdentity);
     }
 
     @Override
     public Flux<Permissions> getPermissionsByRoleId(Long roleId) {
-        log.info("获取角色权限, roleId: {}", roleId);
-        
         return rolePermissionRepository.findPermissionIdsByRoleId(roleId)
                 .collectList()
                 .flatMapMany(permissionIds -> {
@@ -320,35 +276,41 @@ public class PermissionsServiceImpl implements PermissionsService {
     }
 
     @Override
-    public Flux<Permissions> getPermissionsByMenuId(Long menuId) {
-        log.info("获取菜单权限, menuId: {}", menuId);
-        
-        return menuPermissionRepository.findPermissionIdsByMenuId(menuId)
-                .collectList()
-                .flatMapMany(permissionIds -> {
-                    if (permissionIds.isEmpty()) {
-                        return Flux.empty();
-                    }
-                    return permissionsRepository.findByIdIn(permissionIds);
-                });
-    }
-
-    @Override
     @Transactional
-    public Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive) {
+    public Mono<Boolean> updatePermissionStatus(OperatorContext ctx, List<Long> ids, Boolean isActive) {
         log.info("批量更新权限状态, ids: {}, isActive: {}", ids, isActive);
-        
+
         if (ids == null || ids.isEmpty()) {
             return Mono.just(false);
         }
-        
+
         return permissionsRepository.findByIdIn(ids)
-                .flatMap(permission -> {
+                // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）。
+                // 本方法带 @Transactional，所有查询共用同一条 R2DBC 连接；
+                // r2dbc-mysql 的 RequestQueue 是 SPSC 队列且 submit() 无锁，
+                // 并发提交会抛 `Request queue is full`，整批更新静默失败。
+                .concatMap(permission -> {
                     permission.setIsActive(isActive);
                     permission.setUpdateTime(LocalDateTime.now());
                     return permissionsRepository.save(permission);
                 })
-                .then(Mono.just(true))
-                .defaultIfEmpty(false);
+                .then()
+                .then(Flux.fromIterable(ids).concatMap(this::refreshCacheOfPermission).then())
+                .thenReturn(true);
     }
-} 
+
+    /**
+     * 权限变更后，重建持有该权限的用户的快照
+     *
+     * <p>受影响的用户 = 持有「含该权限的角色」的所有用户。
+     */
+    private Mono<Void> refreshCacheOfPermission(Long permissionId) {
+        return rolePermissionRepository.findRoleIdsByPermissionId(permissionId)
+                .collectList()
+                .flatMapMany(Flux::fromIterable)
+                .concatMap(roleId -> userRoleRepository.findUserIdsByRoleId(roleId))
+                .distinct()
+                .concatMap(userId -> permissionCache.refresh(userId))
+                .then();
+    }
+}

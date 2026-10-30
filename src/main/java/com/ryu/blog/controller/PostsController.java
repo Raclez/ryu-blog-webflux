@@ -1,10 +1,15 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.PostCreateDTO;
 import com.ryu.blog.dto.PostQueryDTO;
 import com.ryu.blog.dto.PostStatusDTO;
+import com.ryu.blog.dto.PostStickyDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
+import com.ryu.blog.enums.PublishMode;
 import com.ryu.blog.service.ArticleService;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.PageResult;
@@ -34,7 +39,17 @@ import java.util.List;
 /**
  * 博客文章控制器
  * 负责处理文章相关的HTTP请求，包括文章的CRUD操作、状态管理和相关文章推荐等功能
- * 
+ *
+ * <p><b>鉴权模型</b>：
+ * <ul>
+ *   <li><b>能力校验</b>（{@code @SaCheckPermission}）—— 「有没有资格管理文章」，
+ *       对应 {@code content:post:*}；</li>
+ *   <li><b>归属校验</b>（{@code OwnershipPolicy}）—— 「有没有资格改这一篇」，
+ *       由 Service 层用 {@link OperatorContext} 判定。</li>
+ * </ul>
+ * 两者是<b>正交</b>的：管理员有能力，但默认也只能改自己的文章（除非持有
+ * {@code system:user:manage}）；普通读者有能力也不能改别人的。
+ *
  * @author ryu
  */
 @Slf4j
@@ -55,6 +70,7 @@ public class PostsController {
      */
     @Operation(summary = "分页查询文章列表", description = "后台管理分页查询文章列表")
     @GetMapping("/page")
+    @SaCheckPermission(PermissionConstants.POST_VIEW)
     public Mono<Result<PageResult<PostAdminListVO>>> getPostsPage(
             @ParameterObject @Validated PostQueryDTO query) {
         log.info("分页查询文章列表: page={}, size={}, title={}, status={}, categoryId={}",
@@ -110,16 +126,24 @@ public class PostsController {
 
     /**
      * 创建文章
-     * 
+     *
      * @param postCreateDTO 文章创建数据传输对象
      * @return 操作结果
      */
-    @Operation(summary = "创建文章", description = "创建新文章")
+    @Operation(summary = "创建文章", description = "创建新文章（支持存草稿 / 立即发布 / 定时发布）")
     @PostMapping("/save")
+    @SaCheckPermission(PermissionConstants.POST_ADD)
     public Mono<Result<Void>> createPost(@RequestBody @Validated PostCreateDTO postCreateDTO) {
         Long userId = StpUtil.getLoginIdAsLong();
-        log.info("创建文章: 标题={}, 用户ID={}", postCreateDTO.getTitle(), userId);
-        
+        log.info("创建文章: 标题={}, 用户ID={}, 发布方式={}",
+                postCreateDTO.getTitle(), userId, postCreateDTO.getPublishMode());
+
+        // 发布方式要动态校验：注解上的 @SaCheckPermission 是静态的，
+        // 而「存草稿」只需要 content:post:add，「立即发布 / 定时发布」还需要
+        // content:post:publish —— 不校验就等于给发布闸门开了个后门
+        // （当初 DTO 里的 status 字段就是这么被绕过去的）。
+        checkPublishCapability(postCreateDTO.getPublishMode());
+
         return articleService.createArticle(postCreateDTO, userId)
                 .then(Mono.defer(() -> {
                     log.info("文章创建成功: 标题={}, 用户ID={}", postCreateDTO.getTitle(), userId);
@@ -129,20 +153,90 @@ public class PostsController {
 
     /**
      * 更新文章
-     * 
+     *
      * @param postUpdateDTO 文章更新数据传输对象
      * @return 操作结果
      */
-    @Operation(summary = "更新文章", description = "更新已有文章")
+    @Operation(summary = "更新文章", description = "更新已有文章（可改发布方式：存草稿 / 立即发布 / 定时发布）")
     @PutMapping("/edit")
+    @SaCheckPermission(PermissionConstants.POST_EDIT)
     public Mono<Result<Void>> updatePost(@RequestBody @Validated PostUpdateDTO postUpdateDTO) {
-        log.info("更新文章: ID={}, 标题={}", postUpdateDTO.getId(), postUpdateDTO.getTitle());
-        
-        return articleService.updateArticle(postUpdateDTO)
+        log.info("更新文章: ID={}, 标题={}, 发布方式={}",
+                postUpdateDTO.getId(), postUpdateDTO.getTitle(), postUpdateDTO.getPublishMode());
+
+        // 同 createPost：只有请求里明确要求「发布」时才额外要 content:post:publish。
+        // publishMode 为 null 表示本次不改状态（普通编辑），不该被拦。
+        checkPublishCapability(postUpdateDTO.getPublishMode());
+
+        return articleService.updateArticle(postUpdateDTO, OperatorContext.current())
                 .then(Mono.defer(() -> {
                     log.info("文章更新成功: ID={}", postUpdateDTO.getId());
                     return Mono.just(Result.<Void>success());
                 }));
+    }
+
+    /**
+     * 取消定时发布
+     *
+     * <p>文章从「待发布」退回「草稿」，对应的定时发布任务一并撤销。
+     *
+     * @param id 文章ID
+     * @return 操作结果
+     */
+    @Operation(summary = "取消定时发布", description = "文章退回草稿，并撤销对应的定时发布任务")
+    @PostMapping("/{id}/publish/cancel")
+    @SaCheckPermission(PermissionConstants.POST_UNPUBLISH)
+    public Mono<Result<Void>> cancelScheduledPublish(
+            @PathVariable
+            @Positive(message = "文章ID必须为正数")
+            Long id) {
+        log.info("取消定时发布: ID={}", id);
+
+        return articleService.cancelScheduledPublish(id, OperatorContext.current())
+                .then(Mono.defer(() -> {
+                    log.info("取消定时发布成功: ID={}", id);
+                    return Mono.just(Result.<Void>success());
+                }));
+    }
+
+    /**
+     * 设置/取消文章置顶
+     *
+     * <p>列表页上的「置顶」开关直接打这个端点 ——
+     * 置顶是独立于正文编辑的操作，不该要求作者把整篇文章重新提交一遍。
+     *
+     * @param stickyDTO 文章ID与目标置顶状态
+     * @return 操作结果
+     */
+    @Operation(summary = "设置文章置顶", description = "设置或取消文章的置顶状态（列表页一键切换）")
+    @PutMapping("/sticky")
+    @SaCheckPermission(PermissionConstants.POST_EDIT)
+    public Mono<Result<Void>> updatePostSticky(@RequestBody @Validated PostStickyDTO stickyDTO) {
+        log.info("设置文章置顶: ID={}, 置顶={}", stickyDTO.getId(), stickyDTO.getIsSticky());
+
+        return articleService.updateSticky(stickyDTO, OperatorContext.current())
+                .then(Mono.defer(() -> {
+                    log.info("文章置顶状态更新成功: ID={}", stickyDTO.getId());
+                    return Mono.just(Result.<Void>success());
+                }));
+    }
+
+    /**
+     * 按发布方式动态校验「发布」能力
+     *
+     * <p>{@code DRAFT}（含未传）只写草稿，不需要发布能力；
+     * {@code IMMEDIATE} / {@code SCHEDULED} 会让文章对外可见或即将对外可见，
+     * 必须持有 {@code content:post:publish}。
+     *
+     * <p>校验在<b>方法体内同步</b>完成：注解切面 {@code SaPermissionAspect}
+     * 读的是静态注解，动态条件只能自己调。抛出的 {@code NotPermissionException}
+     * 由 {@code GlobalExceptionHandler} 统一映射成 403。
+     */
+    private void checkPublishCapability(PublishMode mode) {
+        if (mode == null || mode == PublishMode.DRAFT) {
+            return;
+        }
+        StpUtil.checkPermission(PermissionConstants.POST_PUBLISH);
     }
 
     /**
@@ -161,7 +255,8 @@ public class PostsController {
         
         return articleService.getArticleDetailVO(id)
                 .map(detailVO -> {
-                    log.info("获取文章详情成功: ID={}, 标题={}", id, detailVO.getTitle());
+                    // 不把标题（用户创作内容）写进日志
+                    log.info("获取文章详情成功: ID={}", id);
                     return Result.success(detailVO);
                 });
     }
@@ -174,6 +269,7 @@ public class PostsController {
      */
     @Operation(summary = "批量删除文章", description = "批量删除文章")
     @PostMapping("/delete/batch")
+    @SaCheckPermission(PermissionConstants.POST_REMOVE)
     public Mono<Result<Void>> batchDeletePosts(
             @RequestBody 
             @NotEmpty(message = "文章ID列表不能为空")
@@ -181,7 +277,7 @@ public class PostsController {
             List<String> ids) {
         log.info("批量删除文章: IDs={}", ids);
         
-        return articleService.batchDeleteArticles(ids)
+        return articleService.batchDeleteArticles(ids, OperatorContext.current())
                 .then(Mono.defer(() -> {
                     log.info("批量删除文章成功: IDs={}", ids);
                     return Mono.just(Result.<Void>success());
@@ -224,10 +320,12 @@ public class PostsController {
      */
     @Operation(summary = "更新文章状态", description = "更新文章状态并自动清除相关缓存")
     @PutMapping("/status")
+    // 发布与取消发布是同一个端点的两个方向，Sa-Token 的多值权限默认「满足其一即可」
+    @SaCheckPermission({PermissionConstants.POST_PUBLISH, PermissionConstants.POST_UNPUBLISH})
     public Mono<Result<Void>> updatePostStatus(@RequestBody @Validated PostStatusDTO statusDTO) {
         log.info("更新文章状态: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
-        
-        return articleService.updateArticleStatus(statusDTO)
+
+        return articleService.updateArticleStatus(statusDTO, OperatorContext.current())
                 .then(Mono.defer(() -> {
                     log.info("更新文章状态成功: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
                     return Mono.just(Result.<Void>success());
@@ -243,6 +341,7 @@ public class PostsController {
      */
     @Operation(summary = "导入Markdown文件", description = "导入Markdown文件创建文章")
     @PostMapping(value = "/upload-md", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @SaCheckPermission(PermissionConstants.POST_ADD)
     public Mono<Result<Void>> importMarkdown(
             @RequestPart("files") FilePart file,
             @RequestParam(required = false) 
@@ -266,13 +365,15 @@ public class PostsController {
      */
     @Operation(summary = "导出为Markdown文件", description = "将文章导出为Markdown文件")
     @GetMapping("/export/{id}")
+    // 能力校验（能管理文章）+ 归属校验（Service 层：只能导出自己的）
+    @SaCheckPermission(PermissionConstants.POST_VIEW)
     public Mono<ResponseEntity<ByteArrayResource>> exportMarkdown(
             @PathVariable 
             @Positive(message = "文章ID必须为正数") 
             Long id) {
         log.info("导出文章为Markdown: ID={}", id);
         
-        return articleService.exportArticleToMarkdown(id)
+        return articleService.exportArticleToMarkdown(id, OperatorContext.current())
                 .map(result -> {
                     String filename = result.getFilename();
                     byte[] content = result.getContent().getBytes(StandardCharsets.UTF_8);

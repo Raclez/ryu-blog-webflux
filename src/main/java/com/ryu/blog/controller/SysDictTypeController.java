@@ -62,7 +62,7 @@ public class SysDictTypeController {
     @GetMapping("/page")
     @Operation(summary = "分页查询字典类型", description = "支持按名称和编码查询")
     public Mono<Result<PageResult<SysDictTypeVO>>> getSysDictTypePage(
-            @ParameterObject SysDictTypeQueryDTO queryDTO
+            @ParameterObject @Valid SysDictTypeQueryDTO queryDTO
     ) {
         log.info("分页查询字典类型，查询条件: {}", queryDTO);
         return dictTypeService.getDictTypePage(queryDTO)

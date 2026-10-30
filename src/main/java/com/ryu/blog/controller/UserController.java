@@ -1,6 +1,9 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.UserDTO;
 import com.ryu.blog.dto.UserListDTO;
 import com.ryu.blog.dto.UserPasswordDTO;
@@ -22,7 +25,13 @@ import java.util.List;
 
 /**
  * 用户管理控制器
- * @author ryu 475118582@qq.com
+ *
+ * <p><b>鉴权模型</b>：能力校验由 {@code @SaCheckPermission} 表达（由
+ * {@code SaPermissionAspect} 执行 —— WebFlux 下 Sa-Token 本身不提供注解拦截器）；
+ * 归属校验（「能不能改自己以外的人」）由 Service 层的 {@code OwnershipPolicy} 表达。
+ * 两者的分工与接缝见 {@code OperatorContext}。
+ *
+ * @author ryu
  */
 @Slf4j
 @RestController
@@ -37,27 +46,30 @@ public class UserController {
      * 分页查询用户列表
      */
     @Operation(summary = "分页查询用户列表", description = "根据条件获取用户分页列表")
+    @SaCheckPermission(PermissionConstants.USER_VIEW)
     @GetMapping("/page")
     public Mono<Result<PageResult<UserVO>>> getUserPage(@ParameterObject @Validated UserListDTO userListDTO) {
         return userService.getUserPage(
-                userListDTO.getCurrent() - 1, 
-                userListDTO.getSize(), 
-                userListDTO.getUsername(), 
-                userListDTO.getEmail(), 
-                userListDTO.getStatus()
+            userListDTO.getCurrent() - 1,
+            userListDTO.getSize(),
+            userListDTO.getUsername(),
+            userListDTO.getEmail(),
+            userListDTO.getStatus()
             )
             .map(Result::success);
     }
 
     /**
      * 获取当前登录用户信息
+     *
+     * <p>自助接口 —— 只能拿到自己的信息，因此不需要权限注解。
      */
     @Operation(summary = "获取当前用户信息", description = "获取当前登录用户信息")
     @GetMapping("/info")
     public Mono<Result<UserInfoVO>> getCurrentUser() {
         long userId = StpUtil.getLoginIdAsLong();
         log.info("获取当前用户信息: userId={}", userId);
-        
+
         return userService.getCurrentUserInfo(userId)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取当前用户信息成功: userId={}", userId));
@@ -65,46 +77,62 @@ public class UserController {
 
     /**
      * 根据ID获取用户详细信息
+     *
+     * <p>归属校验：只能查自己，或持有 {@code system:user:manage}。
      */
     @Operation(summary = "获取用户详情", description = "根据ID获取用户详细信息")
+    @SaCheckPermission(PermissionConstants.USER_VIEW)
     @GetMapping("/detail/{id}")
     public Mono<Result<UserInfoVO>> getUserDetail(@PathVariable Long id) {
         log.info("获取用户详情: id={}", id);
-        
-        return userService.getUserDetailById(id)
+
+        return userService.getUserDetailById(OperatorContext.current(), id)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取用户详情成功: id={}", id));
     }
 
     /**
      * 创建新用户
+     *
+     * <p>请求体里指定了角色时，还要持有 {@code system:user:assign} ——
+     * 否则「能建用户」就等于「能建一个 admin 用户」。
      */
     @Operation(summary = "创建新用户", description = "创建新用户并可选地分配角色")
+    @SaCheckPermission(PermissionConstants.USER_ADD)
     @PostMapping("/save")
     public Mono<Result<String>> createUser(@Validated @RequestBody UserDTO userDTO) {
         log.info("创建新用户: username={}", userDTO.getUsername());
-        
-        return userService.createUserWithRoles(userDTO)
+
+        return userService.createUserWithRoles(OperatorContext.current(), userDTO)
                 .map(u -> Result.success("用户创建成功"))
                 .doOnSuccess(result -> log.info("用户创建成功: username={}", userDTO.getUsername()));
     }
 
     /**
      * 更新用户信息
+     *
+     * <p>归属校验：只能改自己，或持有 {@code system:user:manage}。
+     *
+     * <p><b>角色另算</b>：请求体里带 {@code roleIds} 且与当前角色不同，
+     * 相当于「分配角色」，还要持有 {@code system:user:assign}；
+     * 改自己的角色一律忽略（不能自己给自己升权）。
      */
     @Operation(summary = "更新用户信息", description = "更新指定ID用户的信息")
+    @SaCheckPermission(PermissionConstants.USER_EDIT)
     @PutMapping("/edit/{id}")
     public Mono<Result<String>> updateUserInfo(@PathVariable Long id, @Validated @RequestBody UserDTO userDTO) {
-        log.info("更新用户信息: id={}, username={}", id, userDTO.getUsername());
-        
+        log.info("更新用户信息: id={}", id);
+
         userDTO.setId(id);
-        return userService.updateUserWithRoles(userDTO)
+        return userService.updateUserWithRoles(OperatorContext.current(), userDTO)
                 .map(u -> Result.success("用户信息更新成功"))
                 .doOnSuccess(result -> log.info("用户信息更新成功: id={}", id));
     }
 
     /**
      * 修改密码
+     *
+     * <p>自助接口 —— 只能改自己的密码（Service 校验旧密码）。
      */
     @Operation(summary = "修改密码", description = "修改当前登录用户密码")
     @PutMapping("/password")
@@ -112,80 +140,87 @@ public class UserController {
         if (!passwordDTO.getNewPassword().equals(passwordDTO.getConfirmPassword())) {
             return Mono.just(Result.badRequest("新密码和确认密码不一致"));
         }
-        
+
         long userId = StpUtil.getLoginIdAsLong();
         log.info("修改密码: userId={}", userId);
-        
+
         return userService.updatePassword(userId, passwordDTO)
                 .map(success -> success ? Result.success("密码修改成功") : Result.error("旧密码错误"))
                 .doOnSuccess(result -> log.info("密码修改成功: userId={}", userId));
     }
-    
+
     /**
      * 删除用户
      */
     @Operation(summary = "删除用户", description = "删除指定ID的用户及其关联的角色关系")
+    @SaCheckPermission(PermissionConstants.USER_REMOVE)
     @DeleteMapping("/delete/{id}")
     public Mono<Result<String>> deleteUser(@PathVariable Long id) {
         log.info("删除用户: id={}", id);
-        
-        return userService.deleteUser(id)
+
+        return userService.deleteUser(OperatorContext.current(), id)
                 .thenReturn(Result.success("用户删除成功"))
                 .doOnSuccess(result -> log.info("用户删除成功: id={}", id));
     }
-    
+
     /**
      * 批量删除用户
      */
     @Operation(summary = "批量删除用户", description = "批量删除多个用户及其关联的角色关系")
+    @SaCheckPermission(PermissionConstants.USER_REMOVE)
     @DeleteMapping("/batch")
     public Mono<Result<String>> batchDeleteUsers(@RequestBody List<Long> ids) {
         log.info("批量删除用户: ids={}", ids);
-        
-        return userService.batchDeleteUsers(ids)
+
+        return userService.batchDeleteUsers(OperatorContext.current(), ids)
                 .thenReturn(Result.success("批量删除用户成功"))
                 .doOnSuccess(result -> log.info("批量删除用户成功: 数量={}", ids.size()));
     }
-    
+
     /**
      * 重置用户密码
+     *
+     * <p>管理员功能。响应体含明文新密码 —— 只应通过安全的渠道交给目标用户。
      */
     @Operation(summary = "重置用户密码", description = "管理员重置指定用户的密码")
+    @SaCheckPermission(PermissionConstants.USER_RESET_PWD)
     @PutMapping("/reset-password/{id}")
     public Mono<Result<String>> resetPassword(@PathVariable Long id) {
         log.info("重置用户密码: id={}", id);
-        
-        return userService.resetPassword(id)
+
+        return userService.resetPassword(OperatorContext.current(), id)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("重置用户密码成功: id={}", id));
     }
-    
+
     /**
      * 更新用户状态
      */
     @Operation(summary = "更新用户状态", description = "更新用户状态")
+    @SaCheckPermission(PermissionConstants.USER_STATUS)
     @PutMapping("/{id}/status/{status}")
     public Mono<Result<String>> updateUserStatus(
-            @PathVariable Long id, 
+            @PathVariable Long id,
             @PathVariable Integer status) {
         log.info("更新用户状态: id={}, status={}", id, status);
-        
-        return userService.updateUserStatus(id, status)
+
+        return userService.updateUserStatus(OperatorContext.current(), id, status)
                 .map(i -> Result.success("用户状态更新成功"))
-                .doOnSuccess(result -> log.info("用户状态更新成功: id={}, status={}", id, status));
+                .doOnSuccess(result -> log.info("用户状态更新成功: id={}", id));
     }
-    
+
     /**
      * 更新用户角色（管理员功能）
      */
     @Operation(summary = "更新用户角色", description = "分配用户角色（管理员功能）")
+    @SaCheckPermission(PermissionConstants.USER_ASSIGN)
     @PutMapping("/{id}/roles")
     public Mono<Result<String>> updateUserRoles(
-            @PathVariable Long id, 
+            @PathVariable Long id,
             @RequestBody List<Long> roleIds) {
         log.info("更新用户角色: id={}, roleIds={}", id, roleIds);
-        
-        return userService.updateUserRoles(id, roleIds)
+
+        return userService.updateUserRoles(OperatorContext.current(), id, roleIds)
                 .thenReturn(Result.success("角色更新成功"))
                 .doOnSuccess(result -> log.info("角色更新成功: id={}", id));
     }

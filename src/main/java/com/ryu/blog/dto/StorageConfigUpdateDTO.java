@@ -1,5 +1,6 @@
 package com.ryu.blog.dto;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.util.Map;
@@ -15,6 +16,7 @@ public class StorageConfigUpdateDTO {
     /**
      * 存储策略ID
      */
+    @NotNull(message = "存储策略ID不能为空")
     private Long id;
 
     /**
@@ -34,8 +36,13 @@ public class StorageConfigUpdateDTO {
 
     /**
      * 是否启用此策略
+     *
+     * <p>用 {@link Boolean} 而不是 {@code Integer}：前端开关回传的是 {@code true/false}，
+     * Jackson 不会把布尔强转成整型 —— 声明成 {@code Integer} 时请求在进 Controller 之前
+     * 就 400（{@code Cannot deserialize value of type java.lang.Integer from Boolean}）。
+     * 反过来 {@code 1/0} 也能正常读成 {@code true/false}，兼容老调用方。
      */
-    private Integer isEnable;
+    private Boolean isEnable;
 
 
     private  String accessUrl;

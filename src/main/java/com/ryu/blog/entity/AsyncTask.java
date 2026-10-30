@@ -79,6 +79,17 @@ public class AsyncTask extends BaseEntity {
      */
     @Column("submit_time")
     private LocalDateTime submitTime;
+
+    /**
+     * 计划执行时间（延迟任务专用）
+     *
+     * <p>非延迟任务为 null —— 延迟任务在到期前不会进入待执行队列，
+     * 由 {@code ScheduledTaskPromoter} 依据这一列判断是否到期。
+     * 它同时是 Redis 丢数据后的重建依据：没有这一列，
+     * 延迟任务在 Redis 清空后就再也找不回来了。
+     */
+    @Column("execute_at")
+    private LocalDateTime executeAt;
     
     /**
      * 开始执行时间

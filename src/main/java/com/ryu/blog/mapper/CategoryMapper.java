@@ -6,6 +6,7 @@ import com.ryu.blog.entity.Category;
 import com.ryu.blog.vo.CategoryStatsVO;
 import com.ryu.blog.vo.CategoryVO;
 import org.mapstruct.Mapper;
+import org.mapstruct.ReportingPolicy;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.Named;
@@ -17,7 +18,7 @@ import org.mapstruct.NullValuePropertyMappingStrategy;
  *
  * @author ryu
  */
-@Mapper(componentModel = "spring", nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+@Mapper(unmappedTargetPolicy = ReportingPolicy.ERROR, componentModel = "spring", nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
 public interface CategoryMapper {
 
     /**

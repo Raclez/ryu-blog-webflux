@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.service.MonitorService;
 import com.ryu.blog.vo.SystemInfoVO;
 import com.ryu.blog.vo.ThreadInfoVO;
@@ -12,7 +13,6 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.data.redis.connection.ReactiveRedisConnection;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
-import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import oshi.SystemInfo;
@@ -23,6 +23,7 @@ import oshi.software.os.OSFileStore;
 import oshi.software.os.OperatingSystem;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import jakarta.annotation.PostConstruct;
 import java.lang.management.*;
@@ -53,7 +54,6 @@ public class MonitorServiceImpl implements MonitorService {
     private final CacheManager cacheManager;
     private final ReactiveRedisTemplate<String, Object> redisTemplate;
     private final ReactiveRedisConnectionFactory redisConnectionFactory;
-    private final DatabaseClient databaseClient;
 
     private static class CpuUsageCache {
         final long[] ticks;
@@ -91,7 +91,7 @@ public class MonitorServiceImpl implements MonitorService {
     }
 
     @Override
-    @Cacheable(value = "monitor:system", unless = "#result == null")
+    @Cacheable(value = CacheConstants.MONITOR_SYSTEM_CACHE, unless = "#result == null")
     public Mono<SystemInfoVO> getSystemInfo() {
         return Mono.defer(() -> {
             // Gather reactive cache stats
@@ -101,7 +101,9 @@ public class MonitorServiceImpl implements MonitorService {
                         log.warn("获取缓存统计失败: {}", e.getMessage());
                         return Mono.just(buildSystemInfoWithCache(getDefaultCacheStats()));
                     });
-        });
+        })
+        // OSHI / JMX 的系统信息采集是阻塞调用（含磁盘枚举），隔离到 boundedElastic
+        .subscribeOn(Schedulers.boundedElastic());
     }
 
 
@@ -186,7 +188,8 @@ public class MonitorServiceImpl implements MonitorService {
 
     private Mono<SystemInfoVO.CacheStats> getCacheStatsReactive() {
         Mono<SystemInfoVO.RedisCacheStats> redisMono = getRedisCacheStatsReactive();
-        Mono<SystemInfoVO.CaffeineCacheStats> caffeineMono = Mono.fromCallable(this::getCaffeineCacheStats);
+        Mono<SystemInfoVO.CaffeineCacheStats> caffeineMono = Mono.fromCallable(this::getCaffeineCacheStats)
+                .subscribeOn(Schedulers.boundedElastic());
         
         return Mono.zip(redisMono, caffeineMono)
                 .map(tuple -> SystemInfoVO.CacheStats.builder()
@@ -269,7 +272,7 @@ public class MonitorServiceImpl implements MonitorService {
     }
 
     @Override
-    @Cacheable(value = "monitor:threads", unless = "#result == null")
+    @Cacheable(value = CacheConstants.MONITOR_THREADS_CACHE, unless = "#result == null")
     public Flux<ThreadInfoVO> getAllThreads() {
         return Flux.defer(() -> {
             ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
@@ -283,11 +286,13 @@ public class MonitorServiceImpl implements MonitorService {
                 }
             }
             return Flux.fromIterable(threads);
-        });
+        })
+        // ThreadMXBean 是阻塞调用，隔离到 boundedElastic
+        .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
-    @Cacheable(value = "monitor:thread-stats", unless = "#result == null")
+    @Cacheable(value = CacheConstants.MONITOR_THREAD_STATS_CACHE, unless = "#result == null")
     public Mono<ThreadStatsVO> getThreadStats() {
         return Mono.fromCallable(() -> {
             ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
@@ -325,7 +330,9 @@ public class MonitorServiceImpl implements MonitorService {
                     .totalStartedThreadCount(threadMXBean.getTotalStartedThreadCount())
                     .deadlockedThreadIds(deadlockedIds)
                     .build();
-        });
+        })
+        // ThreadMXBean 是阻塞调用，隔离到 boundedElastic
+        .subscribeOn(Schedulers.boundedElastic());
     }
 
     private double getCachedCpuUsage() {

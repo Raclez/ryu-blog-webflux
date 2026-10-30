@@ -1,6 +1,7 @@
 package com.ryu.blog.service.impl;
 
 import com.ryu.blog.dto.AiGenerationRequest;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.PromptEnhancer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import reactor.core.publisher.Mono;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class PromptEnhancerImpl implements PromptEnhancer {
 
     @Override

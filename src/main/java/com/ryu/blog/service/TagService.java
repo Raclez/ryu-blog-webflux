@@ -1,5 +1,6 @@
 package com.ryu.blog.service;
 
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.TagCreateDTO;
 import com.ryu.blog.dto.TagListDTO;
 import com.ryu.blog.dto.TagUpdateDTO;
@@ -65,14 +66,14 @@ public interface TagService {
      * @param tagIds 标签ID列表
      * @return 是否添加成功
      */
-    Mono<Boolean> addTagsToArticle(Long articleId, List<Long> tagIds);
+    Mono<Boolean> addTagsToArticle(Long articleId, List<Long> tagIds, OperatorContext ctx);
 
     /**
      * 移除文章的标签
      * @param articleId 文章ID
      * @return 是否移除成功
      */
-    Mono<Boolean> removeTagsFromArticle(Long articleId);
+    Mono<Boolean> removeTagsFromArticle(Long articleId, OperatorContext ctx);
 
     /**
      * 检查标签名称是否存在

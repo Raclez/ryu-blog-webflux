@@ -1,6 +1,7 @@
 package com.ryu.blog.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.ryu.blog.enums.PublishMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.Data;
@@ -57,10 +58,8 @@ public class PostCreateDTO {
     @Schema(description = "URL别名", example = "spring-boot-tutorial")
     private String slug;
 
-    @Min(value = 0, message = "置顶标识只能为0或1")
-    @Max(value = 1, message = "置顶标识只能为0或1")
-    @Schema(description = "是否置顶：0-否，1-是", example = "0")
-    private Integer isSticky;
+    @Schema(description = "是否置顶", example = "false")
+    private Boolean isSticky;
 
     @Schema(description = "是否原创", example = "true")
     private Boolean isOriginal;
@@ -94,11 +93,10 @@ public class PostCreateDTO {
 
     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @Schema(description = "定时发布时间", example = "2024-12-31 23:59:59")
+    @Schema(description = "定时发布时间（publishMode=SCHEDULED 时必填，且必须晚于当前时间）",
+            example = "2024-12-31 23:59:59")
     private LocalDateTime scheduleTime;
 
-    @Min(value = 0, message = "立即发布标识只能为0或1")
-    @Max(value = 1, message = "立即发布标识只能为0或1")
-    @Schema(description = "是否立即发布：0-否，1-是", example = "0")
-    private Integer isPublishImmediately;
-} 
+    @Schema(description = "发布方式：DRAFT-存草稿，IMMEDIATE-立即发布，SCHEDULED-定时发布", example = "DRAFT")
+    private PublishMode publishMode;
+}

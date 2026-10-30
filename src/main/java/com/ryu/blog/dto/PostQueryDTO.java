@@ -29,9 +29,11 @@ public class PostQueryDTO {
     @Schema(description = "文章标题（模糊查询）", example = "Spring")
     private String title;
     
-    @Min(value = 0, message = "状态值只能为0、1或2")
-    @Max(value = 2, message = "状态值只能为0、1或2")
-    @Schema(description = "文章状态：0-草稿，1-已发布，2-回收站", example = "1")
+    // 上界是 3（已归档）：Posts.Status.ARCHIVED = 3，
+    // 原来的 @Max(2) 让「按状态筛选已归档」永远查不出结果。
+    @Min(value = 0, message = "状态值只能为0、1、2或3")
+    @Max(value = 3, message = "状态值只能为0、1、2或3")
+    @Schema(description = "文章状态：0-待发布，1-已发布，2-草稿，3-已归档", example = "1")
     private Integer status;
 
     @Positive(message = "分类ID必须为正数")

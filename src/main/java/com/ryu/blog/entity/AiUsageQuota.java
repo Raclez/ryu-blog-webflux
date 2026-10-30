@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 @Table("t_ai_usage_quota")
 public class AiUsageQuota extends BaseEntity {
 

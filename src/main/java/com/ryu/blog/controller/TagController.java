@@ -1,6 +1,9 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.ryu.blog.constant.MessageConstants;
+import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.TagCreateDTO;
 import com.ryu.blog.dto.TagListDTO;
 import com.ryu.blog.dto.TagUpdateDTO;
@@ -62,6 +65,7 @@ public class TagController {
     @Operation(summary = "创建标签", description = "创建新标签，标签名称必须唯一")
     @PostMapping("/save")
     @ResponseStatus(HttpStatus.CREATED)
+    @SaCheckPermission(PermissionConstants.TAG_ADD)
     public Mono<Result<String>> createTag(@RequestBody @Validated TagCreateDTO tagCreateDTO) {
         log.info("[标签创建] 开始处理创建标签请求 - 标签名称: {}", tagCreateDTO.getName());
         
@@ -85,6 +89,7 @@ public class TagController {
      */
     @Operation(summary = "更新标签", description = "更新已有标签信息，支持部分字段更新")
     @PutMapping("/edit")
+    @SaCheckPermission(PermissionConstants.TAG_EDIT)
     public Mono<Result<String>> updateTag(@RequestBody @Validated TagUpdateDTO tagUpdateDTO) {
         log.info("[标签更新] 开始处理更新标签请求 - 标签ID: {}, 新名称: {}", 
                 tagUpdateDTO.getId(), tagUpdateDTO.getName());
@@ -130,6 +135,7 @@ public class TagController {
      */
     @Operation(summary = "删除标签", description = "逻辑删除标签，会同时删除与文章的关联关系")
     @DeleteMapping("/delete/{id}")
+    @SaCheckPermission(PermissionConstants.TAG_REMOVE)
     public Mono<Result<String>> deleteTag(
             @Parameter(description = "标签ID", required = true) 
             @PathVariable @NotNull @Positive Long id) {
@@ -198,14 +204,15 @@ public class TagController {
      */
     @Operation(summary = "为文章添加标签", description = "为文章添加标签，会覆盖原有标签")
     @PostMapping("/article/{articleId}")
+    @SaCheckPermission(PermissionConstants.TAG_ADD)
     public Mono<Result<String>> addTagsToArticle(
-            @Parameter(description = "文章ID", required = true) 
+            @Parameter(description = "文章ID", required = true)
             @PathVariable @NotNull @Positive Long articleId,
-            @Parameter(description = "标签ID列表", required = true) 
+            @Parameter(description = "标签ID列表", required = true)
             @RequestBody @NotEmpty List<@NotNull @Positive Long> tagIds) {
         log.info("[文章标签] 为文章添加标签 - 文章ID: {}, 标签IDs: {}", articleId, tagIds);
-        
-        return tagService.addTagsToArticle(articleId, tagIds)
+
+        return tagService.addTagsToArticle(articleId, tagIds, OperatorContext.current())
                 .doOnSuccess(success -> log.info("[文章标签] 文章标签添加成功 - 文章ID: {}, 标签数: {}", 
                         articleId, tagIds.size()))
                 .map(success -> Result.success(MessageConstants.TAG_ASSIGN_SUCCESS))
@@ -223,12 +230,13 @@ public class TagController {
      */
     @Operation(summary = "移除文章标签", description = "移除文章的所有标签关联")
     @DeleteMapping("/article/{articleId}")
+    @SaCheckPermission(PermissionConstants.TAG_REMOVE)
     public Mono<Result<String>> removeTagsFromArticle(
-            @Parameter(description = "文章ID", required = true) 
+            @Parameter(description = "文章ID", required = true)
             @PathVariable @NotNull @Positive Long articleId) {
         log.info("[文章标签] 移除文章标签 - 文章ID: {}", articleId);
-        
-        return tagService.removeTagsFromArticle(articleId)
+
+        return tagService.removeTagsFromArticle(articleId, OperatorContext.current())
                 .doOnSuccess(success -> log.info("[文章标签] 文章标签移除成功 - 文章ID: {}", articleId))
                 .map(success -> Result.success(MessageConstants.TAG_REMOVE_SUCCESS))
                 .doOnError(e -> log.error("[文章标签] 文章标签移除失败 - 文章ID: {}, 错误: {}", 

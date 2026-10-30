@@ -1,7 +1,6 @@
 package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.Permissions;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.stereotype.Repository;
@@ -37,6 +36,19 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
     Flux<Permissions> findByIdIn(List<Long> ids);
 
     /**
+     * 根据ID列表查询<b>启用中且未删除</b>的权限
+     *
+     * <p>权限判定的权威查询。与 {@link #findByIdIn(List)} 的区别：
+     * 这里在 SQL 里就过滤掉 {@code is_active != 1} 与 {@code is_deleted = 1} 的权限，
+     * 避免「已停用的权限仍被授予」这类静默失效。
+     *
+     * @param ids 权限ID列表
+     * @return 启用中的权限列表
+     */
+    @Query("SELECT * FROM t_permissions WHERE id IN (:ids) AND is_active = 1 AND is_deleted = 0")
+    Flux<Permissions> findEnabledByIdIn(List<Long> ids);
+
+    /**
      * 根据权限标识列表查询权限
      *
      * @param identities 权限标识列表
@@ -63,17 +75,6 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
     Flux<Permissions> findByIdentityStartingWithAndIsDeletedOrderByIdAsc(String prefix, Integer isDeleted);
     
     /**
-     * 根据权限标识前缀查询权限（带分页）
-     *
-     * @param prefix 权限标识前缀，如 "system:", "content:"
-     * @param isDeleted 是否删除标志
-     * @param pageable 分页参数
-     * @return 权限列表
-     */
-    @Query("SELECT * FROM t_permissions WHERE identity LIKE CONCAT(:prefix, '%') AND is_deleted = :isDeleted ORDER BY id ASC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
-    Flux<Permissions> findByIdentityStartingWithAndIsDeletedOrderByIdAsc(String prefix, Integer isDeleted, Pageable pageable);
-    
-    /**
      * 统计符合权限标识前缀的权限数量
      *
      * @param prefix 权限标识前缀
@@ -82,7 +83,7 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
      */
     @Query("SELECT COUNT(*) FROM t_permissions WHERE identity LIKE CONCAT(:prefix, '%') AND is_deleted = :isDeleted")
     Mono<Long> countByIdentityStartingWithAndIsDeleted(String prefix, Integer isDeleted);
-    
+
     /**
      * 根据权限标识前缀查询权限
      *
@@ -90,7 +91,7 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
      * @return 权限列表
      */
     Flux<Permissions> findByIdentityStartingWith(String prefix);
-    
+
     /**
      * 查询所有未删除的权限
      *
@@ -98,17 +99,7 @@ public interface PermissionsRepository extends R2dbcRepository<Permissions, Long
      * @return 权限列表
      */
     Flux<Permissions> findByIsDeletedOrderByIdAsc(Integer isDeleted);
-    
-    /**
-     * 查询所有未删除的权限（带分页）
-     *
-     * @param isDeleted 是否删除标志
-     * @param pageable 分页参数
-     * @return 权限列表
-     */
-    @Query("SELECT * FROM t_permissions WHERE is_deleted = :isDeleted ORDER BY id ASC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
-    Flux<Permissions> findByIsDeletedOrderByIdAsc(Integer isDeleted, Pageable pageable);
-    
+
     /**
      * 统计所有未删除的权限数量
      *

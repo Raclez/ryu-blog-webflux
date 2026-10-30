@@ -13,15 +13,19 @@ import java.util.List;
  * 
  * @author ryu 475118582@qq.com
  */
-@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
+@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface TagMapper {
     
     /**
      * 将Tag实体转换为TagVO
-     * 
+     *
+     * <p>articleCount 需要额外统计（见 {@link #toTagVOWithArticleCount}），
+     * 这个重载拿不到，显式忽略。
+     *
      * @param tag 标签实体
      * @return TagVO
      */
+    @Mapping(target = "articleCount", ignore = true)
     TagVO toTagVO(Tag tag);
     
     /**

@@ -1,5 +1,8 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.PermissionsAddDTO;
 import com.ryu.blog.dto.PermissionsQueryDTO;
 import com.ryu.blog.dto.PermissionsStatusDTO;
@@ -13,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -44,6 +48,7 @@ public class PermissionsController {
      *
      * @return 包含权限列表的结果对象
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_VIEW)
     @GetMapping("/list")
     @Operation(summary = "获取所有权限列表", description = "获取系统中所有的权限列表")
     public Mono<Result<List<Permissions>>> getPermissions() {
@@ -63,9 +68,10 @@ public class PermissionsController {
      * @param permissionsUpdateDTO 权限更新DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_EDIT)
     @PutMapping("/edit")
     @Operation(summary = "修改权限", description = "修改现有权限")
-    public Mono<Result<String>> updatePermissions(@RequestBody PermissionsUpdateDTO permissionsUpdateDTO) {
+    public Mono<Result<String>> updatePermissions(@Valid @RequestBody PermissionsUpdateDTO permissionsUpdateDTO) {
         log.info("请求修改权限: {}", permissionsUpdateDTO);
         
         // 参数校验
@@ -74,7 +80,7 @@ public class PermissionsController {
             return Mono.just(Result.error("权限ID不能为空"));
         }
         
-        return permissionsService.updatePermission(permissionsUpdateDTO)
+        return permissionsService.updatePermission(OperatorContext.current(), permissionsUpdateDTO)
                 .then(Mono.fromCallable(() -> {
                     log.info("成功修改权限, ID: {}", permissionsUpdateDTO.getId());
                     return Result.success("修改权限成功");
@@ -88,6 +94,7 @@ public class PermissionsController {
      * @param modulePrefix 模块前缀，如 "system", "content" 等
      * @return 权限列表
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_VIEW)
     @GetMapping("/module/{modulePrefix}")
     @Operation(summary = "按模块前缀获取权限列表", description = "获取指定模块前缀下的所有权限")
     public Mono<Result<List<Permissions>>> getPermissionsByModule(@PathVariable String modulePrefix) {
@@ -113,9 +120,10 @@ public class PermissionsController {
      * @param permissionsQuery 查询条件DTO
      * @return 权限分页结果
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_VIEW)
     @GetMapping("/page")
     @Operation(summary = "分页查询权限列表", description = "根据查询条件分页获取权限列表")
-    public Mono<Result<PageResult<Permissions>>> getPermissionsByPage(@ParameterObject PermissionsQueryDTO permissionsQuery) {
+    public Mono<Result<PageResult<Permissions>>> getPermissionsByPage(@ParameterObject @Valid PermissionsQueryDTO permissionsQuery) {
         log.info("请求分页查询权限列表, 查询条件: {}", permissionsQuery);
         
         if (permissionsQuery == null) {
@@ -138,9 +146,10 @@ public class PermissionsController {
      * @param permissionsAddDTO 权限信息DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_ADD)
     @PostMapping("/add")
     @Operation(summary = "新增权限", description = "添加新的权限")
-    public Mono<Result<String>> savePermission(@RequestBody PermissionsAddDTO permissionsAddDTO) {
+    public Mono<Result<String>> savePermission(@Valid @RequestBody PermissionsAddDTO permissionsAddDTO) {
         log.info("请求新增权限: {}", permissionsAddDTO);
         
         // 参数校验
@@ -159,7 +168,7 @@ public class PermissionsController {
             return Mono.just(Result.error("权限标识不能为空"));
         }
         
-        return permissionsService.savePermission(permissionsAddDTO)
+        return permissionsService.savePermission(OperatorContext.current(), permissionsAddDTO)
                 .then(Mono.fromCallable(() -> {
                     log.info("成功新增权限, 名称: {}, 标识: {}", permissionsAddDTO.getName(), permissionsAddDTO.getIdentity());
                     return Result.success("新增权限成功");
@@ -173,6 +182,7 @@ public class PermissionsController {
      * @param id 权限ID
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_REMOVE)
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除权限", description = "删除指定ID的权限")
     public Mono<Result<String>> delete(@PathVariable("id") Long id) {
@@ -183,7 +193,7 @@ public class PermissionsController {
             return Mono.just(Result.error("权限ID不能为空"));
         }
         
-        return permissionsService.removeById(id)
+        return permissionsService.removeById(OperatorContext.current(), id)
                 .then(Mono.fromCallable(() -> {
                     log.info("成功删除权限, ID: {}", id);
                     return Result.success("删除权限成功");
@@ -197,6 +207,7 @@ public class PermissionsController {
      * @param userId 用户ID
      * @return 权限标识集合
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_VIEW)
     @GetMapping("/user/{userId}")
     @Operation(summary = "获取用户权限标识", description = "获取指定用户拥有的所有权限标识")
     public Mono<Result<Set<String>>> getUserPermissions(@PathVariable("userId") Long userId) {
@@ -207,7 +218,7 @@ public class PermissionsController {
             return Mono.just(Result.error("用户ID不能为空"));
         }
         
-        return permissionsService.getUserPermissionIdentities(userId)
+        return permissionsService.getUserPermissionIdentities(OperatorContext.current(), userId)
                 .map(permissions -> {
                     log.info("成功获取用户权限标识, userId: {}, 权限数量: {}", userId, permissions.size());
                     return Result.success(permissions);
@@ -220,6 +231,7 @@ public class PermissionsController {
      * 
      * @return 模块名称列表
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_VIEW)
     @GetMapping("/modules")
     @Operation(summary = "获取博客系统模块列表", description = "获取系统中所有模块的列表")
     public Mono<Result<List<String>>> getModules() {
@@ -239,6 +251,7 @@ public class PermissionsController {
      * @param permissionIdentity 权限标识
      * @return 是否拥有权限
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_VIEW)
     @GetMapping("/check")
     @Operation(summary = "检查用户权限", description = "检查用户是否拥有指定权限")
     public Mono<Result<Boolean>> checkPermission(
@@ -251,7 +264,7 @@ public class PermissionsController {
             return Mono.just(Result.error("用户ID不能为空"));
         }
         
-        return permissionsService.hasPermission(userId, permissionIdentity)
+        return permissionsService.hasPermission(OperatorContext.current(), userId, permissionIdentity)
                 .map(hasPermission -> {
                     log.info("成功检查用户权限, userId: {}, permissionIdentity: {}, 结果: {}", 
                             userId, permissionIdentity, hasPermission);
@@ -266,6 +279,7 @@ public class PermissionsController {
      * @param roleId 角色ID
      * @return 权限列表
      */
+    @SaCheckPermission(PermissionConstants.ROLE_VIEW)
     @GetMapping("/role/{roleId}")
     @Operation(summary = "获取角色权限列表", description = "获取指定角色拥有的所有权限")
     public Mono<Result<List<Permissions>>> getPermissionsByRole(@PathVariable("roleId") Long roleId) {
@@ -284,30 +298,6 @@ public class PermissionsController {
                 });
     }
     
-    /**
-     * 获取菜单关联的权限列表
-     * 获取指定菜单关联的所有权限
-     *
-     * @param menuId 菜单ID
-     * @return 权限列表
-     */
-    @GetMapping("/menu/{menuId}")
-    @Operation(summary = "获取菜单权限列表", description = "获取指定菜单关联的所有权限")
-    public Mono<Result<List<Permissions>>> getPermissionsByMenu(@PathVariable("menuId") Long menuId) {
-        log.info("请求获取菜单权限列表, menuId: {}", menuId);
-        
-        if (menuId == null) {
-            log.error("获取菜单权限列表失败: 菜单ID为空");
-            return Mono.just(Result.error("菜单ID不能为空"));
-        }
-        
-        return permissionsService.getPermissionsByMenuId(menuId)
-                .collectList()
-                .map(permissions -> {
-                    log.info("成功获取菜单权限列表, menuId: {}, 权限数量: {}", menuId, permissions.size());
-                    return Result.success(permissions);
-                });
-    }
     
     /**
      * 批量更新权限状态
@@ -316,9 +306,10 @@ public class PermissionsController {
      * @param statusDTO 包含权限ID列表和状态的DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.PERMISSION_EDIT)
     @PutMapping("/status")
     @Operation(summary = "批量更新权限状态", description = "批量更新权限的状态")
-    public Mono<Result<String>> updatePermissionStatus(@RequestBody PermissionsStatusDTO statusDTO) {
+    public Mono<Result<String>> updatePermissionStatus(@Valid @RequestBody PermissionsStatusDTO statusDTO) {
         log.info("请求批量更新权限状态: {}", statusDTO);
         
         // 参数校验
@@ -337,7 +328,7 @@ public class PermissionsController {
             return Mono.just(Result.error("激活状态不能为空"));
         }
         
-        return permissionsService.updatePermissionStatus(statusDTO.getIds(), statusDTO.getIsActive())
+        return permissionsService.updatePermissionStatus(OperatorContext.current(), statusDTO.getIds(), statusDTO.getIsActive())
                 .map(result -> {
                     if (result) {
                         log.info("成功批量更新权限状态, 权限数量: {}, 状态: {}", statusDTO.getIds().size(), statusDTO.getIsActive());

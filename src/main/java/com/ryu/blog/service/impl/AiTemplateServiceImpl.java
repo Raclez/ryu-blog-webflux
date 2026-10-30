@@ -4,6 +4,7 @@ import com.ryu.blog.entity.AiContentTemplate;
 import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.exception.ResourceNotFoundException;
 import com.ryu.blog.repository.AiContentTemplateRepository;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiTemplateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class AiTemplateServiceImpl implements AiTemplateService {
 
     private final AiContentTemplateRepository templateRepository;

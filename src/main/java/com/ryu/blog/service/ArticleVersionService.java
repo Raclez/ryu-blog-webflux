@@ -1,5 +1,6 @@
 package com.ryu.blog.service;
 
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.entity.PostVersion;
 import com.ryu.blog.entity.Posts;
 import reactor.core.publisher.Flux;
@@ -53,19 +54,19 @@ public interface ArticleVersionService {
      *
      * @param articleId 文章ID
      * @param version   版本号
-     * @param userId    用户ID（用于权限校验）
+     * @param ctx       操作者上下文（用于归属校验：作者本人或「能管理他人」的管理者）
      * @return 回滚后的文章
      */
-    Mono<Posts> rollbackToVersion(Long articleId, Integer version, Long userId);
+    Mono<Posts> rollbackToVersion(Long articleId, Integer version, OperatorContext ctx);
 
     /**
      * 删除文章版本
      *
-     * @param id     版本ID
-     * @param userId 用户ID（用于权限校验）
+     * @param id  版本ID
+     * @param ctx 操作者上下文（用于归属校验：作者本人或「能管理他人」的管理者）
      * @return 是否删除成功
      */
-    Mono<Boolean> deleteVersion(Long id, Long userId);
+    Mono<Boolean> deleteVersion(Long id, OperatorContext ctx);
 
     /**
      * 比较两个版本的差异

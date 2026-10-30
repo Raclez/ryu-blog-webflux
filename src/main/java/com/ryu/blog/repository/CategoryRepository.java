@@ -63,9 +63,15 @@ public interface CategoryRepository extends R2dbcRepository<Category, Long> {
 
     /**
      * 根据名称查询分类
+     *
+     * <p>{@code isDeleted} 必须真的参与条件判断 —— 原来这里写的是硬编码的
+     * {@code is_deleted = 0}，参数形同虚设：调用方传 1 想查已删除的分类，
+     * 拿到的仍然是未删除的那条。
+     *
      * @param name 分类名称
+     * @param isDeleted 删除标记（0-未删除，1-已删除）
      * @return 分类信息
      */
-    @Query("SELECT * FROM t_categories WHERE name = :name AND is_deleted = 0 LIMIT 1")
+    @Query("SELECT * FROM t_categories WHERE name = :name AND is_deleted = :isDeleted LIMIT 1")
     Mono<Category> findByNameAndIsDeleted(String name, Integer isDeleted);
 } 

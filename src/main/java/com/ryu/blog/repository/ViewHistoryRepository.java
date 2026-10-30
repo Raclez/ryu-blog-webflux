@@ -1,6 +1,7 @@
 package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.ViewHistory;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.stereotype.Repository;
@@ -14,21 +15,61 @@ import reactor.core.publisher.Mono;
 public interface ViewHistoryRepository extends R2dbcRepository<ViewHistory, Long> {
 
     /**
-     * 根据用户ID查询浏览历史
+     * 按匿名访客标识查询浏览历史（按时间倒序）
      *
-     * @param visitorId 用户ID
+     * @param visitorId 匿名访客标识
      * @return 浏览历史列表
      */
-    Flux<ViewHistory> findByVisitorIdOrderByCreateTimeDesc(Long visitorId);
+    Flux<ViewHistory> findByVisitorIdOrderByCreateTimeDesc(String visitorId);
 
     /**
-     * 根据用户ID和文章ID查询浏览历史
+     * 根据访客标识和文章ID查询浏览历史
      *
-     * @param visitorId    用户ID
-     * @param postId 文章ID
+     * @param visitorId 访客标识
+     * @param postId    文章ID
      * @return 浏览历史
      */
     Mono<ViewHistory> findByVisitorIdAndPostId(String visitorId, Long postId);
+
+    /**
+     * 按登录用户查询浏览历史（按时间倒序）
+     *
+     * @param userId 登录用户ID
+     * @return 浏览历史列表
+     */
+    Flux<ViewHistory> findByUserIdOrderByCreateTimeDesc(Long userId);
+
+    /**
+     * 按登录用户分页查询浏览历史（按时间倒序）
+     *
+     * @param userId 登录用户ID
+     * @param limit  每页大小
+     * @param offset 偏移量
+     * @return 浏览历史列表
+     */
+    @Query("SELECT vh.* FROM t_view_history vh WHERE vh.user_id = :userId ORDER BY vh.create_time DESC LIMIT :limit OFFSET :offset")
+    Flux<ViewHistory> findUserHistoryPaged(Long userId, int limit, long offset);
+
+    /**
+     * 统计某个登录用户的浏览历史条数
+     *
+     * @param userId 登录用户ID
+     * @return 浏览历史条数
+     */
+    Mono<Long> countByUserId(Long userId);
+
+    /**
+     * 删除某个登录用户的全部浏览历史
+     *
+     * <p>{@code @Modifying} 不能少：没有它，Spring Data R2DBC 会按「查询」处理这条语句，
+     * 试图把修改语句的结果当行集来映射 —— 影响行数丢失，方法返回空 Mono。
+     *
+     * @param userId 登录用户ID
+     * @return 删除条数
+     */
+    @Modifying
+    @Query("DELETE FROM t_view_history WHERE user_id = :userId")
+    Mono<Integer> deleteByUserId(Long userId);
 
     /**
      * 根据文章ID查询浏览历史
@@ -46,35 +87,6 @@ public interface ViewHistoryRepository extends R2dbcRepository<ViewHistory, Long
      */
     @Query("SELECT COUNT(*) FROM t_view_history WHERE post_id = :postId")
     Mono<Long> countByPostId(Long postId);
-
-    /**
-     * 分页查询用户浏览历史
-     *
-     * @param visitorId 用户ID
-     * @param limit  限制数量
-     * @param offset 偏移量
-     * @return 浏览历史列表
-     */
-    @Query("SELECT vh.* FROM t_view_history vh WHERE vh.user_id = :userId ORDER BY vh.create_time DESC LIMIT :limit OFFSET :offset")
-    Flux<ViewHistory> findByVisitorIdOrderByCreateTimeDesc(Long visitorId, int limit, long offset);
-
-    /**
-     * 分页查询所有浏览历史，按创建时间倒序排序
-     *
-     * @param limit  每页大小
-     * @param offset 偏移量
-     * @return 浏览历史列表
-     */
-    @Query("SELECT * FROM t_view_history ORDER BY create_time DESC LIMIT :limit OFFSET :offset")
-    Flux<ViewHistory> findOrderByCreateTimeDesc(int limit, long offset);
-
-    /**
-     * 统计用户浏览历史数量
-     *
-     * @param visitorId 用户ID
-     * @return 浏览历史数量
-     */
-    Mono<Long> countByVisitorId(Long visitorId);
 
     /**
      * 批量获取多篇文章的浏览量

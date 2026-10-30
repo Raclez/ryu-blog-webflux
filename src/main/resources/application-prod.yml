@@ -7,8 +7,15 @@ logging:
     root: warn
     com.ryu.blog: info
     org.springframework.r2dbc: warn
+    # 生产环境不能打 debug：Sa-Token 的 debug 日志会把 token 值写进文件
+    cn.dev33.satoken: info
   file:
-    name: /var/log/ryu-blog/app.log
+    path: /var/log/ryu-blog
+
+management:
+  endpoint:
+    health:
+      show-details: never
 
 springdoc:
   api-docs:

@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
  * @author ryu
  */
 @Slf4j
-@Component
+//@Components
 @RequiredArgsConstructor
 public class CacheMonitor {
 

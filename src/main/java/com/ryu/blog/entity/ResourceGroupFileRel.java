@@ -53,4 +53,18 @@ public class ResourceGroupFileRel implements Serializable {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 
-} 
+    /**
+     * 更新时间
+     *
+     * <p>表里的 {@code update_time} 是 {@code NOT NULL} 且<b>没有默认值</b>，
+     * 而 R2DBC 插入时会把实体的 null 属性<b>显式写成 NULL</b>（不会走 DB 的 DEFAULT），
+     * 所以这里必须映射上，否则插入直接报
+     * {@code Column 'update_time' cannot be null}。
+     */
+    @Column("update_time")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Builder.Default
+    private LocalDateTime updateTime = LocalDateTime.now();
+
+}

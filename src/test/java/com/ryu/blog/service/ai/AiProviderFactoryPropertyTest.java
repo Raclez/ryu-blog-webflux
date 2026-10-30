@@ -2,7 +2,7 @@ package com.ryu.blog.service.ai;
 
 import com.ryu.blog.dto.AiProviderConfigValue;
 import net.jqwik.api.*;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 /**
  * AI提供商工厂属性测试
@@ -23,7 +23,7 @@ public class AiProviderFactoryPropertyTest {
      * <p>验证：需求1.2
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 1: 配置验证完整性")
+    @Label("Feature: ai-blog-writer, Property 1: 配置验证完整性")
     void configValidationCompleteness(@ForAll("providerConfigs") AiProviderConfigValue config) {
         // 验证配置对象的必要字段
         if (config.getEnabled() != null && config.getEnabled()) {
@@ -59,7 +59,7 @@ public class AiProviderFactoryPropertyTest {
      * 验证无效配置不能被保存
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 1: 配置验证完整性")
+    @Label("Feature: ai-blog-writer, Property 1: 配置验证完整性")
     void invalidConfigCannotBeSaved(@ForAll("invalidConfigs") AiProviderConfigValue config) {
         // 验证无效配置的特征
         boolean isInvalid = false;

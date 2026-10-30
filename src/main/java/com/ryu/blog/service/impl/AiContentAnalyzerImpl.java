@@ -4,6 +4,7 @@ import com.ryu.blog.entity.Category;
 import com.ryu.blog.entity.Tag;
 import com.ryu.blog.repository.CategoryRepository;
 import com.ryu.blog.repository.TagRepository;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiContentAnalyzer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class AiContentAnalyzerImpl implements AiContentAnalyzer {
 
     private final CategoryRepository categoryRepository;

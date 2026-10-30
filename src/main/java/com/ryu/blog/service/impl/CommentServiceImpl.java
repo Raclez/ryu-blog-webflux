@@ -1,34 +1,48 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.constant.CacheConstants;
+import com.ryu.blog.dto.CommentUpdateDTO;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.entity.Comment;
-import com.ryu.blog.entity.User;
+import com.ryu.blog.entity.Posts;
 import com.ryu.blog.exception.BusinessException;
-import com.ryu.blog.mapper.CommentMapper;
 import com.ryu.blog.repository.CommentRepository;
-import com.ryu.blog.repository.UserRepository;
+import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.service.CommentService;
-import com.ryu.blog.vo.CommentTreeVO;
+import com.ryu.blog.service.impl.article.ArticleVisibilityPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.Caching;
-import com.ryu.blog.constant.CacheConstants;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  * 评论服务实现类
+ *
+ * <p><b>三条硬规则</b>（原先都不成立）：
+ * <ol>
+ *   <li><b>审核状态不由客户端决定</b> —— 创建时强制「待审核」，
+ *       更新内容的接口根本不接受 {@code status}。
+ *       原先 Controller 直接绑定 {@code Comment} 实体，
+ *       请求体里写 {@code "status": 1} 就能让评论自己变成「已通过」。</li>
+ *   <li><b>改/删评论要过归属校验</b> —— 只有作者本人（或管理员）能改能删。
+ *       原先任何登录用户都能改别人的评论、删别人的评论。</li>
+ *   <li><b>评论列表要校验文章可见性</b> —— 公开接口
+ *       {@code GET /comment/article/**} 匿名的，不校验就会把草稿文章的
+ *       评论列表也读出去。</li>
+ * </ol>
+ *
+ * <p><b>缓存只有一层</b>：原先 {@code @Cacheable} 之外还手写了一套
+ * Redis get/set，两层用<b>不同的 key</b>（{@code article:comments:...} vs
+ * {@code comment:article:...}）缓存同一份数据 ——
+ * 写路径只驱逐其中一层，另一层继续返回旧数据。现在只留 Spring Cache 一层。
+ *
  * @author ryu
  */
 @Slf4j
@@ -37,94 +51,76 @@ import java.util.stream.Collectors;
 public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
-    private final UserRepository userRepository;
-    private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
-    private final CommentMapper commentMapper;
-    
-    private static final String ARTICLE_COMMENTS_CACHE_KEY = "article:comments:";
-    private static final String USER_COMMENTS_CACHE_KEY = "user:comments:";
-    private static final String COMMENT_COUNT_CACHE_KEY = "comment:count:";
+    private final PostsRepository postsRepository;
+
+    /**
+     * 审核状态：待审核
+     */
+    private static final int STATUS_PENDING = 0;
+
+    /**
+     * 审核状态：已通过
+     */
+    private static final int STATUS_APPROVED = 1;
 
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #comment.articleId + ':*'", allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "' + #comment.articleId")
-    })
-    public Mono<Comment> createComment(Comment comment) {
-        // 设置默认值
+    @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
+    public Mono<Comment> createComment(Comment comment, OperatorContext ctx) {
+        if (comment == null || comment.getPostId() == null) {
+            return Mono.error(BusinessException.commentContentInvalid());
+        }
+        if (ctx == null || !ctx.isAuthenticated()) {
+            return Mono.error(new BusinessException("未登录，无法发表评论"));
+        }
+        if (comment.getContent() == null || comment.getContent().isBlank()) {
+            return Mono.error(BusinessException.commentContentInvalid());
+        }
+
+        // 归属人永远取当前登录用户，不信请求体里的 userId
+        comment.setUserId(ctx.userId());
+
+        // 审核状态、删除标记、主键 —— 一律由服务端决定
+        comment.setStatus(STATUS_PENDING);
+        comment.setIsDeleted(Boolean.FALSE);
+        comment.setId(null);
+        comment.setLikeCount(0);
+        comment.setIsEdited(Boolean.FALSE);
+        comment.setEditTime(null);
         comment.setCreateTime(LocalDateTime.now());
         comment.setUpdateTime(LocalDateTime.now());
-        comment.setIsDeleted(false);
-        
-        // 默认状态为待审核
-        if (comment.getStatus() == null) {
-            comment.setStatus(0);
-        }
-        
-        return commentRepository.save(comment)
-                .flatMap(savedComment -> {
-                    // 如果是已通过状态，则增加文章评论数
-                    Mono<Void> incrementMono = Mono.empty();
-                    if (savedComment.getStatus() == 1) {
-                        incrementMono = commentRepository.incrementPostComments(savedComment.getPostId()).then();
-                    }
-                    return incrementMono.thenReturn(savedComment);
-                })
-                .flatMap(savedComment -> clearCommentCache(savedComment.getPostId(), savedComment.getUserId())
-                        .thenReturn(savedComment));
+
+        // 被评论的文章必须存在，且对评论者可见（不能给草稿文章评论）
+        return requireArticleVisible(comment.getPostId(), ctx)
+                .then(commentRepository.save(comment))
+                .doOnSuccess(saved -> log.info("评论创建成功: ID={}, 文章ID={}, 用户ID={}",
+                        saved.getId(), saved.getPostId(), saved.getUserId()));
     }
 
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #comment.id"),
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #comment.articleId + ':*'", allEntries = true)
-    })
-    public Mono<Comment> updateComment(Comment comment) {
-        return commentRepository.findById(comment.getId())
+    @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
+    public Mono<Comment> updateComment(CommentUpdateDTO dto, OperatorContext ctx) {
+        return commentRepository.findById(dto.getId())
                 .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
-                .flatMap(existingComment -> {
-                    // 更新基本信息
-                    if (comment.getContent() != null) {
-                        existingComment.setContent(comment.getContent());
-                    }
-                    if (comment.getStatus() != null) {
-                        // 如果状态发生变化，需要更新文章评论数
-                        if (existingComment.getStatus() != comment.getStatus()) {
-                            if (comment.getStatus() == 1 && existingComment.getStatus() != 1) {
-                                // 从非通过状态变为通过状态，增加文章评论数
-                                return commentRepository.incrementPostComments(existingComment.getPostId())
-                                        .then(updateCommentFields(existingComment, comment));
-                            } else if (comment.getStatus() != 1 && existingComment.getStatus() == 1) {
-                                // 从通过状态变为非通过状态，减少文章评论数
-                                return commentRepository.decrementPostComments(existingComment.getPostId())
-                                        .then(updateCommentFields(existingComment, comment));
-                            }
-                        }
-                    }
-                    return updateCommentFields(existingComment, comment);
-                });
-    }
+                .flatMap(existing -> {
+                    // 归属校验：只有作者本人（或管理员）能改
+                    OwnershipPolicy.requireCanActOn(ctx, existing.getUserId());
 
-    private Mono<Comment> updateCommentFields(Comment existingComment, Comment comment) {
-        // 更新基本信息
-        if (comment.getContent() != null) {
-            existingComment.setContent(comment.getContent());
-        }
-        if (comment.getStatus() != null) {
-            existingComment.setStatus(comment.getStatus());
-        }
-        
-        existingComment.setUpdateTime(LocalDateTime.now());
-        
-        return commentRepository.save(existingComment)
-                .flatMap(savedComment -> clearCommentCache(savedComment.getPostId(), savedComment.getUserId())
-                        .thenReturn(savedComment));
+                    // 只改内容 —— 审核状态不在这条路径上
+                    existing.setContent(dto.getContent());
+                    existing.setIsEdited(Boolean.TRUE);
+                    existing.setEditTime(LocalDateTime.now());
+                    existing.setUpdateTime(LocalDateTime.now());
+
+                    return commentRepository.save(existing);
+                })
+                .doOnSuccess(saved -> log.info("评论更新成功: ID={}", saved.getId()));
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE,
+            key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id", unless = "#result == null")
     public Mono<Comment> getCommentById(Long id) {
         return commentRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.commentNotFound()));
@@ -132,181 +128,104 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id"),
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "'*'", allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "'*'", allEntries = true)
-    })
-    public Mono<Void> deleteComment(Long id) {
+    @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
+    public Mono<Void> deleteComment(Long id, OperatorContext ctx) {
         return commentRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
                 .flatMap(comment -> {
-                    comment.setIsDeleted(true);
+                    // 归属校验：只有作者本人（或管理员）能删
+                    OwnershipPolicy.requireCanActOn(ctx, comment.getUserId());
+
+                    comment.setIsDeleted(Boolean.TRUE);
                     comment.setUpdateTime(LocalDateTime.now());
-                    return commentRepository.save(comment)
-                            .flatMap(savedComment -> {
-                                Mono<Void> decrementMono = Mono.empty();
-                                if (savedComment.getStatus() == 1) {
-                                    decrementMono = commentRepository.decrementPostComments(savedComment.getPostId()).then();
-                                }
-                                return decrementMono.then();
-                            })
-                            .flatMap(v -> clearCommentCache(comment.getPostId(), comment.getUserId()));
+                    return commentRepository.save(comment).then();
+                })
+                .doOnSuccess(v -> log.info("评论删除成功: ID={}", id));
+    }
+
+    @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE,
+            key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #articleId + ':' + #page + ':' + #size",
+            unless = "#result == null")
+    public Flux<Comment> getCommentsByArticleId(Long articleId, int page, int size) {
+        return commentRepository.findByPostId(articleId, PageRequest.of(page, size));
+    }
+
+    @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE,
+            key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "' + #articleId",
+            unless = "#result == 0")
+    public Mono<Long> countCommentsByArticleId(Long articleId) {
+        return commentRepository.countByPostId(articleId);
+    }
+
+    @Override
+    public Mono<Void> requireArticleVisible(Long articleId, OperatorContext ctx) {
+        Long viewerId = ctx == null ? null : ctx.userId();
+        return postsRepository.findById(articleId)
+                // 先把「文章不存在」和「文章不可见」都归一成同一个错误 ——
+                // 区别对待等于告诉匿名访客「这篇文章存在，只是你没权限」。
+                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
+                .flatMap(article -> {
+                    boolean deleted = Boolean.TRUE.equals(article.getIsDeleted());
+                    boolean visible = !deleted
+                            && (ArticleVisibilityPolicy.canView(article, viewerId)
+                            // 作者本人 / 管理员 —— 草稿也能评论、能看评论
+                            || (article.getUserId() != null
+                            && OwnershipPolicy.canActOn(ctx, article.getUserId())));
+                    if (!visible) {
+                        log.warn("文章不可见，拒绝访问其评论: 文章ID={}, 访问者ID={}", articleId, viewerId);
+                        return Mono.error(BusinessException.postNotFound());
+                    }
+                    return Mono.empty();
                 });
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "' + #articleId + ':' + #page + ':' + #size", unless = "#result == null")
-    public Flux<Comment> getCommentsByArticleId(Long articleId, int page, int size) {
-        // 先尝试从缓存中获取
-        String key = ARTICLE_COMMENTS_CACHE_KEY + articleId + ":" + page + ":" + size;
-        return reactiveRedisTemplate.opsForValue().get(key)
-                .cast(Comment[].class)
-                .flatMapMany(comments -> Flux.fromArray(comments))
-                .switchIfEmpty(
-                        // 查询顶级评论
-                        commentRepository.findByPostId(articleId, PageRequest.of(page, size))
-                                .collectList()
-                                .flatMap(comments -> {
-                                    if (!comments.isEmpty()) {
-                                        // 更新缓存
-                                        return reactiveRedisTemplate.opsForValue().set(key, comments.toArray(), Duration.ofMinutes(10))
-                                                .thenReturn(comments);
-                                    }
-                                    return Mono.just(comments);
-                                })
-                                .flatMapIterable(comments -> comments)
-                );
-    }
-
-    @Override
-    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_COUNT_KEY + "' + #articleId", unless = "#result == 0")
-    public Mono<Long> countCommentsByArticleId(Long articleId) {
-        // 先尝试从缓存中获取
-        String key = COMMENT_COUNT_CACHE_KEY + "article:" + articleId;
-        return reactiveRedisTemplate.opsForValue().get(key)
-                .cast(Long.class)
-                .switchIfEmpty(
-                        commentRepository.countByPostId(articleId)
-                                .flatMap(count -> {
-                                    // 更新缓存
-                                    return reactiveRedisTemplate.opsForValue().set(key, count, Duration.ofMinutes(10))
-                                            .thenReturn(count);
-                                })
-                );
-    }
-
-    @Override
-    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_USER_KEY + "' + #userId + ':' + #page + ':' + #size", unless = "#result == null")
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE,
+            key = "'" + CacheConstants.COMMENT_USER_KEY + "' + #userId + ':' + #page + ':' + #size",
+            unless = "#result == null")
     public Flux<Comment> getCommentsByUserId(Long userId, int page, int size) {
-        // 先尝试从缓存中获取
-        String key = USER_COMMENTS_CACHE_KEY + userId + ":" + page + ":" + size;
-        return reactiveRedisTemplate.opsForValue().get(key)
-                .cast(Comment[].class)
-                .flatMapMany(comments -> Flux.fromArray(comments))
-                .switchIfEmpty(
-                        commentRepository.findByUserId(userId, PageRequest.of(page, size))
-                                .collectList()
-                                .flatMap(comments -> {
-                                    if (!comments.isEmpty()) {
-                                        // 更新缓存
-                                        return reactiveRedisTemplate.opsForValue().set(key, comments.toArray(), Duration.ofMinutes(10))
-                                                .thenReturn(comments);
-                                    }
-                                    return Mono.just(comments);
-                                })
-                                .flatMapIterable(comments -> comments)
-                );
+        return commentRepository.findByUserId(userId, PageRequest.of(page, size));
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConstants.COMMENT_CACHE,
+            key = "'" + CacheConstants.COMMENT_COUNT_KEY + "' + #userId",
+            unless = "#result == 0")
     public Mono<Long> countCommentsByUserId(Long userId) {
-        // 先尝试从缓存中获取
-        String key = COMMENT_COUNT_CACHE_KEY + "user:" + userId;
-        return reactiveRedisTemplate.opsForValue().get(key)
-                .cast(Long.class)
-                .switchIfEmpty(
-                        commentRepository.countByUserId(userId)
-                                .flatMap(count -> {
-                                    // 更新缓存
-                                    return reactiveRedisTemplate.opsForValue().set(key, count, Duration.ofMinutes(10))
-                                            .thenReturn(count);
-                                })
-                );
+        return commentRepository.countByUserId(userId);
     }
 
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ID_KEY + "' + #id"),
-        @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, key = "'" + CacheConstants.COMMENT_ARTICLE_KEY + "'*'", allEntries = true)
-    })
+    @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
     public Mono<Integer> updateCommentStatus(Long id, Integer status) {
         return commentRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
                 .flatMap(comment -> {
-                    // 如果状态没有变化，直接返回
-                    if (comment.getStatus().equals(status)) {
+                    // 状态没变就直接返回
+                    if (status != null && status.equals(comment.getStatus())) {
                         return Mono.just(0);
                     }
-                    
-                    // 更新状态
-                    return commentRepository.updateStatus(id, status)
-                            .flatMap(result -> {
-                                // 如果状态变为已通过，则增加文章评论数
-                                Mono<Integer> actionMono = Mono.just(result);
-                                if (status == 1 && comment.getStatus() != 1) {
-                                    actionMono = commentRepository.incrementPostComments(comment.getPostId());
-                                } else if (status != 1 && comment.getStatus() == 1) {
-                                    actionMono = commentRepository.decrementPostComments(comment.getPostId());
-                                }
-                                return actionMono.thenReturn(result);
-                            })
-                            .flatMap(result -> clearCommentCache(comment.getPostId(), comment.getUserId())
-                                    .thenReturn(result));
+
+                    comment.setStatus(status);
+                    comment.setUpdateTime(LocalDateTime.now());
+                    return commentRepository.save(comment)
+                            .map(saved -> {
+                                log.info("评论状态更新成功: ID={}, 状态={}", id, status);
+                                return 1;
+                            });
                 });
     }
 
     @Override
     public Flux<Comment> getPendingComments(int page, int size) {
-        return commentRepository.findAllByStatus(0, PageRequest.of(page, size));
+        return commentRepository.findAllByStatus(STATUS_PENDING, PageRequest.of(page, size));
     }
 
     @Override
     public Mono<Long> countPendingComments() {
-        return commentRepository.countByStatus(0);
+        return commentRepository.countByStatus(STATUS_PENDING);
     }
-    
-    /**
-     * 清除评论相关缓存
-     * @param articleId 文章ID
-     * @param userId 用户ID
-     */
-    private Mono<Void> clearCommentCache(Long articleId, Long userId) {
-        String articleCountKey = COMMENT_COUNT_CACHE_KEY + "article:" + articleId;
-        String userCountKey = COMMENT_COUNT_CACHE_KEY + "user:" + userId;
-
-        String articlePattern = ARTICLE_COMMENTS_CACHE_KEY + articleId + ":*";
-        String userPattern = USER_COMMENTS_CACHE_KEY + userId + ":*";
-
-        return Flux.merge(
-                reactiveRedisTemplate.delete(Flux.just(articleCountKey, userCountKey)),
-                deleteKeysByPattern(articlePattern),
-                deleteKeysByPattern(userPattern)
-        ).then()
-        .doOnError(e -> log.error("清除缓存失败: articleId={}, userId={}, error={}",
-                articleId, userId, e.getMessage()));
-    }
-
-    private Mono<Long> deleteKeysByPattern(String pattern) {
-        String prefix = pattern.replace("*", "");
-        return reactiveRedisTemplate.scan()
-                .filter(key -> key.startsWith(prefix))
-                .flatMap(reactiveRedisTemplate::delete)
-                .count()
-                .onErrorResume(e -> {
-                    log.error("清除缓存键失败: pattern={}, error={}", pattern, e.getMessage());
-                    return Mono.just(0L);
-                });
-    }
-} 
+}

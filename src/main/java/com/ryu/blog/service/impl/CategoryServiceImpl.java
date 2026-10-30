@@ -11,6 +11,7 @@ import com.ryu.blog.mapper.CategoryMapper;
 import com.ryu.blog.repository.CategoryRepository;
 import com.ryu.blog.repository.PostCategoryRepository;
 import com.ryu.blog.service.CategoryService;
+import com.ryu.blog.service.impl.article.ArticleRelationService;
 import com.ryu.blog.vo.CategoryStatsVO;
 import com.ryu.blog.vo.CategoryVO;
 import com.ryu.blog.vo.PageResult;
@@ -40,6 +41,7 @@ public class CategoryServiceImpl implements CategoryService {
     private final CategoryRepository categoryRepository;
     private final PostCategoryRepository postCategoryRepository;
     private final CategoryMapper categoryMapper;
+    private final ArticleRelationService articleRelationService;
 
     @Override
     @Transactional
@@ -220,22 +222,9 @@ public class CategoryServiceImpl implements CategoryService {
         @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     })
     public Mono<Void> addArticleCategory(Long articleId, Long categoryId) {
-        return categoryRepository.findById(categoryId)
-                .switchIfEmpty(Mono.error(BusinessException.categoryNotFound()))
-                .flatMap(category -> 
-                    postCategoryRepository.countByPostIdAndCategoryId(articleId, categoryId)
-                            .flatMap(count -> {
-                                if (count > 0) {
-                                    return Mono.empty();
-                                }
-                                
-                                PostCategory postCategory = new PostCategory();
-                                postCategory.setPostId(articleId);
-                                postCategory.setCategoryId(categoryId);
-                                
-                                return postCategoryRepository.save(postCategory).then();
-                            })
-                );
+        // 关联关系的唯一实现放在 ArticleRelationService，
+        // 这里只负责分类维度的缓存失效。
+        return articleRelationService.addArticleCategory(articleId, categoryId).then();
     }
 
     @Override
@@ -245,7 +234,7 @@ public class CategoryServiceImpl implements CategoryService {
         @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     })
     public Mono<Void> removeArticleCategory(Long articleId, Long categoryId) {
-        return postCategoryRepository.deleteByPostIdAndCategoryId(articleId, categoryId);
+        return articleRelationService.removeArticleCategory(articleId, categoryId);
     }
 
     @Override
@@ -255,6 +244,6 @@ public class CategoryServiceImpl implements CategoryService {
         @CacheEvict(cacheNames = CacheConstants.CATEGORY_CACHE, key = "'" + CacheConstants.CATEGORY_ARTICLE_KEY + "' + #articleId")
     })
     public Mono<Void> removeAllArticleCategories(Long articleId) {
-        return postCategoryRepository.deleteByPostId(articleId);
+        return articleRelationService.removeAllArticleCategories(articleId);
     }
 } 

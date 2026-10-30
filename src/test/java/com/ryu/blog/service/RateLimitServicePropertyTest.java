@@ -3,7 +3,7 @@ package com.ryu.blog.service;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Positive;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 /**
  * 速率限制服务属性测试
@@ -24,7 +24,7 @@ public class RateLimitServicePropertyTest {
      * <p>验证：需求9.1, 9.2
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void rateLimitStrictness(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 1, max = 100) int limit,
@@ -65,7 +65,7 @@ public class RateLimitServicePropertyTest {
      * 验证配额重置后可以继续请求
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void quotaResetAllowsNewRequests(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 1, max = 50) int limit) {
@@ -87,7 +87,7 @@ public class RateLimitServicePropertyTest {
      * 验证不同时间窗口的独立性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void timeWindowIndependence(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 1, max = 20) int hourlyLimit,
@@ -101,20 +101,18 @@ public class RateLimitServicePropertyTest {
         // 验证：每月限制应该大于等于每日限制
         assert monthlyLimit >= dailyLimit
             : "每月限制应该大于等于每日限制";
-        
-        // 验证：限制的层次结构是合理的
-        assert hourlyLimit * 24 <= dailyLimit * 2
-            : "每小时限制 * 24 应该在合理范围内";
-        
-        assert dailyLimit * 30 <= monthlyLimit * 2
-            : "每日限制 * 30 应该在合理范围内";
+
+        // 层次结构只要求「大窗口的限额不小于小窗口」，**不**要求按 24/30 倍放大。
+        // 原先这里还断言 hourly * 24 <= daily * 2、daily * 30 <= monthly * 2，
+        // 而生成器允许 hourly=20 / daily=20 —— 断言与取值范围自相矛盾，
+        // jqwik 必然判失败，mvn test 长期红灯。那两条已删除。
     }
 
     /**
      * 验证并发请求的正确性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void concurrentRequestsHandling(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 5, max = 20) int limit,
@@ -148,7 +146,7 @@ public class RateLimitServicePropertyTest {
      * 验证配额消耗的单调性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void quotaConsumptionMonotonicity(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 10, max = 100) int limit) {
@@ -179,7 +177,7 @@ public class RateLimitServicePropertyTest {
      * 验证零配额的处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void zeroQuotaHandling(@ForAll @Positive Long userId) {
         int limit = 0;
         int used = 0;
@@ -194,7 +192,7 @@ public class RateLimitServicePropertyTest {
      * 验证负数配额的处理（边界情况）
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 5: 速率限制严格性")
+    @Label("Feature: ai-blog-writer, Property 5: 速率限制严格性")
     void negativeQuotaHandling(@ForAll @Positive Long userId) {
         // 负数配额应该被视为无效配置
         int limit = -10;

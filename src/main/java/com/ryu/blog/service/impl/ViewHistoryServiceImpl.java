@@ -21,7 +21,6 @@ import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +50,23 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     private final ViewHistoryMapper viewHistoryMapper;
     private final CacheManager cacheManager;
 
+    /**
+     * 自身代理 —— 让类内部的调用也能命中 {@code @Cacheable}。
+     *
+     * <p>{@code getViewHistoryStats()} 内部要读总访问量，而
+     * {@code getTotalViewsFromDatabase()} 带 {@code @Cacheable}。直接写方法名是
+     * <b>自调用</b>：Spring AOP 的 CGLIB 代理里，目标对象内部的 {@code this}
+     * 指向目标实例而不是代理，拦截器不触发 —— 总访问量每次都要 COUNT 一遍全表。
+     *
+     * <p>{@code @Lazy} 用来打破「代理依赖自己」的循环依赖。
+     */
+    private ViewHistoryService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy ViewHistoryService self) {
+        this.self = self;
+    }
+
     // 设备和地区分布统计 - 使用LRU限制大小，防止内存泄漏
     private final Map<String, Integer> deviceStats = Collections.synchronizedMap(new LinkedHashMap<String, Integer>(100, 0.75f, true) {
         @Override
@@ -77,9 +93,48 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     // 同步到数据库的阈值
     private static final int SYNC_THRESHOLD = 10;
 
+    /**
+     * 浏览量增量的回写计划。
+     *
+     * @param newCount      本次自增后的缓存计数
+     * @param deltaToFlush 需要回写数据库的增量（{@code null} = 本次不需要回写）
+     * @param cacheMissing 缓存不可用 → 直接 UPDATE 数据库
+     */
+    private record ViewCountPlan(int newCount, Integer deltaToFlush, boolean cacheMissing) {
+
+        static ViewCountPlan missing() {
+            return new ViewCountPlan(0, null, true);
+        }
+
+        static ViewCountPlan of(int newCount) {
+            return new ViewCountPlan(newCount, null, false);
+        }
+
+        static ViewCountPlan flush(int newCount, int delta) {
+            return new ViewCountPlan(newCount, delta, false);
+        }
+    }
+
+    /**
+     * 记录一次浏览。
+     *
+     * <p><b>刻意不加 {@code @Transactional}</b>：这里要做的事是「插一条浏览记录」
+     * +「把浏览量增量批量回写」，两者不要求原子 —— 浏览量本来就是最终一致的
+     * （缓存里攒够 {@link #SYNC_THRESHOLD} 次才回写一次）。
+     *
+     * <p>加了事务反而有两个坑：
+     * <ol>
+     *   <li>事务会把整条链绑到同一条 R2DBC 连接上，而链中间的缓存操作要切到
+     *       {@code boundedElastic} 线程做（{@code Mono.fromCallable}），
+     *       事务连接会被占着；</li>
+     *   <li>浏览量回写原本是 fire-and-forget（另起一次订阅），
+     *       那次订阅拿不到事务上下文，会<b>在事务持有连接的同时再向连接池借一条</b> ——
+     *       这正是 CLAUDE.md 里那条「事务内禁止并发数据库操作」的由来。
+     *       现在回写改成链上的一步，不再另起订阅。</li>
+     * </ol>
+     */
     @Override
-    @Transactional
-    public Mono<Boolean> addViewHistory(ViewHistoryDTO viewHistoryDTO) {
+    public Mono<Boolean> addViewHistory(ViewHistoryDTO viewHistoryDTO, Long userId) {
         log.debug("添加浏览历史: {}", viewHistoryDTO);
         
         if (viewHistoryDTO == null || viewHistoryDTO.getPostId() == null) {
@@ -162,6 +217,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                 ViewHistory history = new ViewHistory();
                 history.setPostId(articleId);
                 history.setVisitorId(visitorId);
+                history.setUserId(userId);
                 history.setViewTime(LocalDateTime.now());
                 history.setCreateTime(LocalDateTime.now());
                 history.setUpdateTime(LocalDateTime.now());
@@ -205,8 +261,8 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                 log.debug("添加浏览历史成功但不增加浏览量: 文章ID={}, 访客ID={}", articleId, visitorId);
             }
         })
-        .doOnError(e -> log.error("添加浏览历史失败: 文章ID={}, 访客ID={}, 错误={}", 
-                articleId, visitorId, e.getMessage()));
+        .doOnError(e -> log.error("添加浏览历史失败: 文章ID={}, 访客ID={}",
+                articleId, visitorId, e));
     }
 
     /**
@@ -245,97 +301,157 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         if (articleId == null) {
             return Mono.just(0);
         }
-        
+
         return Mono.fromCallable(() -> {
             Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
             if (viewCountCache == null) {
                 log.warn("浏览量缓存不可用，将直接更新数据库");
-                return -1; // 标记缓存不可用
+                return ViewCountPlan.missing();
             }
-            
+
             String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
-            
+
             // 使用computeIfAbsent模式避免竞态条件
             Object nativeCache = viewCountCache.getNativeCache();
             if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
                 @SuppressWarnings("unchecked")
-                com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache = 
+                com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache =
                     (com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache;
-                
+
                 AtomicInteger counter = (AtomicInteger) caffeineCache.get(cacheKey, k -> new AtomicInteger(0));
                 int newCount = counter.incrementAndGet();
-                
-                // 每SYNC_THRESHOLD次浏览同步到数据库，减少数据库写入次数
-                if (newCount % SYNC_THRESHOLD == 0) {
-                    log.debug("同步浏览量到数据库: ID={}, 浏览量={}", articleId, newCount);
-                    // 异步更新数据库
-                    syncSingleArticleViewCount(articleId, newCount);
+
+                // 每积累 SYNC_THRESHOLD 次浏览就把增量回写数据库，减少数据库写入次数。
+                // 缓存里保存的是「尚未回写的增量」，不是文章的总浏览量，
+                // 因此回写必须用累加（addViews），用覆盖（updateViews）会把历史浏览量清零。
+                if (newCount >= SYNC_THRESHOLD) {
+                    int delta = counter.getAndSet(0);
+                    if (delta > 0) {
+                        log.debug("回写浏览量增量到数据库: ID={}, 增量={}", articleId, delta);
+                        return ViewCountPlan.flush(newCount, delta);
+                    }
                 }
-                
-                return newCount;
+
+                return ViewCountPlan.of(newCount);
             }
-            
-            return -1; // 标记缓存类型不匹配
+
+            return ViewCountPlan.missing(); // 缓存类型不匹配
         })
         .subscribeOn(Schedulers.boundedElastic())
-        .flatMap(count -> {
-            if (count == -1) {
+        .flatMap(plan -> {
+            if (plan.cacheMissing()) {
                 // 缓存不可用，直接更新数据库
                 return postsRepository.incrementViews(articleId)
                     .defaultIfEmpty(0);
             }
-            return Mono.just(count);
+            if (plan.deltaToFlush() != null) {
+                // 回写是链上的一步，**不是 fire-and-forget**：
+                // 另起订阅会脱离当前链的事务/连接上下文，在事务仍持有连接时
+                // 再向连接池借一条 —— 这正是「Request queue is full」的温床。
+                final int delta = plan.deltaToFlush();
+                return flushArticleViewDelta(articleId, delta)
+                    .onErrorResume(e -> {
+                        // 回写失败：把增量放回缓存等下一轮重试。
+                        // 直接吞掉的话，这篇文章的浏览量会永久少掉这一段。
+                        log.error("回写浏览量增量到数据库失败: ID={}, 增量={}", articleId, delta, e);
+                        restorePendingDelta(articleId, delta);
+                        return Mono.just(0);
+                    })
+                    .thenReturn(plan.newCount());
+            }
+            return Mono.just(plan.newCount());
         })
         .onErrorResume(e -> {
-            log.error("增加文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
+            log.error("增加文章浏览量失败: ID={}", articleId, e);
             // 降级：尝试直接更新数据库
             return postsRepository.incrementViews(articleId)
                 .defaultIfEmpty(0)
                 .onErrorReturn(0);
         });
     }
-    
+
     /**
-     * 异步同步单个文章的浏览量到数据库
+     * 把缓存中的浏览量增量回写到数据库（累加，不覆盖）。
+     *
+     * @param articleId 文章ID
+     * @param delta     增量
+     * @return 受影响行数
      */
-    private void syncSingleArticleViewCount(Long articleId, int viewCount) {
-        postsRepository.updateViews(articleId, viewCount)
-            .subscribeOn(Schedulers.boundedElastic())
-            .subscribe(
-                result -> {
-                    if (result > 0) {
-                        log.debug("数据库浏览量更新成功: ID={}, 新浏览量={}", articleId, viewCount);
-                    } else {
-                        log.warn("数据库浏览量更新无影响: ID={}, 可能文章不存在", articleId);
-                    }
-                },
-                error -> log.error("同步浏览量到数据库失败: ID={}, 错误={}", articleId, error.getMessage())
-            );
+    private Mono<Integer> flushArticleViewDelta(Long articleId, int delta) {
+        return postsRepository.addViews(articleId, delta)
+            .doOnSuccess(result -> {
+                if (result != null && result > 0) {
+                    log.debug("数据库浏览量增量更新成功: ID={}, 增量={}", articleId, delta);
+                } else {
+                    log.warn("数据库浏览量更新无影响: ID={}, 可能文章不存在", articleId);
+                }
+            })
+            .doOnError(e -> log.error("同步浏览量到数据库失败: ID={}, 增量={}", articleId, delta, e));
+    }
+
+    /**
+     * 回写失败时把增量还回缓存计数器，等待下一轮重试。
+     *
+     * @param articleId 文章ID
+     * @param delta     需要还回的增量
+     */
+    private void restorePendingDelta(Long articleId, int delta) {
+        if (delta <= 0) {
+            return;
+        }
+        Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
+        if (viewCountCache == null) {
+            return;
+        }
+        Object nativeCache = viewCountCache.getNativeCache();
+        if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache) {
+            @SuppressWarnings("unchecked")
+            com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache =
+                (com.github.benmanes.caffeine.cache.Cache<Object, Object>) nativeCache;
+            AtomicInteger counter = (AtomicInteger) caffeineCache.get(
+                ARTICLE_VIEW_COUNT_KEY + articleId, k -> new AtomicInteger(0));
+            counter.addAndGet(delta);
+        }
     }
 
     @Override
     public Flux<ViewHistory> getUserViewHistory(Long userId) {
-        return viewHistoryRepository.findByVisitorIdOrderByCreateTimeDesc(userId);
+        return viewHistoryRepository.findByUserIdOrderByCreateTimeDesc(userId);
     }
 
     @Override
-    public Mono<Map<String, Object>> getUserViewHistoryPaged(int page, int size) {
+    public Mono<Map<String, Object>> getUserViewHistoryPaged(int page, int size, Long userId) {
         if (page < 1) page = 1;
         if (size < 1) size = 10;
 
         final int finalPage = page;
         final int finalSize = size;
 
-        return viewHistoryRepository.count()
+        return viewHistoryRepository.countByUserId(userId)
                 .flatMap(total -> {
                     long offset = (finalPage - 1) * finalSize;
-                    return viewHistoryRepository.findOrderByCreateTimeDesc(finalSize, offset)
-                            .flatMap(history ->
-                                    postsRepository.findById(history.getPostId())
-                                    .map(article -> viewHistoryMapper.toViewHistoryVO(history, article))
-                                    .defaultIfEmpty(viewHistoryMapper.toViewHistoryVO(history))
-                            )
+                    return viewHistoryRepository.findUserHistoryPaged(userId, finalSize, offset)
                             .collectList()
+                            // 一次把本页涉及的文章全部查出来，避免每条历史再查一次文章（N+1）
+                            .flatMap(histories -> {
+                                List<Long> postIds = histories.stream()
+                                        .map(ViewHistory::getPostId)
+                                        .filter(Objects::nonNull)
+                                        .distinct()
+                                        .toList();
+                                if (postIds.isEmpty()) {
+                                    return Mono.just(histories.stream()
+                                            .map(history -> viewHistoryMapper.toViewHistoryVO(history))
+                                            .toList());
+                                }
+                                return postsRepository.findByIdIn(postIds)
+                                        .collectMap(Posts::getId, post -> post)
+                                        .map(postMap -> histories.stream()
+                                                .map(history -> postMap.containsKey(history.getPostId())
+                                                        ? viewHistoryMapper.toViewHistoryVO(history, postMap.get(history.getPostId()))
+                                                        : viewHistoryMapper.toViewHistoryVO(history))
+                                                .toList());
+                            })
                             .map(histories -> {
                                 Map<String, Object> result = new HashMap<>();
                                 result.put("records", histories);
@@ -348,18 +464,30 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE, key = "#articleId", unless = "#result == 0")
+    @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_POST_PV_CACHE, key = "'pv:' + #articleId", unless = "#result == 0")
     public Mono<Long> getArticleViewCount(Long articleId) {
         log.debug("从数据库获取文章访问量: articleId={}", articleId);
-        return viewHistoryRepository.countByPostId(articleId);
+        // 统一以 t_posts.views 为准：
+        // 浏览记录条数（t_view_history 的 COUNT）与真实浏览量不是一回事 ——
+        // 30 分钟内的重复访问会写记录但不计数，两套口径会让前台 PV 与列表页对不上。
+        return postsRepository.findById(articleId)
+                .map(post -> post.getViews() != null ? (long) post.getViews() : 0L)
+                .defaultIfEmpty(0L);
     }
 
     @Override
     public Mono<Map<Long, Long>> batchGetArticleViewCounts(Iterable<Long> articleIds) {
-        return viewHistoryRepository.countByArticleIds(articleIds)
+        // 空集合必须提前挡掉：底层 SQL 是 `id IN (:ids)`，集合为空时驱动会把占位符
+        // 展开成 `IN ()` —— MySQL 报语法错误 1064。这个接口是 REST 暴露的
+        // （POST /view-history/batch-count），客户端传空数组就会把请求打成 500。
+        if (articleIds == null || !articleIds.iterator().hasNext()) {
+            return Mono.just(Collections.emptyMap());
+        }
+
+        return postsRepository.findViewsByIds(articleIds)
                 .collectMap(
                         objects -> (Long) objects[0],  // articleId
-                        objects -> (Long) objects[1]   // count
+                        objects -> objects[1] != null ? ((Number) objects[1]).longValue() : 0L
                 )
                 .defaultIfEmpty(Collections.emptyMap());
     }
@@ -367,8 +495,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     @Override
     @Transactional
     public Mono<Boolean> clearUserViewHistory(Long userId) {
-        return viewHistoryRepository.findByVisitorIdOrderByCreateTimeDesc(userId)
-                .flatMap(viewHistoryRepository::delete)
+        return viewHistoryRepository.deleteByUserId(userId)
                 .then(Mono.just(true))
                 .onErrorReturn(false);
     }
@@ -461,8 +588,8 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                         statsVO.setDeviceDistribution(new HashMap<>(deviceStats));
                         statsVO.setLocationDistribution(new HashMap<>(locationStats));
                         
-                        // 获取总访问量
-                        return getTotalViewsFromDatabase()
+                        // 获取总访问量（走 self 代理才会命中 @Cacheable）
+                        return self.getTotalViewsFromDatabase()
                                 .doOnNext(statsVO::setTotalViews)
                                 .thenReturn(statsVO);
                     })
@@ -476,8 +603,8 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         statsVO.setDeviceDistribution(new HashMap<>(deviceStats));
         statsVO.setLocationDistribution(new HashMap<>(locationStats));
         
-        // 获取总访问量
-        return getTotalViewsFromDatabase()
+        // 获取总访问量（走 self 代理才会命中 @Cacheable）
+        return self.getTotalViewsFromDatabase()
                 .doOnNext(statsVO::setTotalViews)
                 .thenReturn(statsVO)
                 .doOnSuccess(stats -> log.info("浏览历史统计信息获取完成: 总访问量={}, 今日访问量={}, 独立访客数={}",
@@ -491,8 +618,9 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * @return 文章ID和访问量的映射
      */
     private Mono<Map<Long, Integer>> getTopPostsFromDatabase(int limit) {
-        return postsRepository.findAll(Sort.by(Sort.Direction.DESC, "views"))
-                .take(limit)
+        // 用带 LIMIT 的查询取热门文章；
+        // findAll(Sort).take(limit) 会把整张 t_posts 表全部拉进内存，只为了取前 5 条。
+        return postsRepository.findHotPosts(limit)
                 .collectMap(
                         Posts::getId,
                         post -> post.getViews() != null ? post.getViews() : 0
@@ -505,6 +633,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
      * 
      * @return 总访问量
      */
+    @Override
     @Cacheable(cacheNames = CacheConstants.VIEW_HISTORY_PV_CACHE, key = "'" + CacheConstants.STATS_TOTAL_KEY + "'", unless = "#result == 0")
     public Mono<Long> getTotalViewsFromDatabase() {
         log.debug("从数据库获取总访问量");
@@ -643,8 +772,11 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     }
 
     /**
-     * 获取文章当前浏览量（优先从缓存获取，缓存无数据则从数据库获取）
-     * 
+     * 获取文章当前浏览量
+     * <p>
+     * = 数据库里已回写的浏览量 + 缓存里尚未回写的增量。
+     * 缓存中只保存增量，直接把缓存值当作浏览量返回会得到一个远小于真实值的数字。
+     *
      * @param articleId 文章ID
      * @return 浏览量
      */
@@ -653,9 +785,9 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
         if (articleId == null) {
             return Mono.just(0L);
         }
-        
+
         return Mono.fromCallable(() -> {
-            // 首先从缓存获取
+            // 读取缓存中尚未回写的增量
             Cache viewCountCache = cacheManager.getCache(CacheConstants.VIEW_HISTORY_POST_PV_CACHE);
             if (viewCountCache != null) {
                 String cacheKey = ARTICLE_VIEW_COUNT_KEY + articleId;
@@ -664,21 +796,15 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                     return (long) counter.get();
                 }
             }
-            return null; // 标记需要从数据库获取
+            return 0L;
         })
         .subscribeOn(Schedulers.boundedElastic())
-        .flatMap(cachedValue -> {
-            if (cachedValue != null) {
-                return Mono.just(cachedValue);
-            }
-            // 缓存中没有，从数据库获取
-            return postsRepository.findById(articleId)
-                .map(article -> article.getViews() != null ? (long) article.getViews() : 0L)
-                .defaultIfEmpty(0L);
-        })
+        .flatMap(pendingDelta -> postsRepository.findById(articleId)
+                .map(article -> (article.getViews() != null ? (long) article.getViews() : 0L) + pendingDelta)
+                .defaultIfEmpty(pendingDelta))
         .doOnSuccess(views -> log.debug("获取文章当前浏览量: ID={}, 浏览量={}", articleId, views))
         .onErrorResume(e -> {
-            log.error("获取文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
+            log.error("获取文章浏览量失败: ID={}", articleId, e);
             return Mono.just(0L);
         });
     }
@@ -719,20 +845,27 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
                         String articleIdStr = cacheKey.substring(ARTICLE_VIEW_COUNT_KEY.length());
                         try {
                             Long articleId = Long.parseLong(articleIdStr);
-                            int viewCount = ((AtomicInteger) value).get();
-                            
+                            // 缓存里存的是尚未回写的增量，取走并清零；
+                            // 回写用累加而不是覆盖，否则文章的历史浏览量会被清零。
+                            int delta = ((AtomicInteger) value).getAndSet(0);
+                            if (delta <= 0) {
+                                return;
+                            }
+
                             // 添加到批处理操作列表
                             updateOperations.add(
-                                postsRepository.updateViews(articleId, viewCount)
+                                postsRepository.addViews(articleId, delta)
                                     .doOnSuccess(result -> {
                                         if (result > 0) {
-                                            log.debug("同步文章浏览量成功: ID={}, 浏览量={}", articleId, viewCount);
+                                            log.debug("同步文章浏览量增量成功: ID={}, 增量={}", articleId, delta);
                                         } else {
                                             log.warn("文章浏览量更新无影响: ID={}", articleId);
                                         }
                                     })
                                     .onErrorResume(e -> {
-                                        log.error("同步文章浏览量失败: ID={}, 错误={}", articleId, e.getMessage());
+                                        log.error("同步文章浏览量失败: ID={}", articleId, e);
+                                        // 回写失败时把增量放回缓存，等待下一轮重试
+                                        ((AtomicInteger) value).addAndGet(delta);
                                         return Mono.just(0);
                                     })
                             );

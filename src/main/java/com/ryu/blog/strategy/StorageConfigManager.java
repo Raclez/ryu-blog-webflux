@@ -3,9 +3,12 @@ package com.ryu.blog.strategy;
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.entity.StorageConfig;
 import com.ryu.blog.event.ConfigChangeEvent;
+import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.repository.StorageConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
@@ -17,7 +20,9 @@ import reactor.core.publisher.Mono;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -34,15 +39,37 @@ public class StorageConfigManager {
 
     private final StorageConfigRepository storageConfigRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final CacheManager cacheManager;
 
     // 当前激活的策略键
     private final AtomicReference<String> activeStrategyKey = new AtomicReference<>();
-    
-    // 防止事件循环的标志
-    private final ThreadLocal<Boolean> isReloading = ThreadLocal.withInitial(() -> false);
-    
+
+    /**
+     * 是否已经从数据库成功读到过「启用中」的配置。
+     *
+     * <p>用它把「配置真的加载成功」和「悄悄退回了 local」区分开 ——
+     * 早先两者在外部看来完全一样，管理员以为用的是 OSS，
+     * 实际文件全写在本地磁盘上。
+     */
+    private volatile boolean ready = false;
+
+    // 重入标志：只用于阻止「并发重复加载」，不参与事件处理。
+    // 原来用的是 ThreadLocal，而标志在「组装期」置位、在「订阅期」复位，
+    // 两者往往不在同一个线程上，导致调用线程上的标志永久为 true，
+    // 之后的 reloadConfig() 全部被短路 —— 配置再也读不到新值。
+    private final AtomicBoolean reloading = new AtomicBoolean(false);
+
     // 默认策略键
     private static final String DEFAULT_STRATEGY_KEY = "local";
+
+    // 注入自身代理，让类内部对 getStrategyConfig 的调用也能命中 @Cacheable。
+    // 自调用会绕过 Spring 代理，缓存会静默失效 —— 每次都直接打数据库。
+    private StorageConfigManager self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy StorageConfigManager self) {
+        this.self = self;
+    }
     
     @PostConstruct
     public void init() {
@@ -67,25 +94,17 @@ public class StorageConfigManager {
      */
     @EventListener
     public void onConfigChange(ConfigChangeEvent event) {
-        if (event.getConfigType().equals("storage")) {
-            // 防止事件循环：如果正在重新加载配置，则忽略此事件
-            if (isReloading.get()) {
-                log.debug("正在重新加载配置，忽略配置变更事件: strategyKey={}", event.getConfigKey());
-                return;
-            }
-            
-            log.info("检测到存储配置变更: strategyKey={}", event.getConfigKey());
-            
-            // 根据事件更新当前活跃策略键
-            String newStrategyKey = event.getConfigKey();
-            if (newStrategyKey != null) {
-                String oldKey = activeStrategyKey.getAndSet(newStrategyKey);
-                log.info("更新当前活跃策略: {} (原策略: {})", newStrategyKey, oldKey);
-            }
-            
-            // 清除配置缓存（不重新加载，避免循环）
-            clearConfigCache();
+        if (!"storage".equals(event.getConfigType())) {
+            return;
         }
+
+        log.info("检测到存储配置变更: strategyKey={}", event.getConfigKey());
+
+        // 清除配置缓存。
+        // 注意：这里不能无条件把事件里的 key 设成活跃策略 ——
+        // 事件也会在「策略被停用 / 删除」时发出，那会把已停用的策略推成活跃策略。
+        // 活跃策略的权威来源始终是数据库中 is_enable = 1 的那一行，由 reloadConfig() 负责同步。
+        clearConfigCache();
     }
     
     /**
@@ -93,45 +112,52 @@ public class StorageConfigManager {
      * @return 完成信号
      */
     public Mono<Void> reloadConfig() {
-        // 防止重入
-        if (isReloading.get()) {
-            log.warn("配置正在重新加载中，跳过本次请求");
-            return Mono.empty();
-        }
-        
-        log.debug("开始重新加载存储配置");
-        isReloading.set(true);
-        
-        return storageConfigRepository.findOneByIsEnableAndIsDeleted(true, false)
-                .switchIfEmpty(Mono.defer((Supplier<Mono<StorageConfig>>) () -> {
-                    log.warn("未找到启用的存储配置，尝试获取任意可用配置");
-                    return storageConfigRepository.findAllByIsDeleted(false)
-                            .take(1)
-                            .singleOrEmpty();
-                }))
-                .switchIfEmpty(Mono.defer((Supplier<Mono<StorageConfig>>) () -> {
-                    log.warn("未找到任何存储配置，将使用默认策略");
-                    // 如果没有找到配置，设置默认策略键
-                    activeStrategyKey.set(DEFAULT_STRATEGY_KEY);
-                    return Mono.<StorageConfig>empty();
-                }))
-                .doOnNext(config -> {
-                    String key = config.getStrategyKey();
-                    
-                    // 更新当前活跃策略键
-                    activeStrategyKey.set(key);
-                    
-                    // 发布策略变更事件
-                    publishConfigChangeEvent(key);
-                    
-                    log.info("加载存储配置成功: strategyKey={}, strategyName={}", key, config.getStrategyName());
-                })
-                .doOnError(e -> log.error("加载存储配置失败: {}", e.getMessage(), e))
-                .doFinally(signalType -> {
-                    // 无论成功还是失败，都要清除重入标志
-                    isReloading.set(false);
-                })
-                .then();
+        // 重入标志必须在「订阅期」置位、在同一个 doFinally 里复位，
+        // 否则组装期置位 / 订阅期复位的组合会让标志永远留在 true 上。
+        return Mono.defer(() -> {
+            if (!reloading.compareAndSet(false, true)) {
+                // 不能返回 Mono.empty()：管理员连点两次「刷新配置」，
+                // 第二次会得到一个看起来成功、实际什么都没做的信号
+                log.warn("配置正在重新加载中，拒绝本次请求");
+                return Mono.error(new BusinessException("存储配置正在重新加载，请稍后重试"));
+            }
+
+            log.debug("开始重新加载存储配置");
+
+            return storageConfigRepository.findOneByIsEnableAndIsDeleted(true, false)
+                    .switchIfEmpty(Mono.defer((Supplier<Mono<StorageConfig>>) () -> {
+                        // 没有启用中的配置：明确报错，并标记「未就绪」。
+                        // 早先这里是静默退回 local —— 管理员以为在用对象存储，
+                        // 实际文件全落在本地磁盘上，而且没有任何一处会告诉他。
+                        // 注意仍然不能退回「任意一条配置」：那可能是已停用的策略。
+                        ready = false;
+                        log.error("未找到启用的存储配置：无法确定活跃存储策略（不会静默退回 {}）",
+                                DEFAULT_STRATEGY_KEY);
+                        return Mono.error(new BusinessException(
+                                "未找到启用的存储配置，请先在系统配置中启用一个存储策略"));
+                    }))
+                    .doOnNext(config -> {
+                        String key = config.getStrategyKey();
+
+                        // 更新当前活跃策略键
+                        activeStrategyKey.set(key);
+                        ready = true;
+
+                        // 发布策略变更事件
+                        publishConfigChangeEvent(key);
+
+                        log.info("加载存储配置成功: strategyKey={}, strategyName={}", key, config.getStrategyName());
+                    })
+                    .doOnError(e -> {
+                        ready = false;
+                        log.error("加载存储配置失败", e);
+                    })
+                    .doFinally(signalType -> {
+                        // 无论成功还是失败，都要清除重入标志
+                        reloading.set(false);
+                    })
+                    .then();
+        });
     }
     
     /**
@@ -152,12 +178,27 @@ public class StorageConfigManager {
     }
     
     /**
+     * 是否已经成功加载过启用中的存储配置。
+     *
+     * <p>{@code false} 意味着当前用的是兜底默认策略，而不是管理员配置的那个。
+     *
+     * @return 已就绪返回 true
+     */
+    public boolean isReady() {
+        return ready;
+    }
+
+    /**
      * 获取当前活跃的策略键
      * @return 当前活跃的策略键
      */
     public String getActiveStrategyKey() {
         String key = activeStrategyKey.get();
-        log.debug("获取当前活跃策略键: {}", key != null ? key : "未设置（将使用默认策略）");
+        if (key == null) {
+            log.warn("尚未加载到启用的存储配置，退回到默认策略: {}", DEFAULT_STRATEGY_KEY);
+        } else {
+            log.debug("获取当前活跃策略键: {}", key);
+        }
         
         // 如果未设置活跃策略键，返回默认策略键
         return key != null ? key : DEFAULT_STRATEGY_KEY;
@@ -182,9 +223,23 @@ public class StorageConfigManager {
     
     /**
      * 清除配置缓存
+     * <p>
+     * 这里直接操作 {@link CacheManager}，而不是靠 {@code @CacheEvict} 注解：
+     * 该方法在本类内部被调用（自调用），会绕过 Spring 代理，
+     * 注解形式的缓存驱逐根本不会执行 —— 缓存会一直留着旧值直到 TTL 过期。
      */
-    @CacheEvict(value = {CacheConstants.STORAGE_CONFIG_CACHE, CacheConstants.STORAGE_PROPERTIES_CACHE, CacheConstants.STORAGE_ACCESS_URL_CACHE}, allEntries = true)
     public void clearConfigCache() {
+        for (String cacheName : List.of(
+                CacheConstants.STORAGE_CONFIG_CACHE,
+                CacheConstants.STORAGE_PROPERTIES_CACHE,
+                CacheConstants.STORAGE_ACCESS_URL_CACHE)) {
+            Cache cache = cacheManager.getCache(cacheName);
+            if (cache != null) {
+                cache.clear();
+            } else {
+                log.warn("存储配置缓存不存在: {}", cacheName);
+            }
+        }
         log.info("存储配置缓存已清除");
     }
     
@@ -210,7 +265,7 @@ public class StorageConfigManager {
         log.debug("获取配置属性: strategyKey={}, key={} (缓存未命中)", strategyKey, key);
         
         // 从配置对象获取属性
-        return getStrategyConfig(strategyKey)
+        return self.getStrategyConfig(strategyKey)
             .map(config -> {
                 Map<String, String> configProps = config.getConfigMap();
                 String value = configProps != null ? configProps.get(key) : null;
@@ -224,12 +279,12 @@ public class StorageConfigManager {
      * @param strategyKey 策略键
      * @return 配置属性集合的Mono
      */
-    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY", unless = "#result.isEmpty()")
+    @Cacheable(value = CacheConstants.STORAGE_PROPERTIES_CACHE, key = "#strategyKey + '" + CacheConstants.STORAGE_PROPERTIES_ALL_KEY_PREFIX + "'", unless = "#result.isEmpty()")
     public Mono<Map<String, String>> getConfigPropertiesAsync(String strategyKey) {
         log.debug("获取配置属性集合: strategyKey={} (缓存未命中)", strategyKey);
         
         // 从配置对象获取属性集合
-        return getStrategyConfig(strategyKey)
+        return self.getStrategyConfig(strategyKey)
             .<Map<String, String>>map(config -> {
                 Map<String, String> configProps = config.getConfigMap();
                 log.debug("获取到配置属性集合: strategyKey={}, count={}", strategyKey, 
@@ -249,7 +304,7 @@ public class StorageConfigManager {
         log.debug("获取访问URL: strategyKey={} (缓存未命中)", strategyKey);
         
         // 从配置对象获取访问URL
-        return getStrategyConfig(strategyKey)
+        return self.getStrategyConfig(strategyKey)
             .map(config -> {
                 String accessUrl = config.getAccessUrl();
                 log.debug("获取到访问URL: strategyKey={}, accessUrl={}", strategyKey, accessUrl);
@@ -259,65 +314,93 @@ public class StorageConfigManager {
     
     /**
      * 更新配置属性
+     *
+     * <p><b>必须同时驱逐 {@link CacheConstants#STORAGE_CONFIG_CACHE}</b>：
+     * {@code getStrategyConfig} 缓存的是<b>整个</b> {@code StorageConfig}
+     * （含 {@code configMap}），而 {@code getConfigPropertiesAsync} /
+     * {@code getConfigPropertyAsync} 都是从那份缓存里读 {@code configMap} 的。
+     * 只驱逐 {@code STORAGE_PROPERTIES_CACHE} 的话，
+     * 缓存里的 {@code configMap} 还是旧的 —— <b>属性更新被静默丢弃</b>：
+     * 数据库里已经是新值，读回来的却还是旧值。
+     *
      * @param strategyKey 策略键
      * @param key 属性键
      * @param value 属性值
      * @return Void Mono
      */
-    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE}, key = "#strategyKey + ':' + #key")
+    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE, CacheConstants.STORAGE_CONFIG_CACHE},
+            allEntries = true)
     public Mono<Void> updateConfigProperty(String strategyKey, String key, String value) {
-        log.info("更新配置属性: strategyKey={}, key={}, value={}", strategyKey, key, value);
-        
-        // 更新属性
-        return getStrategyConfig(strategyKey)
+        // 值可能是 AK/SK —— 不能进日志
+        log.info("更新配置属性: strategyKey={}, key={}", strategyKey, key);
+
+        // 更新属性。
+        // 这里刻意不走缓存：@Cacheable 返回的是同一个实例，
+        // 直接改会把缓存里的对象一起改掉（保存失败时缓存里就留下了未落库的脏数据）。
+        return storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, false)
             .flatMap(config -> {
                 Map<String, String> configProps = config.getConfigMap();
                 if (configProps == null) {
                     configProps = new HashMap<>();
                     config.setConfigMap(configProps);
                 }
-                
+
                 // 更新属性值
                 configProps.put(key, value);
                 config.setUpdateTime(LocalDateTime.now());
-                
+
                 // 保存到数据库
                 return storageConfigRepository.save(config)
                     .doOnNext(savedConfig -> log.info("配置属性已更新: strategyKey={}, key={}", strategyKey, key))
-                    .then();
+                    // 落库成功后必须驱逐缓存：读路径是 @Cacheable 的，
+                    // 不清的话接下来最长一个 TTL 内读到的都是旧值 ——
+                    // 管理员改了 basePath，上传却还写到旧目录。
+                    .then(Mono.fromRunnable(() -> {
+                        clearConfigCache();
+                        publishConfigChangeEvent(strategyKey);
+                    }));
             });
     }
-    
+
     /**
      * 更新配置属性集合
+     *
+     * <p>同样要驱逐 {@link CacheConstants#STORAGE_CONFIG_CACHE} —— 理由见
+     * {@link #updateConfigProperty}。
+     *
      * @param strategyKey 策略键
      * @param properties 属性集合
      * @return Void Mono
      */
-    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE}, key = "#strategyKey + CacheConstants.STORAGE_PROPERTIES_ALL_KEY")
+    @CacheEvict(value = {CacheConstants.STORAGE_PROPERTIES_CACHE, CacheConstants.STORAGE_CONFIG_CACHE},
+            allEntries = true)
     public Mono<Void> updateConfigProperties(String strategyKey, Map<String, String> properties) {
         log.info("更新配置属性集合: strategyKey={}, propertiesCount={}", strategyKey, properties != null ? properties.size() : 0);
-        
-        // 更新属性集合
-        return getStrategyConfig(strategyKey)
+
+        // 更新属性集合（同上：写路径不走缓存，避免改动缓存实例）
+        return storageConfigRepository.findByStrategyKeyAndIsDeleted(strategyKey, false)
             .flatMap(config -> {
                 Map<String, String> configProps = config.getConfigMap();
                 if (configProps == null) {
                     configProps = new HashMap<>();
                     config.setConfigMap(configProps);
                 }
-                
+
                 // 更新所有属性值
                 if (properties != null) {
                     configProps.putAll(properties);
                 }
-                
+
                 config.setUpdateTime(LocalDateTime.now());
                 
                 // 保存到数据库
                 return storageConfigRepository.save(config)
-                    .doOnNext(savedConfig -> log.info("配置属性集合已更新: strategyKey={}", strategyKey))
-                    .then();
+                        .doOnNext(saved -> log.info("配置属性集合已更新: strategyKey={}", strategyKey))
+                        // 同上：写成功必须驱逐读缓存
+                        .then(Mono.fromRunnable(() -> {
+                            clearConfigCache();
+                            publishConfigChangeEvent(strategyKey);
+                        }));
             });
     }
 } 

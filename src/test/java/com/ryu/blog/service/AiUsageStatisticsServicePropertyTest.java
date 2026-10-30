@@ -1,10 +1,9 @@
 package com.ryu.blog.service;
 
 import net.jqwik.api.*;
-import net.jqwik.api.constraints.DoubleRange;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Positive;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 /**
  * AI使用统计服务属性测试
@@ -24,11 +23,11 @@ public class AiUsageStatisticsServicePropertyTest {
      * <p>验证：需求9.3
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void costEstimationAccuracy(
             @ForAll @IntRange(min = 100, max = 10000) int estimatedTokens,
             @ForAll @IntRange(min = 100, max = 10000) int actualTokens,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.1) double pricePerToken) {
+            @ForAll("pricePerToken") double pricePerToken) {
         
         // 计算估算成本
         double estimatedCost = estimatedTokens * pricePerToken;
@@ -51,11 +50,11 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证成本计算的单调性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void costCalculationMonotonicity(
             @ForAll @IntRange(min = 100, max = 5000) int tokens1,
             @ForAll @IntRange(min = 100, max = 5000) int tokens2,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.1) double pricePerToken) {
+            @ForAll("pricePerToken") double pricePerToken) {
         
         double cost1 = tokens1 * pricePerToken;
         double cost2 = tokens2 * pricePerToken;
@@ -77,11 +76,11 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证不同模型的成本差异
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void differentModelCosts(
             @ForAll @IntRange(min = 1000, max = 5000) int tokens,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.01) double cheapModelPrice,
-            @ForAll @DoubleRange(min = 0.01, max = 0.1) double expensiveModelPrice) {
+            @ForAll("cheapModelPrice") double cheapModelPrice,
+            @ForAll("expensiveModelPrice") double expensiveModelPrice) {
         
         // 确保昂贵模型的价格确实更高
         Assume.that(expensiveModelPrice > cheapModelPrice);
@@ -105,11 +104,11 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证批量请求的成本累加
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void batchRequestCostAccumulation(
             @ForAll @IntRange(min = 1, max = 10) int requestCount,
             @ForAll @IntRange(min = 100, max = 1000) int tokensPerRequest,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.1) double pricePerToken) {
+            @ForAll("pricePerToken") double pricePerToken) {
         
         // 计算单个请求成本
         double singleRequestCost = tokensPerRequest * pricePerToken;
@@ -132,8 +131,8 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证零令牌的成本
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
-    void zeroTokenCost(@ForAll @DoubleRange(min = 0.0001, max = 0.1) double pricePerToken) {
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    void zeroTokenCost(@ForAll("pricePerToken") double pricePerToken) {
         int tokens = 0;
         double cost = tokens * pricePerToken;
         
@@ -146,10 +145,10 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证成本精度
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void costPrecision(
             @ForAll @IntRange(min = 1, max = 10000) int tokens,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.1) double pricePerToken) {
+            @ForAll("pricePerToken") double pricePerToken) {
         
         double cost = tokens * pricePerToken;
         
@@ -170,12 +169,12 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证输入输出令牌的分别计费
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void separateInputOutputTokenCost(
             @ForAll @IntRange(min = 100, max = 5000) int inputTokens,
             @ForAll @IntRange(min = 100, max = 5000) int outputTokens,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.05) double inputPrice,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.1) double outputPrice) {
+            @ForAll("inputPrice") double inputPrice,
+            @ForAll("outputPrice") double outputPrice) {
         
         // 计算输入成本
         double inputCost = inputTokens * inputPrice;
@@ -201,10 +200,10 @@ public class AiUsageStatisticsServicePropertyTest {
      * 验证成本估算的可重复性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 10: 成本估算准确性")
+    @Label("Feature: ai-blog-writer, Property 10: 成本估算准确性")
     void costEstimationReproducibility(
             @ForAll @IntRange(min = 100, max = 5000) int tokens,
-            @ForAll @DoubleRange(min = 0.0001, max = 0.1) double pricePerToken) {
+            @ForAll("pricePerToken") double pricePerToken) {
         
         // 多次计算相同的成本
         double cost1 = tokens * pricePerToken;
@@ -218,5 +217,44 @@ public class AiUsageStatisticsServicePropertyTest {
             : "相同输入应该产生相同的成本估算";
         assert Math.abs(cost1 - cost3) < 0.0001
             : "相同输入应该产生相同的成本估算";
+    }
+
+    // ------------------------------------------------------------------
+    // 生成器
+    //
+    // 这里不用 @DoubleRange：jqwik 1.8.2 的 double 生成器内部走 BigDecimal，
+    // 默认 scale=2，边界值的小数位超过 2 就直接抛
+    // "Decimal value 0.00010 cannot be represented with scale 2"。
+    // 显式 ofScale(6) 把小数位放宽到覆盖所有边界。
+    // ------------------------------------------------------------------
+
+    /** 单令牌价格，范围 0.0001 ~ 0.1 美元。 */
+    @Provide
+    Arbitrary<Double> pricePerToken() {
+        return Arbitraries.doubles().between(0.0001, 0.1).ofScale(6);
+    }
+
+    /** 便宜模型的单令牌价格，范围 0.0001 ~ 0.01 美元。 */
+    @Provide
+    Arbitrary<Double> cheapModelPrice() {
+        return Arbitraries.doubles().between(0.0001, 0.01).ofScale(6);
+    }
+
+    /** 昂贵模型的单令牌价格，范围 0.01 ~ 0.1 美元。 */
+    @Provide
+    Arbitrary<Double> expensiveModelPrice() {
+        return Arbitraries.doubles().between(0.01, 0.1).ofScale(6);
+    }
+
+    /** 输入令牌单价，范围 0.0001 ~ 0.05 美元。 */
+    @Provide
+    Arbitrary<Double> inputPrice() {
+        return Arbitraries.doubles().between(0.0001, 0.05).ofScale(6);
+    }
+
+    /** 输出令牌单价，范围 0.0001 ~ 0.1 美元。 */
+    @Provide
+    Arbitrary<Double> outputPrice() {
+        return Arbitraries.doubles().between(0.0001, 0.1).ofScale(6);
     }
 }

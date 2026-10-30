@@ -11,7 +11,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.concurrent.TimeUnit;
 
 /**
  * IP地址定位工具类
@@ -19,7 +18,10 @@ import java.util.concurrent.TimeUnit;
  * @author ryu 475118582@qq.com
  */
 @Slf4j
-public class IPLocationUtil {
+public final class IPLocationUtil {
+
+    private IPLocationUtil() {
+    }
     
     /**
      * IP数据库文件路径
@@ -28,8 +30,12 @@ public class IPLocationUtil {
     
     /**
      * 搜索器
+     *
+     * <p>必须 volatile：{@link #close()} 会把引用置 null，而读线程在
+     * {@link #getIpLocation(String)} 里先判空再调用 —— 不加 volatile 时
+     * 读线程可能看到已关闭的实例（NPE / 使用已释放的缓冲区）。
      */
-    private static Searcher searcher = null;
+    private static volatile Searcher searcher = null;
     
     /**
      * 数据库二进制内容缓存
@@ -132,10 +138,12 @@ public class IPLocationUtil {
         }
         
         try {
-            if (searcher != null) {
-                return searcher.search(ip);
+            // 取一次本地引用：避免判空之后 searcher 被 close() 置 null
+            Searcher current = searcher;
+            if (current != null) {
+                return current.search(ip);
             }
-            
+
             log.warn("IP2Region搜索器未初始化");
             return "未知";
         } catch (IOException e) {
@@ -184,9 +192,10 @@ public class IPLocationUtil {
      */
     public static void close() {
         try {
-            if (searcher != null) {
-                searcher.close();
-                searcher = null;
+            Searcher current = searcher;
+            searcher = null;
+            if (current != null) {
+                current.close();
             }
             
             dbBytes = null;
@@ -196,52 +205,6 @@ public class IPLocationUtil {
         } catch (Exception e) {
             log.error("IP2Region资源释放失败: {}", e.getMessage(), e);
         }
-    }
-    
-    /**
-     * 测试IP解析功能
-     * 
-     * @param args 参数
-     * @throws Exception 异常
-     */
-    public static void main(String[] args) throws Exception {
-        // 测试IP地址
-        String[] testIps = {
-            "127.0.0.1",
-            "114.114.114.114",  // 114DNS
-            "223.5.5.5",        // 阿里DNS
-            "8.8.8.8",          // Google DNS
-            "183.232.231.172",  // 腾讯
-            "101.226.4.6"       // 上海电信
-        };
-        
-        // 预热
-        long startTime = System.nanoTime();
-        for (String ip : testIps) {
-            getIpLocation(ip);
-        }
-        long endTime = System.nanoTime();
-        log.info("预热耗时: {:.5f} 毫秒", (endTime - startTime) / 1000000.0);
-        
-        // 测试性能
-        int total = 10000;
-        startTime = System.nanoTime();
-        for (int i = 0; i < total; i++) {
-            getIpLocation(testIps[i % testIps.length]);
-        }
-        endTime = System.nanoTime();
-        log.info("平均查询耗时: {:.5f} 毫秒", (endTime - startTime) / 1000000.0 / total);
-        
-        // 输出地理位置信息
-        for (String ip : testIps) {
-            String location = getIpLocation(ip);
-            IPLocationInfo info = parseLocation(location);
-            log.info("IP: {} 位置: {} 解析: {}", ip, location, info);
-        }
-        
-        // 释放资源
-        close();
-        TimeUnit.SECONDS.sleep(1);
     }
     
     /**

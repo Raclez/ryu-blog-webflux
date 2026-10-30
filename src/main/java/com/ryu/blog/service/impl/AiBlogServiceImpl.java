@@ -2,6 +2,7 @@ package com.ryu.blog.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiGenerationResult;
 import com.ryu.blog.entity.AiGenerationHistory;
@@ -9,6 +10,7 @@ import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.exception.ResourceNotFoundException;
 import com.ryu.blog.repository.AiGenerationHistoryRepository;
 import com.ryu.blog.service.*;
+import com.ryu.blog.service.ai.AiInvocationGuard;
 import com.ryu.blog.service.ai.AiProvider;
 import com.ryu.blog.service.ai.AiProviderFactory;
 import lombok.RequiredArgsConstructor;
@@ -31,9 +33,11 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class AiBlogServiceImpl implements AiBlogService {
 
     private final AiProviderFactory providerFactory;
+    private final AiInvocationGuard invocationGuard;
     private final RateLimitService rateLimitService;
     private final AiTemplateService templateService;
     private final PromptEnhancer promptEnhancer;
@@ -69,23 +73,31 @@ public class AiBlogServiceImpl implements AiBlogService {
                     
                     // 获取AI提供商并生成内容
                     return providerFactory.getProvider(request.getProviderName())
-                            .flatMap(provider -> provider.generate(enhancedRequest)
+                            .flatMap(provider -> invocationGuard.call(
+                                            () -> provider.generate(enhancedRequest))
                                     .map(result -> {
                                         // 计算生成时间
                                         long generationTime = System.currentTimeMillis() - startTime;
                                         result.setGenerationTime(generationTime);
-                                        
-                                        // 估算成本
+
+                                        // 估算成本：用 Provider 返回的真实输入/输出 token 拆分，
+                                        // 不再粗暴地假设一半一半（输入和输出单价通常差好几倍）
                                         if (result.getTokenCount() != null) {
+                                            int promptTokens = result.getPromptTokens() != null
+                                                    ? result.getPromptTokens()
+                                                    : result.getTokenCount() / 2;
+                                            int completionTokens = result.getCompletionTokens() != null
+                                                    ? result.getCompletionTokens()
+                                                    : result.getTokenCount() - promptTokens;
                                             double cost = statisticsService.estimateCost(
                                                     result.getProviderName(),
                                                     result.getModelName(),
-                                                    result.getTokenCount() / 2, // 简化：假设一半是提示词
-                                                    result.getTokenCount() / 2  // 一半是完成
+                                                    promptTokens,
+                                                    completionTokens
                                             );
                                             result.setEstimatedCost(cost);
                                         }
-                                        
+
                                         return result;
                                     })
                                     // 内容安全检查
@@ -98,7 +110,14 @@ public class AiBlogServiceImpl implements AiBlogService {
                 .doOnSuccess(result -> log.info("博客内容生成成功: userId={}, tokens={}, time={}ms",
                         request.getUserId(), result.getTokenCount(), result.getGenerationTime()))
                 .doOnError(error -> log.error("博客内容生成失败: userId={}, error={}",
-                        request.getUserId(), error.getMessage(), error));
+                        request.getUserId(), error.getMessage(), error))
+                // 失败也要记账，否则用量统计里的失败率恒为 0，看板会骗人
+                .onErrorResume(error -> statisticsService.recordUsage(
+                                request.getUserId(),
+                                request.getProviderName() != null ? request.getProviderName() : "unknown",
+                                request.getModelName() != null ? request.getModelName() : "unknown",
+                                0, 0.0, System.currentTimeMillis() - startTime, false)
+                        .then(Mono.<AiGenerationResult>error(error)));
     }
 
     @Override
@@ -132,7 +151,8 @@ public class AiBlogServiceImpl implements AiBlogService {
                                 // 收集流式输出的内容用于统计
                                 StringBuilder contentBuilder = new StringBuilder();
                                 
-                                return provider.generateStream(enhancedRequest)
+                                return invocationGuard.callStream(
+                                                () -> provider.generateStream(enhancedRequest))
                                         .doOnNext(contentBuilder::append)
                                         .doOnComplete(() -> {
                                             long generationTime = System.currentTimeMillis() - startTime;
@@ -239,7 +259,9 @@ public class AiBlogServiceImpl implements AiBlogService {
         log.debug("获取历史记录: id={}, userId={}", id, userId);
         
         return historyRepository.findById(id)
-                .filter(history -> Integer.valueOf(0).equals(history.getIsDeleted()))
+                // is_deleted 是 Boolean，用 Integer 跟它比恒为 false —— 这个过滤器
+                // 会把所有记录都判成「已删除」，导致历史详情/删除/重新生成全部 404
+                .filter(history -> !Boolean.TRUE.equals(history.getIsDeleted()))
                 .filter(history -> history.getUserId().equals(userId))
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("历史记录不存在或无权访问")));
     }

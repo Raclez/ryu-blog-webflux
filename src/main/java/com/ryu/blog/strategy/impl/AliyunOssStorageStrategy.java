@@ -1,6 +1,10 @@
 package com.ryu.blog.strategy.impl;
 
 import com.ryu.blog.entity.StorageConfig;
+import com.ryu.blog.exception.BusinessException;
+import com.ryu.blog.strategy.ChecksumCapable;
+import com.ryu.blog.strategy.MetadataCapable;
+import com.ryu.blog.strategy.PresignCapable;
 import com.ryu.blog.strategy.StorageConfigManager;
 import com.ryu.blog.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -21,11 +25,21 @@ import java.util.stream.Collectors;
 /**
  * 阿里云OSS存储策略实现类
  *
+ * <p><b>⚠️ 这是一个占位实现，尚未接入真实的 OSS SDK。</b>
+ *
+ * <p>原实现是「假装成功」：上传只打个日志就返回一个人造的路径、下载返回空流、
+ * 删除永远返回成功、fileExists 永远返回 true。于是后台把存储策略切成阿里云 OSS 之后，
+ * 上传「成功」、下载永远是空、文件却根本不存在 —— 最危险的一种静默失败。
+ *
+ * <p>现在统一显式报错：要么把它实现掉，要么别选它。
+ * （对应的 aliyun-sdk-oss 依赖也已从 pom 里移除 —— 反正没人引用它。）
+ *
  * @author ryu 475118582@qq.com
  */
 @Component
 @Slf4j
-public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
+public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy
+        implements MetadataCapable, ChecksumCapable, PresignCapable {
 
     private final DataBufferFactory bufferFactory = new DefaultDataBufferFactory();
     
@@ -39,6 +53,18 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
     @Override
     public String getStrategyKey() {
         return "aliyun";
+    }
+
+    /**
+     * 阿里云 OSS 策略<b>尚未实现</b>。
+     *
+     * <p>自报 {@code false}，注册表会把它从可选列表里剔掉，
+     * 「启用 / 创建配置」也会被拒绝 —— 免得管理员把它选成活跃策略之后，
+     * 上传「成功」而文件根本不存在。
+     */
+    @Override
+    public boolean isImplemented() {
+        return false;
     }
     
     @Override
@@ -61,52 +87,44 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
     
     @Override
     public Mono<Flux<DataBuffer>> downloadFile(String path) {
-        // 简化实现，返回空流
-        log.warn("[{}] 下载文件未实现: path={}", getStrategyKey(), path);
-        return Mono.just(Flux.empty());
+        return Mono.error(unimplemented());
     }
-    
+
     @Override
     public Mono<Boolean> deleteFile(String path) {
-        // 简化实现，返回成功
-        log.info("[{}] 删除文件: path={}", getStrategyKey(), path);
-        return Mono.just(true);
+        return Mono.error(unimplemented());
     }
-    
+
     @Override
     public Mono<Boolean> fileExists(String path) {
-        // 简化实现，返回文件存在
-        return Mono.just(true);
+        // 文件根本没上传过，如实返回不存在
+        return Mono.just(Boolean.FALSE);
     }
-    
+
     @Override
     public Mono<Map<String, Object>> getMetadata(String path) {
-        // 简化实现，返回基本元数据
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("path", path);
-        metadata.put("size", 0L);
-        metadata.put("contentType", getContentType(path));
-        metadata.put("lastModified", new Date());
-        metadata.put("fileName", extractFileName(path));
-        return Mono.just(metadata);
+        return Mono.error(unimplemented());
     }
     
     @Override
     public Mono<String> generatePreviewUrl(String path, long expireSeconds) {
-        // 使用父类的实现
-        return super.generatePreviewUrl(path, expireSeconds);
+        // 父类的「默认签名 URL」实现已随能力拆分一并删除 ——
+        // 这里原本只是转调 super，等于把「不支持」伪装成「支持」
+        return Mono.error(unimplemented());
     }
 
     @Override
     public Mono<String> generateDownloadUrl(String path, long expireSeconds) {
-        // 使用父类的实现
-        return super.generateDownloadUrl(path, expireSeconds);
+        return Mono.error(unimplemented());
     }
     
     @Override
     public Mono<String> calculateFileChecksum(String path) {
-        // 简化实现，返回随机UUID作为校验和
-        return Mono.just(UUID.randomUUID().toString());
+        // 算不出来就如实说算不出来。
+        // 早先这里返回随机 UUID —— 那会让「按校验和去重」静默失效：
+        // 同一个文件每次的校验和都不同，去重形同虚设；
+        // 更糟的是随机值会被当成真实校验和落库，事后无从分辨。
+        return Mono.just("");
     }
     
     @Override
@@ -217,11 +235,21 @@ public class AliyunOssStorageStrategy extends AbstractFileStorageStrategy {
      * 上传字节数据
      */
     private Mono<String> uploadBytes(byte[] bytes, String objectName, String contentType) {
-        // 简化实现，直接返回对象名
-        log.info("[{}] 上传文件: objectName={}, contentType={}, size={}",
-                getStrategyKey(), objectName, contentType, bytes.length);
-        // 直接返回objectName，不添加前缀
-        return Mono.just(objectName);
+        return Mono.error(unimplemented());
+    }
+
+    /**
+     * 构造"未实现"异常
+     *
+     * <p>占位实现最糟糕的地方不是不能用，而是<b>看起来能用</b>：
+     * 上传返回一个路径、删除返回成功、文件永远"存在"，用户要等到下载时才发���问题。
+     * 所以这里一律显式失败。
+     *
+     * @return 未实现异常
+     */
+    private BusinessException unimplemented() {
+        log.error("[{}] 阿里云 OSS 存储策略尚未实现（占位实现），请改用本地存储或 MinIO", getStrategyKey());
+        return new BusinessException("阿里云 OSS 存储策略尚未实现，请改用本地存储或 MinIO");
     }
 
     /**

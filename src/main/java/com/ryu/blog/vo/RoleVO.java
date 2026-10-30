@@ -42,11 +42,23 @@ public class RoleVO {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updateTime;
     
-    @Schema(description = "是否默认角色 (1: 是, 0: 否)")
-    private Integer isDefault;
-    
-    @Schema(description = "是否激活 (1: 激活, 0: 禁用)")
-    private Integer isActive;
+    /**
+     * 是否默认角色
+     *
+     * <p>类型统一为 {@code Boolean}：原先是 {@code Integer}（0/1），而实体
+     * {@code Role.isDefault} 是 {@code Boolean} —— {@code BeanUtil.copyProperties}
+     * 在这两种类型之间没有可靠的转换器，值可能静默变成 null。
+     */
+    @Schema(description = "是否默认角色")
+    private Boolean isDefault;
+
+    /**
+     * 是否激活
+     *
+     * <p>同上，类型统一为 {@code Boolean}。
+     */
+    @Schema(description = "是否激活")
+    private Boolean isActive;
     
     @Schema(description = "排序字段")
     private Integer sort;

@@ -2,6 +2,8 @@ package com.ryu.blog.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -49,10 +51,15 @@ public class MenusUpdateDTO {
     private Integer sort;
 
     /**
-     * 菜单类型：0：目录, 1：菜单, 2: 按钮
+     * 菜单类型：0：目录, 1：菜单
+     *
+     * <p>原「2：按钮」已随「菜单↔权限」模型下线 ——
+     * 按钮级能力改由 {@code t_permissions.identity} 表达，不再占用菜单行。
      */
     @NotNull(message = "菜单类型不能为空")
-    @Schema(description = "菜单类型：0：目录, 1：菜单, 2: 按钮", required = true)
+    @Min(value = 0, message = "菜单类型只能是 0(目录) 或 1(菜单)")
+    @Max(value = 1, message = "菜单类型只能是 0(目录) 或 1(菜单)")
+    @Schema(description = "菜单类型：0：目录, 1：菜单", required = true)
     private Integer menuType;
     
     /**
@@ -70,9 +77,8 @@ public class MenusUpdateDTO {
     /**
      * 是否外链：0-否，1-是
      */
-    @JsonFormat(shape = JsonFormat.Shape.NUMBER)
-    @Schema(description = "是否外链：0-否，1-是")
-    private Integer isLink;
+    @Schema(description = "是否外链")
+    private Boolean isLink;
     
     /**
      * 重定向地址

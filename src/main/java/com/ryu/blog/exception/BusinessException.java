@@ -154,6 +154,57 @@ public class BusinessException extends BaseException {
     public static BusinessException roleNotExists() {
         return new BusinessException(ErrorCodeConstants.USER_ROLE_NOT_EXISTS, MessageConstants.USER_ROLE_NOT_EXISTS);
     }
+
+    /**
+     * 角色编码已存在异常
+     *
+     * @param code 角色编码
+     * @return 异常实例
+     */
+    public static BusinessException roleCodeExists(String code) {
+        return new BusinessException(ErrorCodeConstants.USER_ROLE_CODE_EXISTS,
+                MessageConstants.USER_ROLE_CODE_EXISTS + ": " + code);
+    }
+
+    /**
+     * 角色名称已存在异常
+     *
+     * @param name 角色名称
+     * @return 异常实例
+     */
+    public static BusinessException roleNameExists(String name) {
+        return new BusinessException(ErrorCodeConstants.USER_ROLE_NAME_EXISTS,
+                MessageConstants.USER_ROLE_NAME_EXISTS + ": " + name);
+    }
+
+    /**
+     * 权限不存在异常
+     *
+     * @return 异常实例
+     */
+    public static BusinessException permissionNotExists() {
+        return new BusinessException(ErrorCodeConstants.USER_PERMISSION_NOT_EXISTS,
+                MessageConstants.USER_PERMISSION_NOT_EXISTS);
+    }
+
+    /**
+     * 菜单不存在异常
+     *
+     * @return 异常实例
+     */
+    public static BusinessException menuNotFound() {
+        return new BusinessException(ErrorCodeConstants.MENU_NOT_FOUND, MessageConstants.MENU_NOT_FOUND);
+    }
+
+    /**
+     * 父菜单不存在异常
+     *
+     * @return 异常实例
+     */
+    public static BusinessException menuParentNotExists() {
+        return new BusinessException(ErrorCodeConstants.MENU_PARENT_NOT_EXISTS,
+                MessageConstants.MENU_PARENT_NOT_EXISTS);
+    }
     
     // ==================== 文章相关异常 ====================
     

@@ -1,6 +1,8 @@
 package com.ryu.blog.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.ryu.blog.constant.PermissionConstants;
 import com.ryu.blog.dto.ViewHistoryDTO;
 import com.ryu.blog.entity.ViewHistory;
 import com.ryu.blog.service.ViewHistoryService;
@@ -9,6 +11,7 @@ import com.ryu.blog.vo.ViewHistoryStatsVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -35,8 +38,10 @@ public class ViewHistoryController {
     @PostMapping("/record")
     @Operation(summary = "添加浏览记录", description = "添加文章浏览记录")
     public Mono<Result<Boolean>> addViewHistory(
-          @RequestBody  ViewHistoryDTO viewHistoryDTO) {
-        return viewHistoryService.addViewHistory(viewHistoryDTO)
+          @Valid @RequestBody ViewHistoryDTO viewHistoryDTO) {
+        // 登录用户与匿名访客都要记录：登录态 userId 落库，匿名访客只有 visitorId
+        Long userId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
+        return viewHistoryService.addViewHistory(viewHistoryDTO, userId)
                 .map(Result::success);
     }
 
@@ -60,7 +65,8 @@ public class ViewHistoryController {
     public Mono<Result<Map<String, Object>>> getUserViewHistoryPaged(
             @Parameter(description = "页码") @RequestParam(defaultValue = "1") int currentPage,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int pageSize) {
-        return viewHistoryService.getUserViewHistoryPaged(currentPage, pageSize)
+        Long userId = StpUtil.getLoginIdAsLong();
+        return viewHistoryService.getUserViewHistoryPaged(currentPage, pageSize, userId)
                 .map(Result::success);
     }
 
@@ -98,8 +104,14 @@ public class ViewHistoryController {
 
     /**
      * 获取浏览历史统计信息
+     *
+     * <p><b>这是全站口径的监控数据</b>（PV/UV 趋势、热门文章 Top5、设备与地区分布），
+     * 不是「当前用户的浏览历史」。同控制器里的其它接口都按 {@code StpUtil.getLoginIdAsLong()}
+     * 限定到本人，唯独这个接口统计的是全站，所以必须单独挂能力位 ——
+     * 否则任何登录用户都能拿到整站的流量画像。
      */
     @GetMapping("/stats")
+    @SaCheckPermission(PermissionConstants.MONITOR_STATS_VIEW)
     @Operation(summary = "获取浏览历史统计信息", description = "获取浏览历史的统计数据，包括PV、UV等信息")
     public Mono<Result<ViewHistoryStatsVO>> getViewHistoryStats() {
         return viewHistoryService.getViewHistoryStats()

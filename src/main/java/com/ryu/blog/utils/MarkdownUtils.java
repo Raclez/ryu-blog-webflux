@@ -18,11 +18,42 @@ import java.util.regex.Pattern;
  * @author ryu
  */
 @Slf4j
-public class MarkdownUtils {
+public final class MarkdownUtils {
 
     private static final Parser PARSER = Parser.builder().build();
-    private static final HtmlRenderer HTML_RENDERER = HtmlRenderer.builder().build();
-    
+
+    /**
+     * HTML 渲染器 —— <b>安全模式</b>。
+     *
+     * <p>commonmark 的 {@code HtmlRenderer} 两个安全开关<b>默认都是关的</b>
+     * （{@code escapeHtml=false}、{@code sanitizeUrls=false}，已用 javap 反编译
+     * {@code HtmlRenderer$Builder} 的构造函数字节码确认）。默认值下：
+     *
+     * <pre>{@code
+     * 输入: Hello <script>alert(1)</script>  [x](javascript:alert(3))
+     * 输出: <p>Hello <script>alert(1)</script></p>
+     *       <p><a href="javascript:alert(3)">x</a></p>
+     * }</pre>
+     *
+     * <p>也就是<b>原文里的裸 HTML 与 {@code javascript:} 伪协议会原样进入渲染结果</b>。
+     * 文章正文是用户创作内容，渲染后会被前台直接插入 DOM ——
+     * 这是一条完整的<b>存储型 XSS</b> 通路。
+     *
+     * <p>打开两个开关后：
+     *
+     * <pre>{@code
+     * 输出: <p>Hello &lt;script&gt;alert(1)&lt;/script&gt;</p>
+     *       <p><a rel="nofollow" href="">x</a></p>
+     * }</pre>
+     *
+     * <p>代价是「作者在 Markdown 里内嵌 HTML」不再生效（会被转义成文本显示）。
+     * 对博客正文而言这是可接受的取舍：正文渲染的默认路径应该是安全的。
+     */
+    private static final HtmlRenderer HTML_RENDERER = HtmlRenderer.builder()
+            .escapeHtml(true)
+            .sanitizeUrls(true)
+            .build();
+
     private MarkdownUtils() {
         // 工具类私有构造函数
     }
@@ -37,14 +68,32 @@ public class MarkdownUtils {
         if (markdown == null || markdown.isEmpty()) {
             return "";
         }
-        
+
         try {
             Node document = PARSER.parse(markdown);
             return HTML_RENDERER.render(document);
         } catch (Exception e) {
+            // fail-closed：渲染失败时**不能**把原文原样吐出去 ——
+            // 调用方（ContentServiceImpl#markdownToHtml）拿到的字符串会被前台
+            // 直接塞进 DOM，原文里的裸 HTML 就会变成可执行脚本。
+            // 这里退化成「转义后的纯文本」：内容还在，但不可执行。
             log.error("Markdown转HTML失败: {}", e.getMessage(), e);
-            return markdown;
+            return escapeHtml(markdown);
         }
+    }
+
+    /**
+     * HTML 转义（用于渲染失败时的降级输出）
+     *
+     * @param text 原始文本
+     * @return 转义后的文本
+     */
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
     
     /**
@@ -78,15 +127,18 @@ public class MarkdownUtils {
             @Override
             public void visit(Heading heading) {
                 if (heading.getLevel() == 1 && title[0] == null) {
-                    // 提取H1标题文本
-                    StringBuilder sb = new StringBuilder();
-                    heading.getFirstChild().accept(new AbstractVisitor() {
-                        @Override
-                        public void visit(Text text) {
-                            sb.append(text.getLiteral());
-                        }
-                    });
-                    title[0] = sb.toString().trim();
+                    // 空标题（只有 "#"）没有子节点；不判空会在保存文章时 NPE
+                    Node firstChild = heading.getFirstChild();
+                    if (firstChild != null) {
+                        StringBuilder sb = new StringBuilder();
+                        firstChild.accept(new AbstractVisitor() {
+                            @Override
+                            public void visit(Text text) {
+                                sb.append(text.getLiteral());
+                            }
+                        });
+                        title[0] = sb.toString().trim();
+                    }
                 }
                 // 不继续访问子节点
                 visitChildren(heading);
@@ -200,8 +252,10 @@ public class MarkdownUtils {
             }
         }
         
-        // 计算英文单词数（简化处理，按空格分割）
-        int englishWordCount = plainText.split("\\s+").length;
+        // 计算英文单词数：先把汉字替换成空格，再按空白分词。
+        // 原先直接 split，中文会被当成「一个英文单词」，空字符串也会得到 1。
+        String nonHanText = plainText.replaceAll("\\p{IsHan}", " ").trim();
+        int englishWordCount = nonHanText.isEmpty() ? 0 : nonHanText.split("\\s+").length;
         
         // 计算阅读时间（分钟）
         double readingTime = (chineseCharCount / 300.0) + (englishWordCount / 500.0);

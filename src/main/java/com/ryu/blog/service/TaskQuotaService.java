@@ -110,8 +110,23 @@ public class TaskQuotaService {
                     userId, count, highPriorityQuotaPerHour);
             return Mono.<Void>empty();
         })
-        .onErrorResume(RateLimitExceededException.class, Mono::error)
         .onErrorResume(error -> {
+            // ⚠️ 「配额超限」和「Redis 故障」必须分开处理。
+            //
+            // 之前这里写成两个 onErrorResume 串联：
+            //   .onErrorResume(RateLimitExceededException.class, Mono::error)
+            //   .onErrorResume(error -> { ...放行... })
+            // 第一个把异常转成新的 error 信号，而这个新信号会**继续往下游流** ——
+            // 于是被第二个（兜底的）onErrorResume 接住并降级放行。
+            // 结果：高优先级配额超限**永远不会生效**，限额形同虚设。
+            //
+            // 正确写法是只有一个 onErrorResume，在里面按异常类型分流。
+            if (error instanceof RateLimitExceededException) {
+                log.warn("User {} exceeded high priority quota: limit={}/hour",
+                        userId, highPriorityQuotaPerHour);
+                return Mono.error(error);
+            }
+
             log.error("Failed to check quota for user {}: {}", userId, error.getMessage(), error);
             // Redis 错误时，为了系统可用性，允许请求通过（降级策略）
             log.warn("Quota check failed, allowing request to proceed (degraded mode)");

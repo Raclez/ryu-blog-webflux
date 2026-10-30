@@ -1,5 +1,6 @@
 package com.ryu.blog.service;
 
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.PermissionsAssignDTO;
 import com.ryu.blog.dto.RoleDTO;
 import com.ryu.blog.dto.RoleListDTO;
@@ -28,7 +29,7 @@ public interface RoleService {
      * @param roleDTO 角色DTO
      * @return 保存结果
      */
-    Mono<Void> saveRole(RoleDTO roleDTO);
+    Mono<Void> saveRole(OperatorContext ctx, RoleDTO roleDTO);
 
     /**
      * 为角色分配权限
@@ -36,7 +37,7 @@ public interface RoleService {
      * @param permissionsAssignDTO 权限分配DTO
      * @return 分配结果
      */
-    Mono<Void> assignPermissions(PermissionsAssignDTO permissionsAssignDTO);
+    Mono<Void> assignPermissions(OperatorContext ctx, PermissionsAssignDTO permissionsAssignDTO);
 
     /**
      * 根据条件查询角色列表
@@ -60,7 +61,7 @@ public interface RoleService {
      * @param permissionsAssignDTO 权限分配DTO
      * @return 删除结果
      */
-    Mono<Void> removePermission(PermissionsAssignDTO permissionsAssignDTO);
+    Mono<Void> removePermission(OperatorContext ctx, PermissionsAssignDTO permissionsAssignDTO);
 
     /**
      * 获取角色权限
@@ -83,7 +84,7 @@ public interface RoleService {
      * @param userId 用户ID
      * @return 角色列表
      */
-    Flux<Role> getUserRoles(Long userId);
+    Flux<Role> getUserRoles(OperatorContext ctx, Long userId);
 
     /**
      * 变更角色状态
@@ -92,17 +93,21 @@ public interface RoleService {
      * @param isActive 激活状态
      * @return 操作结果
      */
-    Mono<Boolean> changeRoleStatus(Long roleId, Boolean isActive);
+    Mono<Boolean> changeRoleStatus(OperatorContext ctx, Long roleId, Boolean isActive);
 
     /**
      * 批量分配用户角色
-     * 
+     *
+     * <p>原先这里还有一个 {@code assignBy}（分配人）参数，一路传到 Service 后被
+     * 完全丢弃 —— {@code t_user_roles} 没有这一列，也没有别的地方落它。
+     * 「传了但没用」的参数比没有更糟：调用方会以为审计信息被记录了。
+     * 既然这轮不打算加审计列（要动 DDL），就把参数删掉。
+     *
      * @param userIds 用户ID列表
      * @param roleId 角色ID
-     * @param assignBy 分配人
      * @return 操作结果
      */
-    Mono<Boolean> batchAssignUserRoles(List<Long> userIds, Long roleId, String assignBy);
+    Mono<Boolean> batchAssignUserRoles(OperatorContext ctx, List<Long> userIds, Long roleId);
 
     /**
      * 获取所有角色
@@ -117,7 +122,7 @@ public interface RoleService {
      * @param id 角色ID
      * @return 删除结果
      */
-    Mono<Void> removeById(Long id);
+    Mono<Void> removeById(OperatorContext ctx, Long id);
 
     /**
      * 更新角色信息
@@ -125,5 +130,5 @@ public interface RoleService {
      * @param roleUpdateDTO 角色更新信息
      * @return 更新结果
      */
-    Mono<Role> updateRole(RoleUpdateDTO roleUpdateDTO);
+    Mono<Role> updateRole(OperatorContext ctx, RoleUpdateDTO roleUpdateDTO);
 } 

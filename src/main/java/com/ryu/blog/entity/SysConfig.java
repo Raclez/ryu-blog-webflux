@@ -26,7 +26,7 @@ import org.springframework.data.relational.core.mapping.Table;
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 @Table("t_sys_config")
 @Schema(description = "系统配置")
 public class SysConfig extends BaseEntity {

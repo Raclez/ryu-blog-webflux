@@ -1,14 +1,17 @@
 package com.ryu.blog.service.impl;
 
 import com.ryu.blog.constant.CacheConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.TagCreateDTO;
 import com.ryu.blog.dto.TagListDTO;
 import com.ryu.blog.dto.TagUpdateDTO;
 import com.ryu.blog.entity.PostTag;
 import com.ryu.blog.entity.Tag;
 import com.ryu.blog.exception.BusinessException;
+import com.ryu.blog.exception.PermissionDeniedException;
 import com.ryu.blog.mapper.TagMapper;
 import com.ryu.blog.repository.PostTagRepository;
+import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.repository.TagRepository;
 import com.ryu.blog.service.TagService;
 import com.ryu.blog.vo.PageResult;
@@ -17,7 +20,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -49,7 +51,14 @@ import java.util.List;
  * </ul>
  * 
  * <p>所有修改操作（创建、更新、删除）会清除相关缓存，确保数据一致性
- * 
+ *
+ * <p><b>为什么驱逐一律用 {@code allEntries = true}</b>：标签的各种缓存 key 都带后缀
+ * （分页页码、limit、文章 ID），无法用单个 key 精确命中；而 Spring 的
+ * {@code @CacheEvict} <b>不支持 '*' 通配符</b> —— 写 {@code key = "'tag:page:*'"}
+ * 只会去删一个<b>字面量名叫 {@code tag:page:*}</b> 的 key，等于什么都没删。
+ * 所有标签缓存又都在同一个 {@code TAG_CACHE} 里，所以只能整块清。
+ * 标签写操作频率很低，整块清的代价可以接受。
+ *
  * @author ryu
  * @since 1.0
  */
@@ -60,6 +69,7 @@ public class TagServiceImpl implements TagService {
 
     private final TagRepository tagRepository;
     private final PostTagRepository postTagRepository;
+    private final PostsRepository postsRepository;
     private final TagMapper tagMapper;
 
 
@@ -75,10 +85,7 @@ public class TagServiceImpl implements TagService {
      */
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
-    })
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true)
     public Mono<Boolean> createTag(TagCreateDTO tagCreateDTO) {
         log.debug("[标签服务] 开始创建标签 - 标签名称: {}", tagCreateDTO.getName());
         
@@ -123,10 +130,7 @@ public class TagServiceImpl implements TagService {
      */
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
-    })
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true)
     public Mono<Boolean> updateTag(TagUpdateDTO tagUpdateDTO) {
         log.debug("[标签服务] 开始更新标签 - 标签ID: {}", tagUpdateDTO.getId());
         
@@ -205,8 +209,10 @@ public class TagServiceImpl implements TagService {
                     log.warn("[标签服务] 标签不存在 - 标签ID: {}", id);
                     return Mono.error(BusinessException.tagNotFound());
                 }))
-                .map(tagMapper::toTagVO)
-                .doOnSuccess(tagVO -> log.debug("[标签服务] 标签详情查询成功 - 标签ID: {}, 标签名称: {}", 
+                // 详情接口也要返回文章数，否则同一个标签在不同接口里的字段时有时无
+                .flatMap(tag -> tagRepository.countPostsByTagId(tag.getId())
+                        .map(count -> tagMapper.toTagVOWithArticleCount(tag, count)))
+                .doOnSuccess(tagVO -> log.debug("[标签服务] 标签详情查询成功 - 标签ID: {}, 标签名称: {}",
                         id, tagVO.getName()));
     }
 
@@ -223,12 +229,7 @@ public class TagServiceImpl implements TagService {
      */
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_DETAIL_KEY + "' + #id"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
-    })
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true)
     public Mono<Boolean> deleteTag(Long id) {
         log.debug("[标签服务] 开始删除标签 - 标签ID: {}", id);
         
@@ -343,7 +344,8 @@ public class TagServiceImpl implements TagService {
         log.debug("[标签服务] 查询文章标签 - 文章ID: {}", articleId);
         
         return tagRepository.findByPostId(articleId)
-                .map(tagMapper::toTagVO)
+                .concatMap(tag -> tagRepository.countPostsByTagId(tag.getId())
+                        .map(count -> tagMapper.toTagVOWithArticleCount(tag, count)))
                 .doOnComplete(() -> log.debug("[标签服务] 文章标签查询完成 - 文章ID: {}", articleId));
     }
 
@@ -352,35 +354,41 @@ public class TagServiceImpl implements TagService {
      * <p>
      * 为指定文章添加标签关联。会先删除文章原有的所有标签，再建立新的关联关系。
      * 操作成功后会清除相关缓存（文章标签、热门标签、标签列表等）。
-     * 
+     *
+     * <p><b>归属校验</b>：标签关联是文章的一部分 ——
+     * 只有文章作者本人（或管理员）能改。原先任何登录用户都能改别人文章的标签。
+     *
      * @param articleId 文章ID
      * @param tagIds 标签ID列表
+     * @param ctx     操作者上下文
      * @return 操作结果，true表示成功
      */
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_HOT_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ALL_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
-    })
-    public Mono<Boolean> addTagsToArticle(Long articleId, List<Long> tagIds) {
-        log.debug("[标签服务] 为文章添加标签 - 文章ID: {}, 标签数: {}", articleId, 
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true)
+    public Mono<Boolean> addTagsToArticle(Long articleId, List<Long> tagIds, OperatorContext ctx) {
+        log.debug("[标签服务] 为文章添加标签 - 文章ID: {}, 标签数: {}", articleId,
                 tagIds != null ? tagIds.size() : 0);
-        
+
         if (tagIds == null || tagIds.isEmpty()) {
             log.debug("[标签服务] 标签列表为空，跳过添加 - 文章ID: {}", articleId);
             return Mono.just(true);
         }
-        
-        // 先删除原有的标签关联
-        return removeTagsFromArticle(articleId)
+
+        // 归属校验先行 —— 不通过就别动别人的文章
+        return requireArticleOwnedBy(articleId, ctx)
+                // 先删除原有的标签关联
+                .then(removeTagsFromArticle(articleId, ctx))
                 .then(Flux.fromIterable(tagIds)
-                        .flatMap(tagId -> {
-                            log.trace("[标签服务] 创建文章标签关联 - 文章ID: {}, 标签ID: {}", 
+                        // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）：
+                        // 本方法带 @Transactional，所有插入共用同一条 R2DBC 连接；
+                        // r2dbc-mysql 的 RequestQueue 是 SPSC 队列且 submit() 无锁，
+                        // 并发提交会抛 `Request queue is full`，
+                        // 标签关联会只插进去一部分。
+                        .concatMap(tagId -> {
+                            log.trace("[标签服务] 创建文章标签关联 - 文章ID: {}, 标签ID: {}",
                                     articleId, tagId);
-                            
+
                             PostTag articleTag = new PostTag();
                             articleTag.setPostId(articleId);
                             articleTag.setTagId(tagId);
@@ -388,9 +396,9 @@ public class TagServiceImpl implements TagService {
                             return postTagRepository.save(articleTag);
                         })
                         .then(Mono.just(true)))
-                .doOnSuccess(result -> log.info("[标签服务] 文章标签添加成功 - 文章ID: {}, 标签数: {}", 
+                .doOnSuccess(result -> log.info("[标签服务] 文章标签添加成功 - 文章ID: {}, 标签数: {}",
                         articleId, tagIds.size()))
-                .doOnError(e -> log.error("[标签服务] 文章标签添加失败 - 文章ID: {}, 错误: {}", 
+                .doOnError(e -> log.error("[标签服务] 文章标签添加失败 - 文章ID: {}, 错误: {}",
                         articleId, e.getMessage(), e));
     }
 
@@ -399,26 +407,47 @@ public class TagServiceImpl implements TagService {
      * <p>
      * 删除指定文章的所有标签关联关系。
      * 操作成功后会清除相关缓存。
-     * 
+     *
+     * <p><b>归属校验</b>：同 {@link #addTagsToArticle} ——
+     * 只有文章作者本人（或管理员）能改。
+     *
      * @param articleId 文章ID
+     * @param ctx       操作者上下文
      * @return 操作结果，true表示成功
      */
     @Override
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ARTICLE_KEY + "' + #articleId"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_HOT_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_ALL_KEY + "*'"),
-        @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, key = "'" + CacheConstants.TAG_PAGE_PATTERN + "'")
-    })
-    public Mono<Boolean> removeTagsFromArticle(Long articleId) {
+    @CacheEvict(cacheNames = CacheConstants.TAG_CACHE, allEntries = true)
+    public Mono<Boolean> removeTagsFromArticle(Long articleId, OperatorContext ctx) {
         log.debug("[标签服务] 移除文章标签 - 文章ID: {}", articleId);
-        
-        return postTagRepository.deleteByPostId(articleId)
+
+        return requireArticleOwnedBy(articleId, ctx)
+                .then(postTagRepository.deleteByPostId(articleId))
                 .doOnSuccess(v -> log.info("[标签服务] 文章标签移除成功 - 文章ID: {}", articleId))
                 .then(Mono.just(true))
-                .doOnError(e -> log.error("[标签服务] 文章标签移除失败 - 文章ID: {}, 错误: {}", 
+                .doOnError(e -> log.error("[标签服务] 文章标签移除失败 - 文章ID: {}, 错误: {}",
                         articleId, e.getMessage(), e));
+    }
+
+    /**
+     * 校验文章归操作者所有
+     *
+     * <p>文章不存在（或已软删）时按「无权」处理 —— 两种情况对调用方没有区别。
+     *
+     * @param articleId 文章ID
+     * @param ctx       操作者上下文
+     * @return 通过校验时完成；不通过时抛 403
+     */
+    private Mono<Void> requireArticleOwnedBy(Long articleId, OperatorContext ctx) {
+        return postsRepository.findById(articleId)
+                .switchIfEmpty(Mono.error(PermissionDeniedException.accessDenied("无权操作他人的数据")))
+                .flatMap(article -> {
+                    if (Boolean.TRUE.equals(article.getIsDeleted())) {
+                        return Mono.error(PermissionDeniedException.accessDenied("无权操作他人的数据"));
+                    }
+                    OwnershipPolicy.requireCanActOn(ctx, article.getUserId());
+                    return Mono.empty();
+                });
     }
 
     /**
@@ -499,7 +528,8 @@ public class TagServiceImpl implements TagService {
                     
                     // 查询分页数据
                     return tagRepository.findByKeyword(keyword, pageable)
-                            .map(tagMapper::toTagVO)
+                            .concatMap(tag -> tagRepository.countPostsByTagId(tag.getId())
+                                    .map(count -> tagMapper.toTagVOWithArticleCount(tag, count)))
                             .collectList()
                             .map(tagVOs -> {
                                 // 创建分页结果

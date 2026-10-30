@@ -326,8 +326,10 @@ public class GlobalExceptionHandler {
                 .map(ref -> ref.getFieldName())
                 .reduce((a, b) -> a + "." + b)
                 .orElse("unknown");
-            logMessage = String.format("字段 '%s' 的值格式不正确: %s, 目标类型: %s", 
-                    fieldName, ife.getValue(), ife.getTargetType().getSimpleName());
+            // 不记录 ife.getValue()：它可能是口令、token 等敏感原文，
+            // 拼进日志就等于把用户输入明文落盘。只保留字段名与目标类型。
+            logMessage = String.format("字段 '%s' 的值格式不正确, 目标类型: %s",
+                    fieldName, ife.getTargetType().getSimpleName());
             userMessage = String.format("字段 '%s' 的格式不正确", fieldName);
         } else if (e instanceof com.fasterxml.jackson.databind.exc.MismatchedInputException) {
             com.fasterxml.jackson.databind.exc.MismatchedInputException mie = 

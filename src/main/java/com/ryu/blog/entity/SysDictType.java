@@ -21,7 +21,7 @@ import org.springframework.data.relational.core.mapping.Table;
 @SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 @Table("t_sys_dict_types")
 public class SysDictType extends BaseEntity {
 

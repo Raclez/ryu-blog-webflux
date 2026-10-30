@@ -7,6 +7,8 @@ import org.springframework.data.domain.Pageable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
+
 /**
  * 任务服务接口
  * 提供任务的创建、查询、取消、重试等核心功能
@@ -25,6 +27,22 @@ public interface TaskService {
      * @return 任务ID
      */
     Mono<Long> submitTask(TaskType taskType, Object request, Long userId, TaskPriority priority);
+
+    /**
+     * 提交任务（可指定延迟执行时间）
+     *
+     * <p>{@code executeAt} 非空时任务进入<b>延迟区</b>，到期前不会被执行；
+     * 为空时与普通提交一致，立即进入待执行队列。
+     *
+     * @param taskType 任务类型
+     * @param request 请求参数对象
+     * @param userId 用户ID
+     * @param priority 任务优先级
+     * @param executeAt 计划执行时间（null 表示立即执行）
+     * @return 任务ID
+     */
+    Mono<Long> submitTask(TaskType taskType, Object request, Long userId, TaskPriority priority,
+                          LocalDateTime executeAt);
     
     /**
      * 查询任务状态
@@ -52,6 +70,19 @@ public interface TaskService {
      * @return 是否取消成功
      */
     Mono<Boolean> cancelTask(Long taskId);
+
+    /**
+     * 取消任务（显式指定操作者）
+     *
+     * <p>{@link #cancelTask(Long)} 内部靠 {@code StpUtil.getLoginIdAsLong()} 取登录态，
+     * 而 Sa-Token 的 Reactor 上下文靠上下文传播 —— 在响应式链的 flatMap 里取可能已经拿不到。
+     * 业务域（如文章域取消定时发布）必须显式带上操作者。
+     *
+     * @param taskId 任务ID
+     * @param userId 操作者用户ID
+     * @return 是否取消成功
+     */
+    Mono<Boolean> cancelTask(Long taskId, Long userId);
     
     /**
      * 重试任务

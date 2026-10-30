@@ -42,6 +42,12 @@ public class AiGenerationResult {
     @Schema(description = "使用的令牌数", example = "1500")
     private Integer tokenCount;
 
+    @Schema(description = "输入（提示词）令牌数", example = "800")
+    private Integer promptTokens;
+
+    @Schema(description = "输出（生成内容）令牌数", example = "700")
+    private Integer completionTokens;
+
     @Schema(description = "估算成本（美元）", example = "0.045")
     private Double estimatedCost;
 

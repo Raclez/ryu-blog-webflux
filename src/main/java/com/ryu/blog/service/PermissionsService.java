@@ -1,5 +1,6 @@
 package com.ryu.blog.service;
 
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.PermissionsAddDTO;
 import com.ryu.blog.dto.PermissionsQueryDTO;
 import com.ryu.blog.dto.PermissionsUpdateDTO;
@@ -33,7 +34,7 @@ public interface PermissionsService {
      * @param permissionsUpdateDTO 权限更新DTO
      * @return 更新结果
      */
-    Mono<Void> updatePermission(PermissionsUpdateDTO permissionsUpdateDTO);
+    Mono<Void> updatePermission(OperatorContext ctx, PermissionsUpdateDTO permissionsUpdateDTO);
 
     /**
      * 按模块前缀获取权限列表
@@ -57,7 +58,7 @@ public interface PermissionsService {
      * @param permissionsAddDTO 权限添加DTO
      * @return 保存结果
      */
-    Mono<Void> savePermission(PermissionsAddDTO permissionsAddDTO);
+    Mono<Void> savePermission(OperatorContext ctx, PermissionsAddDTO permissionsAddDTO);
 
     /**
      * 根据ID删除权限
@@ -65,7 +66,7 @@ public interface PermissionsService {
      * @param id 权限ID
      * @return 删除结果
      */
-    Mono<Void> removeById(Long id);
+    Mono<Void> removeById(OperatorContext ctx, Long id);
 
     /**
      * 获取用户权限标识
@@ -73,7 +74,7 @@ public interface PermissionsService {
      * @param userId 用户ID
      * @return 权限标识集合
      */
-    Mono<Set<String>> getUserPermissionIdentities(Long userId);
+    Mono<Set<String>> getUserPermissionIdentities(OperatorContext ctx, Long userId);
 
     /**
      * 获取所有模块
@@ -90,7 +91,7 @@ public interface PermissionsService {
      * @param permissionIdentity 权限标识
      * @return 是否拥有权限
      */
-    Mono<Boolean> hasPermission(Long userId, String permissionIdentity);
+    Mono<Boolean> hasPermission(OperatorContext ctx, Long userId, String permissionIdentity);
 
     /**
      * 获取角色权限列表
@@ -100,13 +101,6 @@ public interface PermissionsService {
      */
     Flux<Permissions> getPermissionsByRoleId(Long roleId);
 
-    /**
-     * 获取菜单权限列表
-     * 
-     * @param menuId 菜单ID
-     * @return 权限列表
-     */
-    Flux<Permissions> getPermissionsByMenuId(Long menuId);
 
     /**
      * 批量更新权限状态
@@ -115,5 +109,5 @@ public interface PermissionsService {
      * @param isActive 激活状态
      * @return 操作结果
      */
-    Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive);
+    Mono<Boolean> updatePermissionStatus(OperatorContext ctx, List<Long> ids, Boolean isActive);
 } 

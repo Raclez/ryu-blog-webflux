@@ -2,12 +2,14 @@ package com.ryu.blog.service.ai.impl;
 
 import com.ryu.blog.dto.AiGenerationRequest;
 import com.ryu.blog.dto.AiGenerationResult;
+import com.ryu.blog.dto.AiProviderConfigValue;
 import com.ryu.blog.service.ai.AiProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.Objects;
@@ -39,39 +41,46 @@ public abstract class AbstractChatClientProvider implements AiProvider {
         return Mono.fromCallable(() -> {
             // 构建 prompt
             String prompt = buildPrompt(request);
-            
+
             // 使用 ChatClient 的 fluent API
             ChatResponse response = chatClient.prompt()
                     .user(prompt)
                     .options(buildChatOptions(request))
                     .call()
                     .chatResponse();
-            
+
             // 提取生成的内容
             var output = response.getResult().getOutput();
             String content = output != null ? output.getContent() : "";
-            
+
             if (content == null || content.isEmpty()) {
                 log.warn("AI生成内容为空");
                 content = "";
             }
-            
+
             // 提取使用统计
             var usage = response.getMetadata().getUsage();
             Integer promptTokens = usage != null ? Math.toIntExact(usage.getPromptTokens()) : 0;
             Integer completionTokens = usage != null ? Math.toIntExact(usage.getGenerationTokens()) : 0;
             Integer totalTokens = usage != null ? Math.toIntExact(usage.getTotalTokens()) : 0;
-            
+
             log.debug("内容生成成功: tokens={}", totalTokens);
-            
+
             // 构建结果
             return AiGenerationResult.builder()
                     .content(content)
                     .modelName(getEffectiveModel(request))
                     .tokenCount(totalTokens)
+                    // 记录输入/输出令牌的拆分，成本估算才能按真实单价算
+                    // （此前只能拿到总数，只能粗暴地一半一半分）
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
                     .providerName(getProviderName())
                     .build();
         })
+        // Spring AI M5 的 ChatClient.call() 底层是阻塞的 RestClient，
+        // 必须离开 Netty event-loop 线程，否则一次 AI 调用可阻塞事件循环 60 秒。
+        .subscribeOn(Schedulers.boundedElastic())
         .timeout(DEFAULT_TIMEOUT)
         .doOnError(error -> log.error("内容生成失败", error));
     }
@@ -83,7 +92,7 @@ public abstract class AbstractChatClientProvider implements AiProvider {
         return Flux.defer(() -> {
             // 构建 prompt
             String prompt = buildPrompt(request);
-            
+
             // 使用 ChatClient 的流式 API
             return chatClient.prompt()
                     .user(prompt)
@@ -91,6 +100,8 @@ public abstract class AbstractChatClientProvider implements AiProvider {
                     .stream()
                     .content();
         })
+        // 底层仍是阻塞的 RestClient 流，需隔离到 boundedElastic
+        .subscribeOn(Schedulers.boundedElastic())
         .timeout(DEFAULT_TIMEOUT)
         .doOnComplete(() -> log.debug("流式内容生成完成"))
         .doOnError(error -> log.error("流式内容生成失败", error));
@@ -98,19 +109,47 @@ public abstract class AbstractChatClientProvider implements AiProvider {
 
     @Override
     public Mono<Boolean> isAvailable() {
+        return probe("ping", Duration.ofSeconds(5));
+    }
+
+    /**
+     * 校验配置是否有效
+     *
+     * <p>实现方式是发一个最小请求看能不能通。这段逻辑原先在 7 个 Provider 里各抄了一份，
+     * 现在收敛到这里 —— 协议无关，OpenAI 兼容的、Anthropic 的、Azure 的都能直接用。
+     *
+     * @param config 待校验的配置
+     * @return 有效返回 true
+     */
+    @Override
+    public Mono<Boolean> validateConfig(AiProviderConfigValue config) {
+        return probe("Hello", Duration.ofSeconds(10));
+    }
+
+    /**
+     * 用一次最小请求探测 Provider 是否可用
+     *
+     * <p>底层是阻塞的 RestClient，必须隔离到 boundedElastic，否则会占住 Netty 事件循环线程。
+     *
+     * @param prompt  探测用的提示词
+     * @param timeout 超时时间
+     * @return 探测是否成功
+     */
+    protected Mono<Boolean> probe(String prompt, Duration timeout) {
         return Mono.fromCallable(() -> {
             try {
                 String response = chatClient.prompt()
-                        .user("ping")
+                        .user(prompt)
                         .call()
                         .content();
-                return response != null;
+                return response != null && !response.isEmpty();
             } catch (Exception e) {
-                log.warn("{}服务不可用", getProviderName(), e);
+                log.warn("{} 探测失败: {}", getProviderName(), e.getMessage());
                 return false;
             }
         })
-        .timeout(Duration.ofSeconds(5))
+        .subscribeOn(Schedulers.boundedElastic())
+        .timeout(timeout)
         .onErrorReturn(false);
     }
 

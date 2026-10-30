@@ -4,7 +4,7 @@ import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.constraints.StringLength;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 import java.util.Arrays;
 import java.util.List;
@@ -28,7 +28,7 @@ public class AiExceptionHandlerPropertyTest {
      * <p>验证：需求10.1, 10.5
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void errorHandlingGracefulness(@ForAll("aiException") Exception exception) {
         
         // 处理异常
@@ -61,7 +61,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证不同异常类型的处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void differentExceptionTypesHandling(@ForAll("exceptionType") String exceptionType) {
         
         Exception exception = createExceptionByType(exceptionType);
@@ -100,7 +100,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证异常处理不影响其他功能
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void exceptionIsolation(@ForAll("aiException") Exception exception) {
         
         // 模拟其他功能的状态
@@ -122,7 +122,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证重试机制的合理性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void retryMechanismReasonableness(
             @ForAll @IntRange(min = 0, max = 5) int retryCount,
             @ForAll @IntRange(min = 100, max = 5000) int retryDelayMs) {
@@ -147,7 +147,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证错误消息的本地化
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void errorMessageLocalization(
             @ForAll("aiException") Exception exception,
             @ForAll("locale") String locale) {
@@ -167,7 +167,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证错误响应的完整性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void errorResponseCompleteness(@ForAll("aiException") Exception exception) {
         
         ErrorResponse response = handleException(exception);
@@ -190,7 +190,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证敏感信息的隐藏
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void sensitiveInformationHiding(
             @ForAll @StringLength(min = 20, max = 50) String apiKey,
             @ForAll @StringLength(min = 10, max = 30) String internalPath) {
@@ -214,7 +214,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证并发异常处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void concurrentExceptionHandling(
             @ForAll @IntRange(min = 1, max = 20) int concurrentExceptions) {
         
@@ -239,7 +239,7 @@ public class AiExceptionHandlerPropertyTest {
      * 验证异常链的处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
+    @Label("Feature: ai-blog-writer, Property 8: 错误处理优雅性")
     void exceptionChainHandling(@ForAll @IntRange(min = 1, max = 5) int chainDepth) {
         
         // 创建异常链
@@ -275,25 +275,28 @@ public class AiExceptionHandlerPropertyTest {
         response.userFriendly = true;
         
         // 根据异常类型设置状态码和消息
-        String exceptionType = exception.getClass().getSimpleName();
-        
-        if (exception.getMessage() != null && exception.getMessage().contains("timeout")) {
+        // 关键字匹配必须大小写不敏感：真实异常消息是 "Rate limit exceeded" 这种
+        // 首字母大写的写法，用 contains("rate limit") 去匹配永远匹配不上，
+        // 会把限流错误错误地降级成 500。
+        String rawMessage = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase();
+
+        if (rawMessage.contains("timeout")) {
             response.statusCode = 504;
             response.message = locale.equals("zh") ? "请求超时，请稍后重试" : "Request timeout, please try again later";
             response.errorCode = "TIMEOUT";
-        } else if (exception.getMessage() != null && exception.getMessage().contains("rate limit")) {
+        } else if (rawMessage.contains("rate limit")) {
             response.statusCode = 429;
             response.message = locale.equals("zh") ? "请求过于频繁，请稍后重试" : "Too many requests, please try again later";
             response.errorCode = "RATE_LIMIT";
-        } else if (exception.getMessage() != null && exception.getMessage().contains("unavailable")) {
+        } else if (rawMessage.contains("unavailable")) {
             response.statusCode = 503;
             response.message = locale.equals("zh") ? "服务暂时不可用，请稍后重试" : "Service temporarily unavailable";
             response.errorCode = "UNAVAILABLE";
-        } else if (exception.getMessage() != null && exception.getMessage().contains("auth")) {
+        } else if (rawMessage.contains("auth")) {
             response.statusCode = 401;
             response.message = locale.equals("zh") ? "认证失败" : "Authentication failed";
             response.errorCode = "AUTH";
-        } else if (exception.getMessage() != null && exception.getMessage().contains("validation")) {
+        } else if (rawMessage.contains("validation")) {
             response.statusCode = 400;
             response.message = locale.equals("zh") ? "请求参数无效" : "Invalid request parameters";
             response.errorCode = "VALIDATION";

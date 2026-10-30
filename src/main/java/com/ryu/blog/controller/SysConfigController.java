@@ -1,5 +1,7 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.ryu.blog.constant.PermissionConstants;
 import com.ryu.blog.dto.SysConfigDTO;
 import com.ryu.blog.dto.SysConfigUpdateDTO;
 import com.ryu.blog.entity.SysConfig;
@@ -31,6 +33,8 @@ import java.util.Map;
 @RequestMapping("/sysConfig")
 @RequiredArgsConstructor
 @Tag(name = "系统配置管理", description = "系统配置信息的增删改查")
+// 配置里含 AI Provider 的 API Key —— 读权限也要卡住，不能只靠「登录」
+@SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
 public class SysConfigController {
 
     private final SysConfigService sysConfigService;
@@ -78,6 +82,7 @@ public class SysConfigController {
     /**
      * 添加配置
      */
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     @PostMapping("/save")
     @Operation(summary = "添加系统配置信息", description = "配置键格式：分组.子分组.配置名")
     public Mono<Result<SysConfig>> addConfig(@Valid @RequestBody SysConfigDTO configDTO) {
@@ -89,6 +94,7 @@ public class SysConfigController {
     /**
      * 修改系统配置信息
      */
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     @PutMapping("/edit")
     @Operation(summary = "修改系统配置信息")
     public Mono<Result<SysConfig>> updateConfig(@Valid @RequestBody SysConfigUpdateDTO configDTO) {
@@ -100,6 +106,7 @@ public class SysConfigController {
     /**
      * 删除配置
      */
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除系统配置信息", description = "删除配置并返回被删除的配置信息")
     public Mono<Result<SysConfig>> deleteConfig(
@@ -127,6 +134,7 @@ public class SysConfigController {
     /**
      * 批量更新配置
      */
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     @PutMapping("/batch/update")
     @Operation(summary = "批量更新配置", description = "根据配置键值对批量更新配置")
     public Mono<Result<Boolean>> batchUpdateConfigs(
@@ -176,6 +184,7 @@ public class SysConfigController {
     /**
      * 清除所有配置缓存
      */
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     @DeleteMapping("/cache/clear")
     @Operation(summary = "清除所有配置缓存", description = "清除系统配置相关的所有缓存")
     public Mono<Result<Boolean>> clearCache() {

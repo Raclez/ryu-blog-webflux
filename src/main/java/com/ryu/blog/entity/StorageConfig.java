@@ -32,7 +32,7 @@ import java.util.Map;
 @AllArgsConstructor
 @Table("t_storage_config")
 @Slf4j
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 public class StorageConfig extends BaseEntity {
 
     /**

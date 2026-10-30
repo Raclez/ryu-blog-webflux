@@ -6,7 +6,6 @@ import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.ResourceGroupUpdateDTO;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.ResourceGroupVO;
-import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -20,23 +19,11 @@ public interface ResourceGroupService {
     /**
      * 创建资源组
      *
-     * @param dto 创建DTO
-     * @return 创建结果
-     * @deprecated 请使用带ServerWebExchange参数的方法代替
-     */
-    @Deprecated
-    default Mono<Void> createResourceGroup(ResourceGroupCreateDTO dto) {
-        throw new UnsupportedOperationException("请使用带ServerWebExchange参数的方法");
-    }
-    
-    /**
-     * 创建资源组（响应式）
-     *
-     * @param dto 创建DTO
-     * @param exchange ServerWebExchange实例
+     * @param dto    创建DTO
+     * @param userId 创建者ID（由 Controller 从登录态解析后传入）
      * @return 创建结果
      */
-    Mono<Void> createResourceGroup(ResourceGroupCreateDTO dto, ServerWebExchange exchange);
+    Mono<Void> createResourceGroup(ResourceGroupCreateDTO dto, Long userId);
 
     /**
      * 更新资源组

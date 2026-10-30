@@ -1,5 +1,7 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.ryu.blog.constant.PermissionConstants;
 import com.ryu.blog.service.MonitorService;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.SystemInfoVO;
@@ -36,6 +38,8 @@ import java.util.List;
 @RequestMapping("/monitor")
 @RequiredArgsConstructor
 @Tag(name = "系统监控", description = "系统监控相关接口")
+// 线程栈、JVM 信息属于内部实现细节，不能只靠「登录」即可读
+@SaCheckPermission(PermissionConstants.MONITOR_SERVER_VIEW)
 public class MonitorController {
 
     private final MonitorService monitorService;

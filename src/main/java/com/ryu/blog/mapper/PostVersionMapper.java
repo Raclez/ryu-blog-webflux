@@ -15,7 +15,7 @@ import java.util.List;
  * 
  * @author ryu 475118582@qq.com
  */
-@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
+@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface PostVersionMapper {
     
     /**
@@ -52,11 +52,14 @@ public interface PostVersionMapper {
     /**
      * 将PostVersion实体转换为PostVersionDetailVO
      *
+     * <p>此重载没有差异数据来源，diffs 显式忽略（否则 MapStruct 会报未映射警告）。
+     *
      * @param postVersion 文章版本实体
      * @return PostVersionDetailVO
      */
     @Mapping(target = "latest", source = "isLatest")
     @Mapping(target = "editor", ignore = true)
+    @Mapping(target = "diffs", ignore = true)
     PostVersionDetailVO toPostVersionDetailVO(PostVersion postVersion);
     
     /**

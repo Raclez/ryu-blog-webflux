@@ -6,21 +6,42 @@ import com.ryu.blog.repository.AiUsageQuotaRepository;
 import com.ryu.blog.service.RateLimitService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 /**
  * 速率限制服务实现
- * 
- * <p>使用Redis实现分布式速率限制，支持小时/天/月三个维度的配额管理。
- * 
- * @author Ryu
+ *
+ * <p><b>配额判定改成 Redis Lua 脚本原子执行</b>。
+ *
+ * <p>原先的流程是「读 DB 配额 → 判断 → 再读一次 DB → 加一 → 写回 DB」，
+ * 有两个问题：
+ * <ol>
+ *   <li><b>TOCTOU</b>：判断和自增之间不是原子的，两个并发请求会同时通过判断、
+ *       基于同一个基数各自 +1，后写的覆盖先写的 → <b>计数丢失，配额可超发</b>；</li>
+ *   <li><b>每次 AI 调用都要读写 DB 一次</b>，而 AI 调用本身要花几秒，这点开销不大，
+ *       但配额判定没必要依赖 DB 的行锁。</li>
+ * </ol>
+ *
+ * <p>现在：Redis 里用三个带窗口 TTL 的计数器（时/日/月）记录用量，
+ * 由一段 Lua 脚本完成「读计数 → 比限额 → 不过就 +1 并设 TTL」的完整判定。
+ * Redis 执行脚本是原子的，所以并发下不会超发。
+ *
+ * <p><b>fail-closed</b>：脚本执行失败（Redis 不可用等）时整个调用链报错，
+ * AI 请求被拒绝 —— 而不是「判��不了就放行」。
+ *
+ * <p>DB 里的 {@code t_ai_usage_quota} 只负责保存<b>限额</b>；
+ * 用量以 Redis 计数器为准（读配额时会把 Redis 的计数合并回返回值，
+ * 所以管理端看到的数字仍然是准的）。
+ *
+ * @author ryu
  * @since 1.0.0
  */
 @Slf4j
@@ -30,7 +51,6 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     private final AiUsageQuotaRepository quotaRepository;
     private final ReactiveRedisTemplate<String, String> redisTemplate;
-    private final R2dbcEntityTemplate r2dbcEntityTemplate;
 
     // 默认配额
     private static final int DEFAULT_HOURLY_LIMIT = 10;
@@ -39,35 +59,63 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     // Redis键前缀
     private static final String REDIS_KEY_PREFIX = "ai:quota:";
+    /** 用量计数器前缀：ai:quota:used:{userId}:{hour|day|month} */
+    private static final String REDIS_USED_KEY_PREFIX = REDIS_KEY_PREFIX + "used:";
+    /** 限额缓存前缀：ai:quota:limits:{userId} */
+    private static final String REDIS_LIMITS_KEY_PREFIX = REDIS_KEY_PREFIX + "limits:";
+
+    /** 限额在 Redis 里的缓存时长（秒）。限额很少变，缓存一下省掉每次 AI 调用都读库 */
+    private static final long LIMITS_CACHE_TTL_SECONDS = 60;
+
+    /**
+     * 配额原子判定脚本
+     *
+     * <p>KEYS[1..3] = 时/日/月 三个计数器
+     * <p>ARGV[1..3] = 时/日/月 限额
+     * <p>ARGV[4..6] = 时/日/月 计数器的 TTL（秒）
+     * <p>返回 {是否放行, 时用量, 日用量, 月用量}
+     *
+     * <p>先判断再自增：超限时不加计数，避免把计数灌大。
+     */
+    private static final String QUOTA_SCRIPT = """
+            local h = tonumber(redis.call('GET', KEYS[1]) or '0')
+            local d = tonumber(redis.call('GET', KEYS[2]) or '0')
+            local m = tonumber(redis.call('GET', KEYS[3]) or '0')
+            local lh = tonumber(ARGV[1])
+            local ld = tonumber(ARGV[2])
+            local lm = tonumber(ARGV[3])
+            if (lh > 0 and h >= lh) or (ld > 0 and d >= ld) or (lm > 0 and m >= lm) then
+              return {0, h, d, m}
+            end
+            h = redis.call('INCR', KEYS[1])
+            if h == 1 then redis.call('EXPIRE', KEYS[1], ARGV[4]) end
+            d = redis.call('INCR', KEYS[2])
+            if d == 1 then redis.call('EXPIRE', KEYS[2], ARGV[5]) end
+            m = redis.call('INCR', KEYS[3])
+            if m == 1 then redis.call('EXPIRE', KEYS[3], ARGV[6]) end
+            return {1, h, d, m}
+            """;
+
+    @SuppressWarnings("unchecked")
+    private static final RedisScript<List<Long>> QUOTA_SCRIPT_INSTANCE =
+            (RedisScript<List<Long>>) (RedisScript<?>) RedisScript.of(QUOTA_SCRIPT, List.class);
 
     @Override
     public Mono<AiUsageQuota> checkLimit(Long userId) {
         log.debug("检查用户速率限制: userId={}", userId);
-        
-        return getQuota(userId)
-                .flatMap(this::checkAndResetExpiredQuota)
-                .flatMap(quota -> {
-                    // 检查小时限制
-                    if (quota.getHourlyUsed() >= quota.getHourlyLimit()) {
-                        return Mono.error(new RateLimitExceededException(
-                                "每小时", quota.getHourlyLimit(), quota.getHourlyUsed()));
-                    }
-                    
-                    // 检查每日限制
-                    if (quota.getDailyUsed() >= quota.getDailyLimit()) {
-                        return Mono.error(new RateLimitExceededException(
-                                "每日", quota.getDailyLimit(), quota.getDailyUsed()));
-                    }
-                    
-                    // 检查每月限制
-                    if (quota.getMonthlyUsed() >= quota.getMonthlyLimit()) {
-                        return Mono.error(new RateLimitExceededException(
-                                "每月", quota.getMonthlyLimit(), quota.getMonthlyUsed()));
-                    }
-                    
-                    log.debug("速率限制检查通过: userId={}", userId);
-                    return Mono.just(quota);
-                })
+
+        return getLimits(userId)
+                .flatMap(limits -> readCounters(userId)
+                        .map(used -> {
+                            QuotaResult result = new QuotaResult(true,
+                                    limits.hourlyLimit(), limits.dailyLimit(), limits.monthlyLimit(),
+                                    used.hour(), used.day(), used.month());
+                            RateLimitExceededException exceeded = findExceeded(result);
+                            if (exceeded != null) {
+                                throw exceeded;
+                            }
+                            return buildQuota(userId, limits, result);
+                        }))
                 .doOnError(error -> {
                     if (error instanceof RateLimitExceededException) {
                         log.warn("用户超过速率限制: userId={}, error={}", userId, error.getMessage());
@@ -78,185 +126,106 @@ public class RateLimitServiceImpl implements RateLimitService {
     @Override
     public Mono<AiUsageQuota> incrementUsage(Long userId) {
         log.debug("增加用户使用次数: userId={}", userId);
-        
-        return getQuota(userId)
-                .flatMap(quota -> {
-                    // 增加使用次数
-                    quota.setHourlyUsed(quota.getHourlyUsed() + 1);
-                    quota.setDailyUsed(quota.getDailyUsed() + 1);
-                    quota.setMonthlyUsed(quota.getMonthlyUsed() + 1);
-                    quota.setUpdateTime(LocalDateTime.now());
-                    
-                    return quotaRepository.save(quota);
-                })
-                .flatMap(quota -> {
-                    // 同步到Redis缓存
-                    return syncToRedis(quota).thenReturn(quota);
-                })
-                .doOnSuccess(quota -> log.debug("使用次数增加成功: userId={}, hourly={}/{}, daily={}/{}, monthly={}/{}",
-                        userId, quota.getHourlyUsed(), quota.getHourlyLimit(),
-                        quota.getDailyUsed(), quota.getDailyLimit(),
-                        quota.getMonthlyUsed(), quota.getMonthlyLimit()))
-                .doOnError(error -> log.error("增加使用次数失败: userId={}", userId, error));
+
+        // 自增计数（不抛超限异常；脚本本身在已超限时不会再加计数）
+        return getLimits(userId)
+                .flatMap(limits -> executeQuotaScript(userId, limits, false));
     }
 
     @Override
     public Mono<AiUsageQuota> checkAndIncrement(Long userId) {
-        log.debug("检查并增加使用次数: userId={}", userId);
-        
-        return checkLimit(userId)
-                .flatMap(quota -> incrementUsage(userId));
+        log.debug("检查并增加用户使用次数: userId={}", userId);
+
+        return getLimits(userId)
+                .flatMap(limits -> executeQuotaScript(userId, limits, true))
+                .doOnError(error -> {
+                    if (error instanceof RateLimitExceededException) {
+                        log.warn("用户超过速率限制: userId={}, error={}", userId, error.getMessage());
+                    }
+                });
     }
 
     @Override
     public Mono<AiUsageQuota> getQuota(Long userId) {
         log.debug("获取用户配额: userId={}", userId);
-        
-        return quotaRepository.findByUserId(userId)
-                .switchIfEmpty(createDefaultQuota(userId))
-                .flatMap(this::checkAndResetExpiredQuota);
+
+        // 返回值里的「已用量」以 Redis 计数器为准（DB 里的 used 字段不再实时维护）
+        return getLimits(userId)
+                .flatMap(limits -> readCounters(userId)
+                        .map(used -> buildQuota(userId, limits,
+                                new QuotaResult(true, limits.hourlyLimit(), limits.dailyLimit(), limits.monthlyLimit(),
+                                        used.hour(), used.day(), used.month()))));
     }
 
     @Override
     public Mono<AiUsageQuota> setQuota(Long userId, Integer hourlyLimit, Integer dailyLimit, Integer monthlyLimit) {
         log.debug("设置用户配额: userId={}, hourly={}, daily={}, monthly={}",
                 userId, hourlyLimit, dailyLimit, monthlyLimit);
-        
+
         return quotaRepository.findByUserId(userId)
-                .switchIfEmpty(createDefaultQuota(userId))
+                .switchIfEmpty(Mono.defer(() -> createDefaultQuota(userId)))
                 .flatMap(quota -> {
-                    quota.setHourlyLimit(hourlyLimit);
-                    quota.setDailyLimit(dailyLimit);
-                    quota.setMonthlyLimit(monthlyLimit);
+                    if (hourlyLimit != null) {
+                        quota.setHourlyLimit(hourlyLimit);
+                    }
+                    if (dailyLimit != null) {
+                        quota.setDailyLimit(dailyLimit);
+                    }
+                    if (monthlyLimit != null) {
+                        quota.setMonthlyLimit(monthlyLimit);
+                    }
                     quota.setUpdateTime(LocalDateTime.now());
-                    
                     return quotaRepository.save(quota);
                 })
-                .flatMap(quota -> syncToRedis(quota).thenReturn(quota))
-                .doOnSuccess(quota -> log.info("配额设置成功: userId={}", userId))
-                .doOnError(error -> log.error("配额设置失败: userId={}", userId, error));
+                .flatMap(saved -> {
+                    // 限额变了，缓存要失效
+                    evictLimitsCache(userId);
+                    return getQuota(userId);
+                })
+                .doOnSuccess(quota -> log.info("用户配额设置成功: userId={}, hourly={}/{}, daily={}/{}, monthly={}/{}",
+                        userId, quota.getHourlyUsed(), quota.getHourlyLimit(),
+                        quota.getDailyUsed(), quota.getDailyLimit(),
+                        quota.getMonthlyUsed(), quota.getMonthlyLimit()));
     }
 
     @Override
     public Mono<AiUsageQuota> resetQuota(Long userId) {
-        log.debug("重置用户配额: userId={}", userId);
-        
-        return quotaRepository.findByUserId(userId)
-                .flatMap(quota -> {
-                    LocalDateTime now = LocalDateTime.now();
-                    quota.setHourlyUsed(0);
-                    quota.setDailyUsed(0);
-                    quota.setMonthlyUsed(0);
-                    quota.setLastResetHour(now);
-                    quota.setLastResetDay(now);
-                    quota.setLastResetMonth(now);
-                    quota.setUpdateTime(now);
-                    
-                    return quotaRepository.save(quota);
-                })
-                .flatMap(quota -> syncToRedis(quota).thenReturn(quota))
-                .doOnSuccess(quota -> log.info("配额重置成功: userId={}", userId))
-                .doOnError(error -> log.error("配额重置失败: userId={}", userId, error));
+        log.info("重置用户配额: userId={}", userId);
+
+        return resetCounters(userId)
+                .then(quotaRepository.findByUserId(userId)
+                        .flatMap(quota -> {
+                            quota.setHourlyUsed(0);
+                            quota.setDailyUsed(0);
+                            quota.setMonthlyUsed(0);
+                            quota.setLastResetHour(LocalDateTime.now());
+                            quota.setLastResetDay(LocalDateTime.now());
+                            quota.setLastResetMonth(LocalDateTime.now());
+                            quota.setUpdateTime(LocalDateTime.now());
+                            return quotaRepository.save(quota);
+                        }))
+                .then(getQuota(userId));
     }
 
     @Override
     public Mono<Boolean> checkAndResetExpired(AiUsageQuota quota) {
-        LocalDateTime now = LocalDateTime.now();
-        boolean needsUpdate = false;
-        
-        // 检查小时配额是否需要重置
-        if (quota.getLastResetHour() == null || 
-            ChronoUnit.HOURS.between(quota.getLastResetHour(), now) >= 1) {
-            quota.setHourlyUsed(0);
-            quota.setLastResetHour(now);
-            needsUpdate = true;
-            log.debug("重置小时配额: userId={}", quota.getUserId());
+        if (quota == null) {
+            return Mono.just(false);
         }
-        
-        // 检查每日配额是否需要重置
-        if (quota.getLastResetDay() == null || 
-            !quota.getLastResetDay().toLocalDate().equals(now.toLocalDate())) {
-            quota.setDailyUsed(0);
-            quota.setLastResetDay(now);
-            needsUpdate = true;
-            log.debug("重置每日配额: userId={}", quota.getUserId());
-        }
-        
-        // 检查每月配额是否需要重置
-        if (quota.getLastResetMonth() == null || 
-            quota.getLastResetMonth().getMonth() != now.getMonth() ||
-            quota.getLastResetMonth().getYear() != now.getYear()) {
-            quota.setMonthlyUsed(0);
-            quota.setLastResetMonth(now);
-            needsUpdate = true;
-            log.debug("重置每月配额: userId={}", quota.getUserId());
-        }
-        
-        if (needsUpdate) {
-            quota.setUpdateTime(now);
-            return quotaRepository.save(quota)
-                    .flatMap(updated -> syncToRedis(updated).thenReturn(true));
-        }
-        
-        return Mono.just(false);
-    }
-
-    /**
-     * 检查并重置过期的配额（返回配额对象）
-     */
-    private Mono<AiUsageQuota> checkAndResetExpiredQuota(AiUsageQuota quota) {
-        LocalDateTime now = LocalDateTime.now();
-        boolean needsUpdate = false;
-        
-        // 检查小时配额是否需要重置
-        if (quota.getLastResetHour() == null || 
-            ChronoUnit.HOURS.between(quota.getLastResetHour(), now) >= 1) {
-            quota.setHourlyUsed(0);
-            quota.setLastResetHour(now);
-            needsUpdate = true;
-            log.debug("重置小时配额: userId={}", quota.getUserId());
-        }
-        
-        // 检查每日配额是否需要重置
-        if (quota.getLastResetDay() == null || 
-            !quota.getLastResetDay().toLocalDate().equals(now.toLocalDate())) {
-            quota.setDailyUsed(0);
-            quota.setLastResetDay(now);
-            needsUpdate = true;
-            log.debug("重置每日配额: userId={}", quota.getUserId());
-        }
-        
-        // 检查每月配额是否需要重置
-        if (quota.getLastResetMonth() == null || 
-            quota.getLastResetMonth().getMonth() != now.getMonth() ||
-            quota.getLastResetMonth().getYear() != now.getYear()) {
-            quota.setMonthlyUsed(0);
-            quota.setLastResetMonth(now);
-            needsUpdate = true;
-            log.debug("重置每月配额: userId={}", quota.getUserId());
-        }
-        
-        if (needsUpdate) {
-            quota.setUpdateTime(now);
-            return quotaRepository.save(quota)
-                    .flatMap(updated -> syncToRedis(updated).thenReturn(updated));
-        }
-        
-        return Mono.just(quota);
+        // 窗口重置交给 Redis 计数器的 TTL 负责，这里只需清掉过期的计数
+        return resetCounters(quota.getUserId()).thenReturn(true);
     }
 
     @Override
     public Mono<QuotaRemaining> getRemainingQuota(Long userId) {
         log.debug("获取剩余配额: userId={}", userId);
-        
-        return getQuota(userId)
-                .map(quota -> {
-                    int hourlyRemaining = Math.max(0, quota.getHourlyLimit() - quota.getHourlyUsed());
-                    int dailyRemaining = Math.max(0, quota.getDailyLimit() - quota.getDailyUsed());
-                    int monthlyRemaining = Math.max(0, quota.getMonthlyLimit() - quota.getMonthlyUsed());
-                    
-                    return new QuotaRemaining(hourlyRemaining, dailyRemaining, monthlyRemaining);
-                });
+
+        return getLimits(userId)
+                .flatMap(limits -> readCounters(userId)
+                        .map(used -> new QuotaRemaining(
+                                Math.max(0, limits.hourlyLimit() - used.hour()),
+                                Math.max(0, limits.dailyLimit() - used.day()),
+                                Math.max(0, limits.monthlyLimit() - used.month()))));
     }
 
     /**
@@ -264,21 +233,194 @@ public class RateLimitServiceImpl implements RateLimitService {
      */
     public Mono<Long> getRemainingQuota(Long userId, String period) {
         log.debug("获取剩余配额: userId={}, period={}", userId, period);
-        
-        return getQuota(userId)
-                .map(quota -> {
-                    switch (period.toLowerCase()) {
-                        case "hour":
-                            return (long) Math.max(0, quota.getHourlyLimit() - quota.getHourlyUsed());
-                        case "day":
-                            return (long) Math.max(0, quota.getDailyLimit() - quota.getDailyUsed());
-                        case "month":
-                            return (long) Math.max(0, quota.getMonthlyLimit() - quota.getMonthlyUsed());
-                        default:
-                            log.warn("未知的时间段类型: {}", period);
-                            return 0L;
+
+        return getLimits(userId)
+                .flatMap(limits -> readCounters(userId)
+                        .map(used -> {
+                            if (period == null) {
+                                return 0L;
+                            }
+                            return switch (period.toLowerCase()) {
+                                case "hour" -> (long) Math.max(0, limits.hourlyLimit() - used.hour());
+                                case "day" -> (long) Math.max(0, limits.dailyLimit() - used.day());
+                                case "month" -> (long) Math.max(0, limits.monthlyLimit() - used.month());
+                                default -> {
+                                    log.warn("未知的时间段类型: {}", period);
+                                    yield 0L;
+                                }
+                            };
+                        }));
+    }
+
+    // ==================================================================
+    // 内部实现
+    // ==================================================================
+
+    /**
+     * 执行配额判定脚本
+     *
+     * @param userId 用户ID
+     * @param limits 限额
+     * @param enforceLimit true = 判断限额（超了就报错）；false = 只自增
+     * @return 配额
+     */
+    private Mono<AiUsageQuota> executeQuotaScript(Long userId, QuotaLimits limits, boolean enforceLimit) {
+        List<String> keys = List.of(
+                REDIS_USED_KEY_PREFIX + userId + ":hour",
+                REDIS_USED_KEY_PREFIX + userId + ":day",
+                REDIS_USED_KEY_PREFIX + userId + ":month");
+
+        // 脚本参数必须传 String：模板的 value 序列化器是 StringRedisSerializer，
+        // 传 Integer 会在运行期抛 ClassCastException
+        List<String> args = List.of(
+                String.valueOf(limits.hourlyLimit()),
+                String.valueOf(limits.dailyLimit()),
+                String.valueOf(limits.monthlyLimit()),
+                String.valueOf(secondsUntilNextHour()),
+                String.valueOf(secondsUntilNextDay()),
+                String.valueOf(secondsUntilNextMonth()));
+
+        return redisTemplate.execute(QUOTA_SCRIPT_INSTANCE, keys, args)
+                // execute 返回的是 Flux（脚本理论上可返回多行），这里脚本只返回一行
+                .next()
+                .map(raw -> toQuotaResult(raw, limits))
+                .defaultIfEmpty(new QuotaResult(false,
+                        limits.hourlyLimit(), limits.dailyLimit(), limits.monthlyLimit(), 0, 0, 0))
+                .flatMap(result -> {
+                    if (enforceLimit && !result.allowed()) {
+                        RateLimitExceededException exceeded = findExceeded(result);
+                        return Mono.error(exceeded != null
+                                ? exceeded
+                                : new RateLimitExceededException("每小时",
+                                        result.hourlyLimit(), result.hourlyUsed()));
                     }
+                    return Mono.just(buildQuota(userId, limits, result));
                 });
+    }
+
+    /**
+     * 把脚本返回值转成判定结果
+     *
+     * @param raw    脚本返回值 {allowed, hour, day, month}
+     * @param limits 限额（脚本不返回限额，从外面补进来）
+     * @return 判定结果
+     */
+    private QuotaResult toQuotaResult(List<?> raw, QuotaLimits limits) {
+        if (raw == null || raw.size() < 4) {
+            log.warn("配额脚本返回值异常: {}", raw);
+            return new QuotaResult(false,
+                    limits.hourlyLimit(), limits.dailyLimit(), limits.monthlyLimit(), 0, 0, 0);
+        }
+        return new QuotaResult(
+                toInt(raw.get(0)) == 1,
+                limits.hourlyLimit(), limits.dailyLimit(), limits.monthlyLimit(),
+                toInt(raw.get(1)), toInt(raw.get(2)), toInt(raw.get(3)));
+    }
+
+    /**
+     * 找出超限的那一档
+     *
+     * @param result 判定结果
+     * @return 超限异常；没超限返回 null
+     */
+    private RateLimitExceededException findExceeded(QuotaResult result) {
+        if (result.hourlyLimit() > 0 && result.hourlyUsed() >= result.hourlyLimit()) {
+            return new RateLimitExceededException("每小时", result.hourlyLimit(), result.hourlyUsed());
+        }
+        if (result.dailyLimit() > 0 && result.dailyUsed() >= result.dailyLimit()) {
+            return new RateLimitExceededException("每日", result.dailyLimit(), result.dailyUsed());
+        }
+        if (result.monthlyLimit() > 0 && result.monthlyUsed() >= result.monthlyLimit()) {
+            return new RateLimitExceededException("每月", result.monthlyLimit(), result.monthlyUsed());
+        }
+        return null;
+    }
+
+    private int toInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * 构造超限异常（指出是哪一档超了）
+     */
+    /**
+     * 读取当前用量（不修改）
+     */
+    private Mono<Counters> readCounters(Long userId) {
+        return redisTemplate.opsForValue()
+                .multiGet(List.of(
+                        REDIS_USED_KEY_PREFIX + userId + ":hour",
+                        REDIS_USED_KEY_PREFIX + userId + ":day",
+                        REDIS_USED_KEY_PREFIX + userId + ":month"))
+                .map(values -> new Counters(
+                        values != null && values.size() > 0 ? toInt(values.get(0)) : 0,
+                        values != null && values.size() > 1 ? toInt(values.get(1)) : 0,
+                        values != null && values.size() > 2 ? toInt(values.get(2)) : 0))
+                .defaultIfEmpty(new Counters(0, 0, 0));
+    }
+
+    /**
+     * 清空用量计数器
+     */
+    private Mono<Void> resetCounters(Long userId) {
+        // ReactiveRedisTemplate 只有 delete(String...) 与 delete(Publisher<String>)，
+        // 没有 delete(List<String>) 重载
+        String[] keys = {
+                REDIS_USED_KEY_PREFIX + userId + ":hour",
+                REDIS_USED_KEY_PREFIX + userId + ":day",
+                REDIS_USED_KEY_PREFIX + userId + ":month"
+        };
+        return redisTemplate.delete(keys)
+                .doOnSuccess(ignored -> log.debug("配额计数器已重置: userId={}", userId))
+                .then();
+    }
+
+    /**
+     * 取限额：先看 Redis 缓存，没有再读库（读库后回填缓存）
+     */
+    private Mono<QuotaLimits> getLimits(Long userId) {
+        String cacheKey = REDIS_LIMITS_KEY_PREFIX + userId;
+
+        return redisTemplate.opsForValue().get(cacheKey)
+                .flatMap(cached -> parseLimits(cached))
+                .switchIfEmpty(Mono.defer(() ->
+                        loadLimitsFromDb(userId)
+                                .flatMap(limits -> redisTemplate.opsForValue()
+                                        .set(cacheKey, serializeLimits(limits),
+                                                Duration.ofSeconds(LIMITS_CACHE_TTL_SECONDS))
+                                        .thenReturn(limits)
+                                        .onErrorResume(e -> Mono.just(limits)))))
+                // Redis 读失败就退回 DB（脚本那步失败会 fail-closed）
+                .onErrorResume(e -> loadLimitsFromDb(userId));
+    }
+
+    /**
+     * 从 DB 读限额（没有记录就建一条默认的）
+     */
+    private Mono<QuotaLimits> loadLimitsFromDb(Long userId) {
+        return quotaRepository.findByUserId(userId)
+                .switchIfEmpty(Mono.defer(() -> createDefaultQuota(userId)))
+                .map(quota -> new QuotaLimits(
+                        quota.getHourlyLimit() != null ? quota.getHourlyLimit() : DEFAULT_HOURLY_LIMIT,
+                        quota.getDailyLimit() != null ? quota.getDailyLimit() : DEFAULT_DAILY_LIMIT,
+                        quota.getMonthlyLimit() != null ? quota.getMonthlyLimit() : DEFAULT_MONTHLY_LIMIT));
+    }
+
+    /**
+     * 失效限额缓存
+     */
+    private Mono<Void> evictLimitsCache(Long userId) {
+        return redisTemplate.delete(REDIS_LIMITS_KEY_PREFIX + userId).then();
     }
 
     /**
@@ -286,7 +428,7 @@ public class RateLimitServiceImpl implements RateLimitService {
      */
     private Mono<AiUsageQuota> createDefaultQuota(Long userId) {
         log.debug("创建默认配额: userId={}", userId);
-        
+
         LocalDateTime now = LocalDateTime.now();
         AiUsageQuota quota = AiUsageQuota.builder()
                 .userId(userId)
@@ -304,30 +446,88 @@ public class RateLimitServiceImpl implements RateLimitService {
                 .updateTime(now)
                 .isDeleted(false)  // 明确设置删除标记
                 .build();
-        
+
         return quotaRepository.save(quota)
-                .flatMap(saved -> syncToRedis(saved).thenReturn(saved))
                 .doOnSuccess(saved -> log.info("默认配额创建成功: userId={}", userId));
     }
 
     /**
-     * 同步配额到Redis缓存
+     * 组装返回给调用方的配额对象
      */
-    private Mono<Boolean> syncToRedis(AiUsageQuota quota) {
-        String key = REDIS_KEY_PREFIX + quota.getUserId();
-        
-        // 计算到下一个小时的过期时间
+    private AiUsageQuota buildQuota(Long userId, QuotaLimits limits, QuotaResult result) {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime nextHour = now.plusHours(1).truncatedTo(ChronoUnit.HOURS);
-        Duration ttl = Duration.between(now, nextHour);
-        
-        return redisTemplate.opsForValue()
-                .set(key, String.valueOf(quota.getHourlyUsed()), ttl)
-                .doOnSuccess(result -> log.debug("配额同步到Redis: userId={}, ttl={}s", 
-                        quota.getUserId(), ttl.getSeconds()))
-                .onErrorResume(error -> {
-                    log.warn("配额同步到Redis失败: userId={}", quota.getUserId(), error);
-                    return Mono.just(false);
-                });
+        return AiUsageQuota.builder()
+                .userId(userId)
+                .hourlyLimit(limits.hourlyLimit())
+                .dailyLimit(limits.dailyLimit())
+                .monthlyLimit(limits.monthlyLimit())
+                .hourlyUsed(result.hourlyUsed())
+                .dailyUsed(result.dailyUsed())
+                .monthlyUsed(result.monthlyUsed())
+                .lastResetHour(now)
+                .lastResetDay(now)
+                .lastResetMonth(now)
+                .createTime(now)
+                .updateTime(now)
+                .isDeleted(false)
+                .build();
+    }
+
+    private String serializeLimits(QuotaLimits limits) {
+        return limits.hourlyLimit() + ":" + limits.dailyLimit() + ":" + limits.monthlyLimit();
+    }
+
+    private Mono<QuotaLimits> parseLimits(String cached) {
+        try {
+            String[] parts = cached.split(":");
+            if (parts.length != 3) {
+                return Mono.empty();
+            }
+            return Mono.just(new QuotaLimits(
+                    Integer.parseInt(parts[0].trim()),
+                    Integer.parseInt(parts[1].trim()),
+                    Integer.parseInt(parts[2].trim())));
+        } catch (RuntimeException e) {
+            log.warn("限额缓存解析失败，按未命中处理: {}", cached);
+            return Mono.empty();
+        }
+    }
+
+    private long secondsUntilNextHour() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime next = now.plusHours(1).truncatedTo(ChronoUnit.HOURS);
+        return Math.max(1, Duration.between(now, next).getSeconds());
+    }
+
+    private long secondsUntilNextDay() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime next = now.plusDays(1).truncatedTo(ChronoUnit.DAYS);
+        return Math.max(1, Duration.between(now, next).getSeconds());
+    }
+
+    private long secondsUntilNextMonth() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime next = now.plusMonths(1).withDayOfMonth(1).toLocalDate().atStartOfDay();
+        return Math.max(1, Duration.between(now, next).getSeconds());
+    }
+
+    /**
+     * 限额
+     */
+    private record QuotaLimits(int hourlyLimit, int dailyLimit, int monthlyLimit) {
+    }
+
+    /**
+     * 用量
+     */
+    private record Counters(int hour, int day, int month) {
+    }
+
+    /**
+     * 配额判定结果
+     */
+    private record QuotaResult(boolean allowed,
+                               int hourlyLimit, int dailyLimit, int monthlyLimit,
+                               int hourlyUsed, int dailyUsed, int monthlyUsed) {
     }
 }

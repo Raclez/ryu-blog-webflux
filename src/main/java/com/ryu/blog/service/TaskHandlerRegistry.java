@@ -1,6 +1,7 @@
 package com.ryu.blog.service;
 
 import com.ryu.blog.enums.TaskType;
+import com.ryu.blog.utils.JsonUtils;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -92,5 +93,42 @@ public class TaskHandlerRegistry {
      */
     public java.util.Set<TaskType> getRegisteredTaskTypes() {
         return handlers.keySet();
+    }
+
+    /**
+     * 按任务类型把 JSON 请求还原成 handler 声明的类型
+     *
+     * <p>原先这一步在执行器里硬编码（只有 AI_GENERATION 一个分支），
+     * 其余类型一律退化成 {@code Map}：handler 收到的不是自己声明的类型，
+     * 泛型擦除后在运行期才炸。这里改成由 handler 自己声明类型（{@code getRequestType()}），
+     * 注册器负责还原；未声明类型的 handler 保持旧行为（退化为 Map）。
+     *
+     * @param taskType 任务类型
+     * @param requestJson 请求 JSON
+     * @return 反序列化后的请求对象
+     * @throws IllegalArgumentException 如果找不到对应的处理器
+     */
+    public Object deserialize(TaskType taskType, String requestJson) {
+        TaskHandler<?, ?> handler = handlers.get(taskType);
+
+        if (handler == null) {
+            log.error("No handler found for task type: {}", taskType);
+            throw new IllegalArgumentException("No handler found for task type: " + taskType);
+        }
+
+        Class<?> requestType = handler.getRequestType();
+        if (requestType == null) {
+            // 未声明类型：保持旧行为，退化成 Map
+            return JsonUtils.toMap(requestJson);
+        }
+
+        Object request = JsonUtils.deserialize(requestJson, requestType);
+        if (request == null) {
+            // 反序列化失败不能返回 null —— handler 会拿到 null 然后在业务代码里 NPE，
+            // 错误现场还停留在 handler 内部，看不出是「请求体坏了」。
+            throw new IllegalArgumentException(
+                    "Failed to deserialize request of task type " + taskType + " as " + requestType.getSimpleName());
+        }
+        return request;
     }
 }

@@ -1,6 +1,5 @@
 package com.ryu.blog.service.impl;
 
-import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.dto.ResourceGroupCreateDTO;
 import com.ryu.blog.dto.ResourceGroupFileDTO;
@@ -8,13 +7,13 @@ import com.ryu.blog.dto.ResourceGroupQueryDTO;
 import com.ryu.blog.dto.ResourceGroupUpdateDTO;
 import com.ryu.blog.entity.ResourceGroup;
 import com.ryu.blog.entity.ResourceGroupFileRel;
+import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.mapper.ResourceGroupMapper;
 import com.ryu.blog.repository.ResourceGroupFileRelRepository;
 import com.ryu.blog.repository.ResourceGroupRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.service.ResourceGroupService;
 import com.ryu.blog.utils.JsonUtils;
-import com.ryu.blog.utils.SaTokenUtils;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.ResourceGroupVO;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +22,6 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -54,12 +52,11 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
 
     @Override
     @Transactional
-    public Mono<Void> createResourceGroup(ResourceGroupCreateDTO dto, ServerWebExchange exchange) {
+    public Mono<Void> createResourceGroup(ResourceGroupCreateDTO dto, Long userId) {
         return checkGroupNameExists(dto.getGroupName(), null)
                 .filter(exists -> !Boolean.TRUE.equals(exists))
-                .switchIfEmpty(Mono.error(new RuntimeException("资源组名称已存在")))
-                .flatMap(exists -> SaTokenUtils.exec(exchange, StpUtil::getLoginIdAsLong))
-                .flatMap(userId -> {
+                .switchIfEmpty(Mono.error(new BusinessException("资源组名称已存在")))
+                .flatMap(exists -> {
                     ResourceGroup group = resourceGroupMapper.toEntity(dto);
                     group.setCreatorId(userId);
                     group.setCreateTime(LocalDateTime.now());
@@ -165,8 +162,14 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
         return resourceGroupRepository.findByIdAndIsDeleted(dto.getGroupId(), 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("资源组不存在或已删除")))
                 .flatMap(group ->
+                            // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）：
+                            // 本方法带 @Transactional，整条链绑定在同一条 R2DBC 连接上。
+                            // r2dbc-mysql 1.4.0 每条连接只有一个 SPSC 的 RequestQueue，
+                            // 且 submit() 不加内部锁 —— 并发提交会读到尚未推进的 producerIndex
+                            // 而误判队满，抛 `IllegalStateException: Request queue is full`，
+                            // 结果是文件关联被静默少写。
                             Flux.fromIterable(dto.getFileIds())
-                                .flatMap(fileId ->
+                                .concatMap(fileId ->
                                     resourceGroupFileRelRepository.findByGroupIdAndFileId(dto.getGroupId(), fileId)
                                         .hasElement()
                                         .flatMap(exists -> {
@@ -177,6 +180,7 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
                                                     .groupId(dto.getGroupId())
                                                     .fileId(fileId)
                                                     .createTime(LocalDateTime.now())
+                                                    .updateTime(LocalDateTime.now())
                                                     .build();
                                             return resourceGroupFileRelRepository.save(rel);
                                         })
@@ -195,8 +199,12 @@ public class ResourceGroupServiceImpl implements ResourceGroupService {
         return resourceGroupRepository.findByIdAndIsDeleted(dto.getGroupId(), 0)
                 .switchIfEmpty(Mono.error(new RuntimeException("资源组不存在或已删除")))
                 .flatMap(group ->
+                    // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）：
+                    // 本方法带 @Transactional，整条链绑定在同一条 R2DBC 连接上，
+                    // 并发提交会撞上 r2dbc-mysql 1.4.0 的 SPSC RequestQueue 队满误判，
+                    // 抛 `IllegalStateException: Request queue is full`。
                     Flux.fromIterable(dto.getFileIds())
-                        .flatMap(fileId ->
+                        .concatMap(fileId ->
                             resourceGroupFileRelRepository.deleteByGroupIdAndFileId(dto.getGroupId(), fileId)
                         )
                         .then()

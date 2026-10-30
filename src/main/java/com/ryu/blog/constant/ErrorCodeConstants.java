@@ -5,8 +5,11 @@ package com.ryu.blog.constant;
  * 
  * @author ryu
  */
-public class ErrorCodeConstants {
-    
+public final class ErrorCodeConstants {
+
+    private ErrorCodeConstants() {
+    }
+
     /** 成功 */
     public static final int SUCCESS = 200;
     
@@ -30,6 +33,11 @@ public class ErrorCodeConstants {
     public static final int USER_OLD_PASSWORD_ERROR = 10008; // 原密码错误
     public static final int USER_ROLE_NOT_EXISTS = 10009;  // 角色不存在
     public static final int USER_LOGIN_FAILED = 10010;     // 登录失败
+    public static final int USER_ROLE_CODE_EXISTS = 10011; // 角色编码已存在
+    public static final int USER_ROLE_NAME_EXISTS = 10012; // 角色名称已存在
+    public static final int USER_PERMISSION_NOT_EXISTS = 10013; // 权限不存在
+    public static final int MENU_NOT_FOUND = 10014;           // 菜单不存在
+    public static final int MENU_PARENT_NOT_EXISTS = 10015;   // 父菜单不存在
     
     /** 文章模块错误码：11001-11999 */
     public static final int POST_NOT_FOUND = 11001;        // 文章不存在

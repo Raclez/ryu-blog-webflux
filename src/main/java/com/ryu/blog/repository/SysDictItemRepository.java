@@ -2,6 +2,7 @@ package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.SysDictItem;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.data.domain.Page;
@@ -105,9 +106,13 @@ public interface SysDictItemRepository extends R2dbcRepository<SysDictItem, Long
     /**
      * 删除字典类型下的所有字典项
      *
+     * <p>{@code @Modifying} 不能少：没有它，Spring Data R2DBC 会按「查询」处理这条语句，
+     * 试图把修改语句的结果当行集来映射 —— 影响行数丢失，方法返回空 Mono。
+     *
      * @param dictTypeId 字典类型ID
      * @return 影响行数
      */
+    @Modifying
     @Query("UPDATE t_sys_dict_items SET is_deleted = 1, update_time = NOW() WHERE dict_type_id = :dictTypeId AND is_deleted = 0")
     Mono<Integer> deleteByDictTypeId(Long dictTypeId);
     
@@ -185,10 +190,13 @@ public interface SysDictItemRepository extends R2dbcRepository<SysDictItem, Long
     /**
      * 更新字典项状态
      *
+     * <p>{@code @Modifying} 不能少：没有它，影响行数会丢失，方法返回空 Mono。
+     *
      * @param id 字典项ID
      * @param status 状态 (1-启用，0-禁用)
      * @return 更新行数
      */
+    @Modifying
     @Query("UPDATE t_sys_dict_items SET status = :status, update_time = NOW() WHERE id = :id AND is_deleted = 0")
     Mono<Integer> updateStatusById(Long id, Integer status);
     

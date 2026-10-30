@@ -23,7 +23,7 @@ import org.springframework.data.relational.core.mapping.Table;
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 @Table("t_ai_generation_history")
 public class AiGenerationHistory extends BaseEntity {
 

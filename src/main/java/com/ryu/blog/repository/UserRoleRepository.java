@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -37,6 +38,16 @@ public interface UserRoleRepository extends R2dbcRepository<UserRole, Long> {
      */
     @Query("SELECT user_id FROM t_user_roles WHERE role_id = :roleId")
     Flux<Long> findUserIdsByRoleId(Long roleId);
+
+    /**
+     * 批量查询多个用户的角色关联（用于用户列表一次性补齐 roles / roleIds，避免 N+1）
+     *
+     * @param userIds 用户ID集合（调用方必须保证非空）
+     * @return 用户角色关联列表
+     */
+    // 注意：t_user_roles 没有 is_deleted 列（该表是物理删除），不要加该条件
+    @Query("SELECT * FROM t_user_roles WHERE user_id IN (:userIds)")
+    Flux<UserRole> findByUserIdIn(Collection<Long> userIds);
     
     /**
      * 根据用户ID和角色ID删除关联
@@ -71,11 +82,18 @@ public interface UserRoleRepository extends R2dbcRepository<UserRole, Long> {
     
     /**
      * 检查用户是否拥有指定角色
-     * 
+     *
+     * <p>MySQL 的 {@code COUNT(*) > 0} 返回整数，Spring Data 的 @Query 路径无法把它
+     * 转成 Boolean，所以改成查计数、在 Java 侧转 boolean。
+     *
      * @param userId 用户ID
      * @param roleId 角色ID
      * @return 是否拥有角色
      */
-    @Query("SELECT COUNT(*) > 0 FROM t_user_roles WHERE user_id = :userId AND role_id = :roleId")
-    Mono<Boolean> existsByUserIdAndRoleId(Long userId, Long roleId);
+    @Query("SELECT COUNT(*) FROM t_user_roles WHERE user_id = :userId AND role_id = :roleId")
+    Mono<Long> countByUserIdAndRoleId(Long userId, Long roleId);
+
+    default Mono<Boolean> existsByUserIdAndRoleId(Long userId, Long roleId) {
+        return countByUserIdAndRoleId(userId, roleId).map(count -> count != null && count > 0);
+    }
 } 

@@ -41,6 +41,24 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
+            <!--
+                钉住这两个传递依赖的版本。
+                移除 poi / aliyun-sdk-oss 等零引用依赖后，依赖图里 commons-compress 与
+                jaxb-api 的版本选择发生了变化（原本由 POI 拉进来的旧版本被"就近原则"顶掉了），
+                解析到的版本在本地仓库里没有 → 离线构建直接失败。
+                这里显式钉到本地已有的版本，离线构建才能过。
+            -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>1.23.0</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.xml.bind</groupId>
+                <artifactId>jaxb-api</artifactId>
+                <version>2.3.1</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -87,12 +105,6 @@
     </profiles>
 
     <dependencies>
-
-        <dependency>
-            <groupId>net.coobird</groupId>
-            <artifactId>thumbnailator</artifactId>
-            <version>0.4.20</version>
-        </dependency>
 
         <!-- Dotenv for environment variables -->
         <dependency>
@@ -142,12 +154,7 @@
             <artifactId>reactor-tools</artifactId>
             <optional>true</optional>
         </dependency>
-        <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-        
+
         <!-- Redis Reactive -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -166,11 +173,16 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
-        <!-- Sa-Token -->
+        <!-- Sa-Token
+             三个模块（starter / jwt / redis-jackson）统一到 1.38.0：
+             之前 starter 停在 1.37.0、jwt 在 1.38.0，core 与 jwt 版本不一致
+             是个隐患（jwt 1.38 跑在 core 1.37 上）。
+             现已确认 starter 1.38.0 也在本地仓库里，离线构建不受影响。
+             版本号请三个一起改，不要只改一个。 -->
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-reactor-spring-boot3-starter</artifactId>
-            <version>1.37.0</version>
+            <version>1.38.0</version>
         </dependency>
         <dependency>
             <groupId>cn.dev33</groupId>
@@ -202,7 +214,10 @@
             <version>6.4.11</version>
         </dependency>
         
-        <!-- Caffeine Cache -->
+        <!-- Caffeine Cache
+             注：代码里只用 Caffeine.newBuilder()，2.x / 3.x API 兼容，
+             可以安全升到 3.x（Spring Boot 3.2 管理的也是 3.1.x）；
+             这里暂留 2.9.3，因为本地 .m2 里只有这个版本，离线构建拉不到 3.x。 -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
@@ -271,13 +286,6 @@
             <version>0.21.0</version>
         </dependency>
         
-        <!-- Jansi - 支持控制台彩色日志 -->
-        <dependency>
-            <groupId>org.fusesource.jansi</groupId>
-            <artifactId>jansi</artifactId>
-            <version>2.4.1</version>
-        </dependency>
-        
         <!-- Tika -->
         <dependency>
             <groupId>org.apache.tika</groupId>
@@ -323,18 +331,6 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
         
-        <!-- Excel -->
-        <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi</artifactId>
-            <version>5.2.3</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi-ooxml</artifactId>
-            <version>5.2.3</version>
-        </dependency>
-        
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -364,19 +360,22 @@
             <version>3.3.1</version>
             <scope>test</scope>
         </dependency>
-        
-        <!-- ZXing -->
+
+        <!-- ASM（字节码分析）—— 供缓存自调用护栏测试做栈数据流分析。
+             版本与 mockito 传递进来的 org.ow2.asm:asm 保持一致（9.6）。 -->
         <dependency>
-            <groupId>com.google.zxing</groupId>
-            <artifactId>core</artifactId>
-            <version>3.5.2</version>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>9.6</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.google.zxing</groupId>
-            <artifactId>javase</artifactId>
-            <version>3.5.2</version>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-analysis</artifactId>
+            <version>9.6</version>
+            <scope>test</scope>
         </dependency>
-        
+
         <!-- MinIO -->
         <dependency>
             <groupId>io.minio</groupId>
@@ -384,25 +383,11 @@
             <version>8.5.8</version>
         </dependency>
         
-        <!-- 阿里云OSS -->
-        <dependency>
-            <groupId>com.aliyun.oss</groupId>
-            <artifactId>aliyun-sdk-oss</artifactId>
-            <version>3.17.4</version>
-        </dependency>
-        
         <!-- 腾讯云COS -->
         <dependency>
             <groupId>com.qcloud</groupId>
             <artifactId>cos_api</artifactId>
             <version>5.6.155</version>
-        </dependency>
-        
-        <!-- Guava (RateLimiter) -->
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>32.1.3-jre</version>
         </dependency>
         
         <!-- Resilience4j for Circuit Breaker -->
@@ -480,27 +465,15 @@
             </plugin>
         </plugins>
         <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
-                <includes>
-                    <include>application.yml</include>
-                    <include>application-${profiles.active}.yml</include>
-                </includes>
-            </resource>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
-                <includes>
-                    <include>application-log-*.yml</include>
-                </includes>
-            </resource>
+            <!--
+              全部资源原样打包，不做 Maven 过滤。
+              过滤会把 application.yml 里的 Spring 占位符 ${DB_URL:...} 交给 Maven 处理，
+              同时旧配置只放行 application.yml + application-${profiles.active}.yml，
+              导致 application-ai.yml（AI 模块开关）从未进包、application-prod.yml 默认也不进包。
+            -->
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>false</filtering>
-                <excludes>
-                    <exclude>application*.yml</exclude>
-                </excludes>
             </resource>
         </resources>
     </build>

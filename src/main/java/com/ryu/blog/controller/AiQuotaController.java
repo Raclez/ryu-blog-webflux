@@ -1,7 +1,9 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.dto.AiUsageStatistics;
 import com.ryu.blog.entity.AiUsageQuota;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiUsageStatisticsService;
 import com.ryu.blog.service.RateLimitService;
 import com.ryu.blog.utils.Result;
@@ -18,14 +20,18 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
-import javax.validation.constraints.NotNull;
 import java.time.LocalDate;
 
 /**
  * AI配额控制器
- * 
+ *
  * <p>提供AI使用配额和统计查询接口。
- * 
+ *
+ * <p><b>用户身份一律从登录态取</b>：原先这些接口都收 {@code userId} 查询参数，
+ * 任何登录用户都能传别人的 userId 查别人的配额、用量与花费。
+ * 现在统一用 {@code StpUtil.getLoginIdAsLong()}，
+ * 旧的 {@code ?userId=} 参数会被忽略（Spring 对未知查询参数不报错，前端无需同步改）。
+ *
  * @author Ryu
  * @since 1.0.0
  */
@@ -35,6 +41,7 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 @Validated
 @Tag(name = "AI配额", description = "AI使用配额和统计接口")
+@ConditionalOnAiEnabled
 public class AiQuotaController {
 
     private final RateLimitService rateLimitService;
@@ -48,8 +55,8 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "404", description = "配额不存在"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Result<AiUsageQuota>> getQuota(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+    public Mono<Result<AiUsageQuota>> getQuota() {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取用户配额: userId={}", userId);
         return rateLimitService.getQuota(userId)
                 .map(Result::success);
@@ -61,8 +68,8 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "200", description = "查询成功"),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Result<RateLimitService.QuotaRemaining>> getRemainingQuota(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+    public Mono<Result<RateLimitService.QuotaRemaining>> getRemainingQuota() {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取剩余配额: userId={}", userId);
         return rateLimitService.getRemainingQuota(userId)
                 .map(Result::success);
@@ -76,14 +83,14 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
     public Mono<Result<AiUsageStatistics>> getUsageStatistics(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId,
             @Parameter(description = "开始日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String startDate,
             @Parameter(description = "结束日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String endDate) {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取使用统计: userId={}, startDate={}, endDate={}", userId, startDate, endDate);
-        
+
         LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().minusDays(30);
         LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
-        
+
         return statisticsService.getStatistics(userId, start.atStartOfDay(), end.atTime(23, 59, 59))
                 .map(Result::success);
     }
@@ -95,8 +102,8 @@ public class AiQuotaController {
                     content = @Content(schema = @Schema(implementation = AiUsageStatistics.class))),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<AiUsageStatistics> getTodayUsage(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+    public Mono<AiUsageStatistics> getTodayUsage() {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取今日使用统计: userId={}", userId);
         return statisticsService.getDailyStatistics(userId);
     }
@@ -108,8 +115,8 @@ public class AiQuotaController {
                     content = @Content(schema = @Schema(implementation = AiUsageStatistics.class))),
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
-    public Mono<Result<AiUsageStatistics>> getMonthUsage(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId) {
+    public Mono<Result<AiUsageStatistics>> getMonthUsage() {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取本月使用统计: userId={}", userId);
         return statisticsService.getMonthlyStatistics(userId)
                 .map(Result::success);
@@ -122,14 +129,14 @@ public class AiQuotaController {
             @ApiResponse(responseCode = "500", description = "服务器内部错误")
     })
     public Mono<Result<Double>> getTotalCost(
-            @Parameter(description = "用户ID") @RequestParam @NotNull Long userId,
             @Parameter(description = "开始日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String startDate,
             @Parameter(description = "结束日期（格式：yyyy-MM-dd）") @RequestParam(required = false) String endDate) {
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取总成本: userId={}, startDate={}, endDate={}", userId, startDate, endDate);
-        
+
         LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().minusDays(30);
         LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
-        
+
         return statisticsService.getStatistics(userId, start.atStartOfDay(), end.atTime(23, 59, 59))
                 .map(AiUsageStatistics::getTotalCost)
                 .map(Result::success);

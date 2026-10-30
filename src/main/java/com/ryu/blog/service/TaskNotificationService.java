@@ -38,10 +38,20 @@ public class TaskNotificationService {
      * 发送任务完成通知
      */
     public Mono<Void> notifyTaskCompleted(AsyncTask task) {
+        return notifyTaskCompleted(task, null);
+    }
+
+    /**
+     * 发送任务完成通知（自定义文案）
+     *
+     * @param task 任务实体
+     * @param message 自定义文案，为 null 时使用默认文案「任务执行成功」
+     */
+    public Mono<Void> notifyTaskCompleted(AsyncTask task, String message) {
         Map<String, Object> notification = createNotification(
                 "TASK_COMPLETED",
                 task,
-                "任务执行成功"
+                message != null ? message : "任务执行成功"
         );
         return sendNotification(task.getUserId(), notification);
     }
@@ -50,10 +60,20 @@ public class TaskNotificationService {
      * 发送任务失败通知
      */
     public Mono<Void> notifyTaskFailed(AsyncTask task) {
+        return notifyTaskFailed(task, null);
+    }
+
+    /**
+     * 发送任务失败通知（自定义文案）
+     *
+     * @param task 任务实体
+     * @param message 自定义文案，为 null 时使用默认文案「任务执行失败: {错误信息}」
+     */
+    public Mono<Void> notifyTaskFailed(AsyncTask task, String message) {
         Map<String, Object> notification = createNotification(
                 "TASK_FAILED",
                 task,
-                "任务执行失败: " + task.getErrorMessage()
+                message != null ? message : "任务执行失败: " + task.getErrorMessage()
         );
         return sendNotification(task.getUserId(), notification);
     }
@@ -112,18 +132,17 @@ public class TaskNotificationService {
         try {
             String message = objectMapper.writeValueAsString(notification);
 
-            // 检查用户是否在线
-            if (webSocketHandler.isUserOnline(userId)) {
-                // 在线用户：直接通过WebSocket发送
-                webSocketHandler.sendToUser(userId, message);
+            // 在线发送以「真的投递成功」为准，而不是以「Map 里有这个用户」为准：
+            // 没有订阅者时 tryEmitNext 会失败，此时必须落回离线存储，否则通知直接丢失。
+            if (webSocketHandler.sendToUser(userId, message)) {
                 log.info("向在线用户 {} 发送通知: {}", userId, notification.get("type"));
                 return Mono.empty();
-            } else {
-                // 离线用户：保存到Redis
-                return saveOfflineNotification(userId, message)
-                        .doOnSuccess(v -> log.info("用户 {} 离线，通知已保存到Redis", userId))
-                        .then();
             }
+
+            // 离线用户（或在线但投递失败）：保存到Redis
+            return saveOfflineNotification(userId, message)
+                    .doOnSuccess(v -> log.info("用户 {} 离线，通知已保存到Redis", userId))
+                    .then();
         } catch (JsonProcessingException e) {
             log.error("序列化通知消息失败", e);
             return Mono.error(e);
@@ -177,23 +196,29 @@ public class TaskNotificationService {
 
     /**
      * 推送离线通知给刚上线的用户
+     *
+     * <p><b>逐条出队，发送成功才丢弃</b>：原先的做法是「全部发送后无条件 clear」，
+     * 只要有一条投递失败，它也会被一起删掉 —— 通知永久丢失。
+     * 现在从队首 LPop，投递失败就 LPush 放回队首并停止，下次上线再试。
      */
     public Mono<Void> pushOfflineNotifications(Long userId) {
-        return getOfflineNotifications(userId)
-                .flatMap(notifications -> {
-                    if (notifications.isEmpty()) {
-                        return Mono.empty();
+        return pushNextOfflineNotification(userId);
+    }
+
+    private Mono<Void> pushNextOfflineNotification(Long userId) {
+        String key = OFFLINE_NOTIFICATION_KEY_PREFIX + userId;
+
+        return redisTemplate.opsForList().leftPop(key)
+                .flatMap(notification -> {
+                    if (webSocketHandler.sendToUser(userId, notification)) {
+                        // 成功：继续下一条
+                        return pushNextOfflineNotification(userId);
                     }
-
-                    log.info("向用户 {} 推送 {} 条离线通知", userId, notifications.size());
-
-                    // 逐条发送离线通知
-                    notifications.forEach(notification -> {
-                        webSocketHandler.sendToUser(userId, notification);
-                    });
-
-                    // 清除已推送的离线通知
-                    return clearOfflineNotifications(userId).then();
-                });
+                    // 失败：放回队首，保留 TTL，下次再推
+                    return redisTemplate.opsForList().leftPush(key, notification)
+                            .then(redisTemplate.expire(key, OFFLINE_NOTIFICATION_TTL))
+                            .then();
+                })
+                .switchIfEmpty(Mono.empty());
     }
 }

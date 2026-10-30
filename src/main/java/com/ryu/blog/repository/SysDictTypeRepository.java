@@ -83,4 +83,34 @@ public interface SysDictTypeRepository extends R2dbcRepository<SysDictType, Long
      */
     @Query("SELECT COUNT(*) FROM t_sys_dict_types WHERE dict_type = :dictType")
     Mono<Integer> countByDictType(String dictType);
+
+    /**
+     * 按条件分页查询字典类型
+     * <p>
+     * typeName / dictType 传空字符串表示不过滤该条件 ——
+     * 这样可以避免绑定 NULL 参数（部分 R2DBC 驱动对无类型的 NULL 绑定会报错）。
+     *
+     * @param typeName 类型名称（模糊匹配，空串表示不过滤）
+     * @param dictType 类型编码（精确匹配，空串表示不过滤）
+     * @param limit    每页大小
+     * @param offset   偏移量
+     * @return 字典类型列表
+     */
+    @Query("SELECT * FROM t_sys_dict_types WHERE is_deleted = 0 " +
+           "AND (:typeName = '' OR type_name LIKE CONCAT('%', :typeName, '%')) " +
+           "AND (:dictType = '' OR dict_type = :dictType) " +
+           "ORDER BY id ASC LIMIT :limit OFFSET :offset")
+    Flux<SysDictType> findByCondition(String typeName, String dictType, int limit, long offset);
+
+    /**
+     * 按条件统计字典类型数量
+     *
+     * @param typeName 类型名称（模糊匹配，空串表示不过滤）
+     * @param dictType 类型编码（精确匹配，空串表示不过滤）
+     * @return 数量
+     */
+    @Query("SELECT COUNT(*) FROM t_sys_dict_types WHERE is_deleted = 0 " +
+           "AND (:typeName = '' OR type_name LIKE CONCAT('%', :typeName, '%')) " +
+           "AND (:dictType = '' OR dict_type = :dictType)")
+    Mono<Long> countByCondition(String typeName, String dictType);
 } 

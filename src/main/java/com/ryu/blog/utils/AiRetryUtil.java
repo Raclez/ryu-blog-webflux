@@ -4,6 +4,7 @@ import com.ryu.blog.config.AiRetryConfig;
 import com.ryu.blog.exception.AiProviderException;
 import com.ryu.blog.exception.AiTimeoutException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
@@ -11,14 +12,18 @@ import java.time.Duration;
 
 /**
  * AI重试工具类
- * 
+ *
  * <p>提供指数退避重试机制。
- * 
+ *
+ * <p>原先这个类的 {@code @Component} 是被注释掉的，整个类没有任何调用方（死代码），
+ * 于是 {@code application-ai.yml} 里的 {@code ai.retry.*} 配置（最大重试次数、退避时长等）
+ * 也没有任何地方消费。现已改为 Bean 并接入 {@code AiInvocationGuard}。
+ *
  * @author Ryu
  * @since 1.0.0
  */
 @Slf4j
-//@Component
+@Component
 public class AiRetryUtil {
 
     private final AiRetryConfig retryConfig;
@@ -107,7 +112,11 @@ public class AiRetryUtil {
 
     /**
      * 判断异常是否可重试
-     * 
+     *
+     * <p>除类型判断外还会按错误消息兜底：Spring AI 1.0.0-M5 的各家 Provider
+     * 底层是阻塞的 RestClient，HTTP 错误（429/5xx）通常被包装成普通 RuntimeException，
+     * 只能从消息里识别状态码。
+     *
      * @param throwable 异常
      * @return 是否可重试
      */
@@ -116,22 +125,38 @@ public class AiRetryUtil {
         if (throwable instanceof java.util.concurrent.TimeoutException) {
             return true;
         }
-        
+
         // 网络异常可重试
         if (throwable instanceof java.io.IOException) {
             return true;
         }
-        
+
         // AI提供商限流可重试
         if (throwable instanceof AiProviderException) {
             AiProviderException ex = (AiProviderException) throwable;
             String message = ex.getMessage().toLowerCase();
-            return message.contains("rate limit") || 
-                   message.contains("限流") || 
+            return message.contains("rate limit") ||
+                   message.contains("限流") ||
                    message.contains("too many requests");
         }
-        
-        // 其他异常不重试
-        return false;
+
+        // 兜底：按错误消息识别瞬时故障（限流、网关错误、超时、连接重置）
+        String message = throwable.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        return lower.contains("429")
+                || lower.contains("rate limit")
+                || lower.contains("too many requests")
+                || lower.contains("限流")
+                || lower.contains("500")
+                || lower.contains("502")
+                || lower.contains("503")
+                || lower.contains("504")
+                || lower.contains("timeout")
+                || lower.contains("timed out")
+                || lower.contains("connection reset")
+                || lower.contains("temporarily unavailable");
     }
 }

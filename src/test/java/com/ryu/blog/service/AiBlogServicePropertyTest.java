@@ -5,7 +5,7 @@ import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.constraints.StringLength;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +30,7 @@ public class AiBlogServicePropertyTest {
      * <p>验证：需求2.1, 9.1
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
+    @Label("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
     void contentGenerationIdempotency(
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String topic,
             @ForAll @StringLength(min = 5, max = 20) @AlphaChars String language,
@@ -55,7 +55,7 @@ public class AiBlogServicePropertyTest {
      * 验证不同参数产生不同的缓存键
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
+    @Label("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
     void differentParametersProduceDifferentCacheKeys(
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String topic1,
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String topic2,
@@ -78,7 +78,7 @@ public class AiBlogServicePropertyTest {
      * 验证缓存过期后重新生成
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
+    @Label("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
     void cacheExpirationTriggersRegeneration(
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String topic,
             @ForAll @StringLength(min = 5, max = 20) @AlphaChars String language,
@@ -110,7 +110,7 @@ public class AiBlogServicePropertyTest {
      * 验证用户隔离
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
+    @Label("Feature: ai-blog-writer, Property 2: 内容生成幂等性")
     void userIsolation(
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String topic,
             @ForAll @StringLength(min = 5, max = 20) @AlphaChars String language,
@@ -138,7 +138,7 @@ public class AiBlogServicePropertyTest {
      * <p>验证：需求3.4
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 3: 流式响应完整性")
+    @Label("Feature: ai-blog-writer, Property 3: 流式响应完整性")
     void streamResponseCompleteness(
             @ForAll @IntRange(min = 5, max = 50) int totalChunks,
             @ForAll @IntRange(min = 0, max = 50) int errorAtChunk) {
@@ -182,7 +182,7 @@ public class AiBlogServicePropertyTest {
      * 验证流式响应的顺序性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 3: 流式响应完整性")
+    @Label("Feature: ai-blog-writer, Property 3: 流式响应完整性")
     void streamResponseOrdering(@ForAll @IntRange(min = 5, max = 30) int totalChunks) {
         
         // 模拟流式生成并记录顺序
@@ -205,7 +205,7 @@ public class AiBlogServicePropertyTest {
      * 验证流式响应的完整性（无数据丢失）
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 3: 流式响应完整性")
+    @Label("Feature: ai-blog-writer, Property 3: 流式响应完整性")
     void streamResponseNoDataLoss(
             @ForAll @IntRange(min = 10, max = 100) int totalChunks,
             @ForAll @IntRange(min = 1, max = 20) int chunkSize) {
@@ -228,7 +228,7 @@ public class AiBlogServicePropertyTest {
      * 验证空流的处理
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 3: 流式响应完整性")
+    @Label("Feature: ai-blog-writer, Property 3: 流式响应完整性")
     void emptyStreamHandling() {
         int totalChunks = 0;
         

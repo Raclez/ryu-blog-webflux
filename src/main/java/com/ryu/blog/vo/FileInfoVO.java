@@ -100,10 +100,6 @@ public class FileInfoVO {
      */
     private String description;
     
-    /**
-     * CDN链接
-     */
-    private String cdnUrl;
     
     /**
      * 文件预览链接
@@ -140,10 +136,6 @@ public class FileInfoVO {
      */
     private String thumbnailUrl;
     
-    /**
-     * 是否有缩略图
-     */
-    private Boolean hasThumbnail;
     
     /**
      * 访问类型

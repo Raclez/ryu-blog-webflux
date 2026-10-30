@@ -6,11 +6,14 @@ package com.ryu.blog.constant;
  * 命名规范：
  * - 缓存名称常量：xxx_CACHE（如 POST_CACHE = "postCache"）
  * - 缓存键前缀常量：xxx_KEY_PREFIX（如 POST_KEY_PREFIX = "post:"）
- * - 完整缓存键常量：xxx_KEY（如 POST_DETAIL_KEY = "'post:detail:' + #id"）
+ * - 完整缓存键常量：xxx_KEY（只放前缀，不带引号；用法是 key = "'" + XXX_KEY + "' + #参数"）
  *
  * @author ryu
  */
-public class CacheConstants {
+public final class CacheConstants {
+
+    private CacheConstants() {
+    }
 
     /** 缓存前缀 */
     public static final String CACHE_PREFIX = "blog:";
@@ -81,14 +84,17 @@ public class CacheConstants {
     public static final String AI_QUOTA_CACHE = "aiQuota";
     public static final String AI_PROVIDER_CONFIG_CACHE = "aiProviderConfig";
 
+    /** 监控相关缓存（短 TTL，避免频繁采集系统指标） */
+    public static final String MONITOR_SYSTEM_CACHE = "monitor:system";
+    public static final String MONITOR_THREADS_CACHE = "monitor:threads";
+    public static final String MONITOR_THREAD_STATS_CACHE = "monitor:thread-stats";
+
     // ==================== 缓存键前缀常量 ====================
     // 用于拼接缓存键，如：CACHE_PREFIX + USER_KEY_PREFIX + "detail:" + #id
 
     /** 用户相关缓存键前缀 */
     public static final String USER_KEY_PREFIX = "user:";
     public static final String USER_DETAIL_KEY_PREFIX = USER_KEY_PREFIX + "detail:";
-    public static final String USER_PERMISSIONS_KEY_PREFIX = USER_KEY_PREFIX + "permissions:";
-    public static final String USER_ROLES_KEY_PREFIX = USER_KEY_PREFIX + "roles:";
     public static final String USER_INFO_KEY_PREFIX = USER_KEY_PREFIX + "info:";
     public static final String USER_ID_KEY_PREFIX = USER_KEY_PREFIX + "id:";
     public static final String USER_USERNAME_KEY_PREFIX = USER_KEY_PREFIX + "username:";
@@ -117,7 +123,6 @@ public class CacheConstants {
     public static final String TAG_ARTICLE_KEY_PREFIX = TAG_KEY_PREFIX + "article:";
     public static final String TAG_DETAIL_KEY_PREFIX = TAG_KEY_PREFIX + "detail:";
     public static final String TAG_PAGE_KEY_PREFIX = TAG_KEY_PREFIX + "page:";
-    public static final String TAG_PAGE_PATTERN = TAG_KEY_PREFIX + "page:*";
 
     /** 标签缓存完整键（用于SpEL表达式拼接） */
     public static final String TAG_ARTICLE_KEY = TAG_KEY_PREFIX + "article:";
@@ -235,10 +240,23 @@ public class CacheConstants {
     public static final String STORAGE_CLIENT_KEY = "client";
     public static final String STORAGE_BUCKET_KEY = "bucket";
 
-    /** 文件相关缓存键前缀 */
-    public static final String FILE_DETAIL_KEY_PREFIX = "file:detail:";
-    public static final String FILE_URL_KEY_PREFIX = "file:url:";
-    public static final String FILE_DOWNLOAD_KEY_PREFIX = "file:download:";
+    /**
+     * 文件相关缓存键前缀
+     *
+     * <p>注意：这里的值必须与实际使用的缓存键一致。
+     * 原来写的是 "file:detail:" / "file:url:" / "file:download:"，
+     * 而代码里真正用的键是 "info:" / "url:" / "download:"（见 FILE_*_KEY），
+     * 两套对不上，等于这些常量从来没生效过。
+     */
+    public static final String FILE_INFO_KEY_PREFIX = "info:";
+    public static final String FILE_URL_KEY_PREFIX = "url:";
+    public static final String FILE_DOWNLOAD_KEY_PREFIX = "download:";
+    public static final String FILE_VERSIONS_KEY_PREFIX = "versions:";
+    public static final String FILE_USER_KEY_PREFIX = "user:";
+    public static final String FILE_TYPE_KEY_PREFIX = "type:";
+    public static final String FILE_INFOS_KEY_PREFIX = "infos:";
+    public static final String FILE_PERMANENT_URLS_KEY_PREFIX = "permanent-urls:";
+    public static final String FILE_URLS_KEY_PREFIX = "urls:";
 
     /** AI相关缓存键前缀 */
     public static final String AI_GENERATION_KEY_PREFIX = "generation:";
@@ -259,8 +277,6 @@ public class CacheConstants {
 
     /** 用户缓存完整键 */
     public static final String USER_DETAIL_KEY = USER_KEY_PREFIX + "detail:";
-    public static final String USER_PERMISSIONS_KEY = USER_KEY_PREFIX + "permissions:";
-    public static final String USER_ROLES_KEY = USER_KEY_PREFIX + "roles:";
 
     /** 标签缓存完整键 */
     public static final String TAG_ALL_KEY = TAG_KEY_PREFIX + "all:";
@@ -285,23 +301,36 @@ public class CacheConstants {
     public static final String MENUS_TREE_KEY = "tree";
     public static final String MENUS_ALL_KEY = "all";
 
-    /** 系统配置缓存完整键 */
-    public static final String CONFIG_VALUE_KEY = "value:";
-    public static final String CONFIG_USER_VALUE_KEY = "'userValue:' + #userId + ':' + #key";
-    public static final String CONFIG_INFO_KEY = "'config:' + #key";
-    public static final String CONFIG_INFO_BY_ID_KEY = "'configById:' + #id";
-    public static final String CONFIG_ENTITY_KEY = "'entity:' + #key";
-    public static final String CONFIG_ENTITY_BY_ID_KEY = "'entityById:' + #id";
-    public static final String CONFIG_GROUPS_KEY = "'configGroups'";
+    /**
+     * 系统配置缓存完整键（SpEL 用）
+     *
+     * <p><b>这里只放前缀，不放引号，也不放 SpEL 片段</b>。
+     * 用法统一是 {@code key = "'" + CacheConstants.XXX_KEY + "' + #参数"}，
+     * 结果形如 {@code 'entity:' + #key}。
+     *
+     * <p>原先这几个常量写成了 {@code "'entity:' + #key"}（自带引号和 SpEL），
+     * 而调用处又套了一层引号 → 最终 SpEL 是 {@code ''entity:' + #key' + #key}，
+     * <b>语法错误，每次读配置都会抛 SpelParseException</b> —— 配置服务（含 AI Provider
+     * 读取自己的配置）整个不可用。
+     */
+    public static final String CONFIG_VALUE_KEY = CONFIG_VALUE_KEY_PREFIX;
+    public static final String CONFIG_USER_VALUE_KEY = CONFIG_USER_VALUE_KEY_PREFIX;
+    public static final String CONFIG_INFO_KEY = CONFIG_INFO_KEY_PREFIX;
+    public static final String CONFIG_INFO_BY_ID_KEY = CONFIG_INFO_BY_ID_KEY_PREFIX;
+    public static final String CONFIG_ENTITY_KEY = CONFIG_ENTITY_KEY_PREFIX;
+    public static final String CONFIG_ENTITY_BY_ID_KEY = CONFIG_ENTITY_BY_ID_KEY_PREFIX;
+    public static final String CONFIG_GROUPS_KEY = CONFIG_GROUPS_KEY_PREFIX;
 
-    /** 文件缓存完整键 */
-    public static final String FILE_INFO_KEY = "'info:' + #fileId";
-    public static final String FILE_URL_KEY = "'url:' + #fileId";
-    public static final String FILE_DOWNLOAD_KEY = "'download:' + #fileId";
-    public static final String FILE_VERSIONS_KEY = "'versions:' + #fileId";
-    public static final String FILE_USER_KEY = "'user:' + #userId";
-    public static final String FILE_TYPE_KEY = "'type:' + #type";
-    public static final String FILE_INFOS_KEY = "'infos:' + #fileIds.hashCode()";
-    public static final String FILE_PERMANENT_URLS_KEY = "'permanent-urls:' + #fileIds.hashCode()";
-    public static final String FILE_URLS_KEY = "'urls:' + #fileIds.hashCode()";
+    /**
+     * 文件缓存完整键（SpEL 用，同样只放前缀）
+     */
+    public static final String FILE_INFO_KEY = FILE_INFO_KEY_PREFIX;
+    public static final String FILE_URL_KEY = FILE_URL_KEY_PREFIX;
+    public static final String FILE_DOWNLOAD_KEY = FILE_DOWNLOAD_KEY_PREFIX;
+    public static final String FILE_VERSIONS_KEY = FILE_VERSIONS_KEY_PREFIX;
+    public static final String FILE_USER_KEY = FILE_USER_KEY_PREFIX;
+    public static final String FILE_TYPE_KEY = FILE_TYPE_KEY_PREFIX;
+    public static final String FILE_INFOS_KEY = FILE_INFOS_KEY_PREFIX;
+    public static final String FILE_PERMANENT_URLS_KEY = FILE_PERMANENT_URLS_KEY_PREFIX;
+    public static final String FILE_URLS_KEY = FILE_URLS_KEY_PREFIX;
 }

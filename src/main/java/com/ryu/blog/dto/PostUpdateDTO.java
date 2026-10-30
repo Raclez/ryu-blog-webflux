@@ -1,5 +1,7 @@
 package com.ryu.blog.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.ryu.blog.enums.PublishMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.Data;
@@ -54,13 +56,17 @@ public class PostUpdateDTO {
     private Long coverImageId;
 
     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @Schema(description = "定时发布时间", example = "2024-12-31 23:59:59")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Schema(description = "定时发布时间（publishMode=SCHEDULED 时必填，且必须晚于当前时间）",
+            example = "2024-12-31 23:59:59")
     private LocalDateTime scheduleTime;
 
-    @Min(value = 0, message = "置顶标识只能为0或1")
-    @Max(value = 1, message = "置顶标识只能为0或1")
-    @Schema(description = "是否置顶：0-否，1-是", example = "0")
-    private Integer isSticky;
+    @Schema(description = "发布方式：DRAFT-存草稿，IMMEDIATE-立即发布，SCHEDULED-定时发布；不传表示不改状态",
+            example = "SCHEDULED")
+    private PublishMode publishMode;
+
+    @Schema(description = "是否置顶", example = "false")
+    private Boolean isSticky;
 
     @Schema(description = "是否原创", example = "true")
     private Boolean isOriginal;
@@ -73,11 +79,6 @@ public class PostUpdateDTO {
     @Schema(description = "是否允许评论", example = "true")
     private Boolean allowComment;
 
-    @Min(value = 0, message = "立即发布标识只能为0或1")
-    @Max(value = 1, message = "立即发布标识只能为0或1")
-    @Schema(description = "是否立即发布：0-否，1-是", example = "0")
-    private Integer isPublishImmediately;
-    
     @URL(message = "来源URL格式不正确")
     @Size(max = 500, message = "来源URL长度不能超过500个字符")
     @Schema(description = "文章来源URL")
@@ -103,8 +104,15 @@ public class PostUpdateDTO {
     @Schema(description = "标签ID列表")
     private List<String> tagsIds;
 
-    @Min(value = 0, message = "状态值只能为0、1或2")
-    @Max(value = 2, message = "状态值只能为0、1或2")
-    @Schema(description = "文章状态：0-草稿，1-已发布，2-回收站", example = "1")
-    private Integer status;
-} 
+    // 【已移除】status 字段（原为「0-待审核，1-已发布，2-草稿」）。
+    //
+    // 文章状态是**有闸门的**：状态变更走独立的 `PUT /posts/status` 端点
+    // （能力校验 content:post:publish）。
+    // 原先这个 DTO 带着 status，而 MapStruct 会自动映射同名字段 ——
+    // 于是一条普通的「编辑文章」请求就能把文章直接改成「已发布」，
+    // 把发布闸门整个绕过去。
+    //
+    // 移除后：Jackson 默认忽略未知字段，老前端继续在编辑请求体里带 status 也不会报错，
+    // 只是被丢弃（真正的状态变更请走 PUT /posts/status）。
+    // 另见 PostMapper#updateEntityFromDTO 上同名的 @Mapping(ignore = true) —— 双保险。
+}

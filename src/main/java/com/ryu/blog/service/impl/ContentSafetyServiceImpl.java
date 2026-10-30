@@ -1,5 +1,6 @@
 package com.ryu.blog.service.impl;
 
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.ContentSafetyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class ContentSafetyServiceImpl implements ContentSafetyService {
 
     private final ReactiveRedisTemplate<String, String> redisTemplate;
@@ -44,31 +46,37 @@ public class ContentSafetyServiceImpl implements ContentSafetyService {
     @Override
     public Mono<SafetyCheckResult> check(String content) {
         log.debug("检查内容安全: length={}", content != null ? content.length() : 0);
-        
-        if (content == null || content.isEmpty()) {
-            return Mono.just(new SafetyCheckResult(true, List.of(), "内容为空"));
+
+        if (content == null || content.isBlank()) {
+            // 空内容不含任何敏感词，判定为安全。但 reason 必须和 safe 保持一致 ——
+            // 原来这里返回 safe=true 却把 reason 写成「内容为空」，
+            // 调用方（AiBlogServiceImpl / AiAssistServiceImpl）会看到一个自相矛盾的结果。
+            log.warn("内容安全检查收到空内容，按安全处理");
+            return Mono.just(new SafetyCheckResult(true, List.of(), "内容安全"));
         }
-        
+
         return getKeywords()
                 .map(keywords -> {
                     List<String> matched = new ArrayList<>();
-                    
+
                     // 检查是否包含敏感词
                     for (String keyword : keywords) {
                         if (content.toLowerCase().contains(keyword.toLowerCase())) {
                             matched.add(keyword);
                         }
                     }
-                    
+
                     boolean safe = matched.isEmpty();
                     String reason = safe ? "内容安全" : "包含敏感词: " + String.join(", ", matched);
-                    
+
                     log.debug("内容安全检查完成: safe={}, matched={}", safe, matched.size());
-                    
+
                     return new SafetyCheckResult(safe, matched, reason);
                 })
                 .doOnError(error -> log.error("内容安全检查失败", error))
-                .onErrorReturn(new SafetyCheckResult(true, List.of(), "检查失败，默认通过"));
+                // 失败即拒绝（fail-closed）：检查没做成就宣称「安全」，
+                // 等于让一次 Redis 抖动把内容安全网关整个关掉。
+                .onErrorReturn(new SafetyCheckResult(false, List.of(), "内容安全检查失败，已拒绝"));
     }
 
     @Override

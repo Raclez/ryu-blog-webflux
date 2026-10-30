@@ -3,7 +3,6 @@ package com.ryu.blog.repository;
 import com.ryu.blog.entity.Menus;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -21,43 +20,40 @@ import java.util.List;
 public interface MenusRepository extends R2dbcRepository<Menus, Long> {
 
     /**
-     * 根据父ID查询菜单列表，按排序字段升序排列
+     * 查询所有未删除的菜单，按父ID、排序字段、ID 升序排列
      *
-     * @param parentId 父菜单ID
-     * @return 菜单列表
-     */
-    Flux<Menus> findByParentIdOrderBySortAsc(Long parentId);
-
-    /**
-     * 查询所有菜单，按父ID和排序字段升序排列
+     * <p>排序加了 {@code id} 兜底：只按 {@code parent_id, sort} 排序时，
+     * 同 sort 的菜单顺序由 MySQL 自由决定，翻页会出现重复或漏项。
      *
      * @return 菜单列表
      */
-    @Query("SELECT * FROM t_menus ORDER BY parent_id, sort")
+    @Query("SELECT * FROM t_menus WHERE is_deleted = 0 ORDER BY parent_id, sort, id")
     Flux<Menus> findAllOrderByParentIdAndSort();
 
     /**
-     * 根据ID列表查询菜单
+     * 根据ID列表查询未删除的菜单
      *
      * @param ids 菜单ID列表
      * @return 菜单列表
      */
+    @Query("SELECT * FROM t_menus WHERE id IN (:ids) AND is_deleted = 0 ORDER BY parent_id, sort, id")
     Flux<Menus> findByIdIn(List<Long> ids);
 
     /**
-     * 根据父ID查询子菜单数量
+     * 根据父ID查询子菜单数量（只统计未删除的）
      *
      * @param parentId 父菜单ID
      * @return 子菜单数量
      */
+    @Query("SELECT COUNT(*) FROM t_menus WHERE parent_id = :parentId AND is_deleted = 0")
     Mono<Long> countByParentId(Long parentId);
 
     /**
-     * 根据权限标识列表查询菜单
+     * 根据父ID查询未删除的子菜单
      *
-     * @param permissionIdentities 权限标识列表
-     * @return 菜单列表
+     * @param parentId 父菜单ID
+     * @return 子菜单列表
      */
-    @Query("SELECT m.* FROM t_menus m JOIN t_menu_permissions mp ON m.id = mp.menu_id JOIN t_permissions p ON mp.permission_id = p.id WHERE p.identity IN (:permissionIdentities)")
-    Flux<Menus> findByPermissionIdentitiesIn(List<String> permissionIdentities);
-} 
+    @Query("SELECT * FROM t_menus WHERE parent_id = :parentId AND is_deleted = 0 ORDER BY sort, id")
+    Flux<Menus> findByParentId(Long parentId);
+}

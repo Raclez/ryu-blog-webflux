@@ -77,21 +77,38 @@ public class StorageStrategyRegistry {
      */
     public Mono<FileStorageStrategy> getStrategy(String strategyKey) {
         log.debug("获取存储策略: {}", strategyKey);
-        
-        if (strategyMap.containsKey(strategyKey)) {
-            return Mono.just(strategyMap.get(strategyKey));
+
+        // ConcurrentHashMap.containsKey(null) 直接抛 NPE ——
+        // 策略标识为空的行会走进这里（历史的 t_file.storage_type 可能是 NULL）。
+        if (strategyKey == null || strategyKey.isEmpty()) {
+            log.warn("存储策略标识为空");
+            return Mono.error(new RuntimeException("未找到存储策略: " + strategyKey));
         }
-        
+
+        FileStorageStrategy strategy = strategyMap.get(strategyKey);
+        if (strategy != null) {
+            return Mono.just(strategy);
+        }
+
         log.warn("未找到存储策略: {}", strategyKey);
         return Mono.error(new RuntimeException("未找到存储策略: " + strategyKey));
     }
     
     /**
-     * 获取所有可用的存储策略
-     * @return 存储策略列表
+     * 获取所有<b>可用</b>的存储策略
+     *
+     * <p><b>「可用」= 真的实现了</b>：占位实现（腾讯云 COS、阿里云 OSS）
+     * 会被剔掉。早先这里返回全部已注册的策略，后台能选到 COS ——
+     * 选中之后上传「成功」而文件根本不存在。
+     *
+     * @return 可用的存储策略标识列表
      */
     public List<String> getAvailableStrategies() {
-        List<String> keys = List.copyOf(strategyMap.keySet());
+        List<String> keys = strategyMap.values().stream()
+                .filter(FileStorageStrategy::isImplemented)
+                .map(FileStorageStrategy::getStrategyKey)
+                .sorted()
+                .toList();
         log.debug("获取所有可用策略: {}", keys);
         return keys;
     }

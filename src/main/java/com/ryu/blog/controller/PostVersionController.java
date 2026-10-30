@@ -1,6 +1,8 @@
 package com.ryu.blog.controller;
 
-import cn.dev33.satoken.stp.StpUtil;
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.entity.PostVersion;
 import com.ryu.blog.entity.Posts;
 import com.ryu.blog.service.ArticleVersionService;
@@ -40,6 +42,7 @@ public class PostVersionController {
      */
     @GetMapping("/{postId}/versions")
     @Operation(summary = "获取文章版本列表", description = "使用游标分页获取指定文章的版本列表")
+    @SaCheckPermission(PermissionConstants.POST_VIEW)
     public Mono<Result<Map<String, Object>>> getVersions(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
             @Parameter(description = "游标（上一页最后一条记录的ID）") @RequestParam(required = false) Long cursor,
@@ -73,6 +76,7 @@ public class PostVersionController {
      */
     @GetMapping("/detail/{postId}/versions/{version}")
     @Operation(summary = "获取文章指定版本", description = "根据文章ID和版本号获取指定版本的详细信息")
+    @SaCheckPermission(PermissionConstants.POST_VIEW)
     public Mono<Result<PostVersion>> getVersion(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
             @Parameter(description = "版本号") @PathVariable("version") Integer version) {
@@ -94,6 +98,7 @@ public class PostVersionController {
      */
     @GetMapping("/latest/{postId}")
     @Operation(summary = "获取文章最新版本", description = "获取指定文章的最新版本信息")
+    @SaCheckPermission(PermissionConstants.POST_VIEW)
     public Mono<Result<PostVersion>> getLatestVersion(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId) {
         log.info("获取文章最新版本: 文章ID={}", postId);
@@ -115,13 +120,14 @@ public class PostVersionController {
      */
     @PostMapping("/rollback/{postId}/{version}")
     @Operation(summary = "回滚到指定版本", description = "将文章内容回滚到指定的历史版本，需要文章所有者权限")
+    @SaCheckPermission(PermissionConstants.POST_EDIT)
     public Mono<Result<Posts>> rollbackToVersion(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
             @Parameter(description = "版本号") @PathVariable("version") Integer version) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        log.info("回滚文章到指定版本: 文章ID={}, 版本号={}, 用户ID={}", postId, version, userId);
-        
-        return articleVersionService.rollbackToVersion(postId, version, userId)
+        OperatorContext ctx = OperatorContext.current();
+        log.info("回滚文章到指定版本: 文章ID={}, 版本号={}, 操作者={}", postId, version, ctx);
+
+        return articleVersionService.rollbackToVersion(postId, version, ctx)
                 .map(posts -> {
                     log.info("回滚文章到指定版本成功: 文章ID={}, 版本号={}", postId, version);
                     return Result.success(posts);
@@ -136,12 +142,13 @@ public class PostVersionController {
      */
     @DeleteMapping("/{id}")
     @Operation(summary = "删除文章版本", description = "删除指定的文章版本，需要文章所有者权限，最新版本不可删除")
+    @SaCheckPermission(PermissionConstants.POST_EDIT)
     public Mono<Result<Boolean>> deleteVersion(
             @Parameter(description = "版本ID") @PathVariable("id") Long id) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        log.info("删除文章版本: 版本ID={}, 用户ID={}", id, userId);
-        
-        return articleVersionService.deleteVersion(id, userId)
+        OperatorContext ctx = OperatorContext.current();
+        log.info("删除文章版本: 版本ID={}, 操作者={}", id, ctx);
+
+        return articleVersionService.deleteVersion(id, ctx)
                 .map(result -> {
                     if (result) {
                         log.info("删除文章版本成功: 版本ID={}", id);
@@ -163,6 +170,7 @@ public class PostVersionController {
      */
     @GetMapping("/compare/{postId}/{version1}/{version2}")
     @Operation(summary = "比较版本差异", description = "比较同一篇文章的两个不同版本之间的内容差异")
+    @SaCheckPermission(PermissionConstants.POST_VIEW)
     public Mono<Result<Map<String, Object>>> compareVersions(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
             @Parameter(description = "版本1") @PathVariable("version1") Integer version1,

@@ -1,6 +1,7 @@
 package com.ryu.blog.service.impl;
 
 
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.entity.PostVersion;
 import com.ryu.blog.entity.Posts;
 import com.ryu.blog.exception.BusinessException;
@@ -10,6 +11,8 @@ import com.ryu.blog.repository.PostVersionRepository;
 import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.service.ArticleVersionService;
+import com.ryu.blog.service.impl.article.ArticleVisibilityPolicy;
+import com.ryu.blog.utils.SaTokenUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -97,7 +100,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                                     .thenReturn(savedVersion);
                         })
                         .doOnSuccess(savedVersion -> log.info("文章版本创建成功: 文章ID={}, 版本号={}", article.getId(), savedVersion.getVersion()))
-                        .doOnError(e -> log.error("文章版本创建失败: 文章ID={}, 错误信息={}", article.getId(), e.getMessage()));
+                        .doOnError(e -> log.error("文章版本创建失败: 文章ID={}", article.getId(), e));
                 });
     }
     
@@ -134,7 +137,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                             })
                             .then()
                             .doOnSuccess(v -> log.info("旧版本清理完成: 文章ID={}, 删除数量={}", postId, toDelete))
-                            .doOnError(e -> log.error("旧版本清理失败: 文章ID={}, 错误={}", postId, e.getMessage()));
+                            .doOnError(e -> log.error("旧版本清理失败: 文章ID={}", postId, e));
                 })
                 .then();
     }
@@ -157,7 +160,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                     .map(saved -> true)
                     .doOnSuccess(result -> log.debug("更新文章之前的最新版本为非最新成功: 文章ID={}, 版本号={}", 
                             postId, latestVersion.getVersion()))
-                    .doOnError(e -> log.error("更新文章之前的最新版本为非最新失败: 文章ID={}, 错误信息={}", postId, e.getMessage()));
+                    .doOnError(e -> log.error("更新文章之前的最新版本为非最新失败: 文章ID={}", postId, e));
             })
             .defaultIfEmpty(true); // 如果没有最新版本（第一次创建），直接返回true
     }
@@ -165,7 +168,7 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
     @Override
     public Flux<PostVersion> getVersions(Long articleId, Long cursor, Integer limit) {
         log.debug("获取文章版本列表: 文章ID={}, 游标={}, 每页数量={}", articleId, cursor, limit);
-        
+
         // 参数校验
         if (limit == null || limit <= 0) {
             limit = 10;
@@ -175,55 +178,127 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
         }
         final int finalLimit = limit;
 
+        // 在订阅前取当前登录用户（Sa-Token 上下文随响应式链传播，链内再取可能已丢失）
+        final Long currentUserId = currentUserIdOrNull();
+        // 可见性还有「管理员」一档（与写路径同档），判定依赖这一项
+        final boolean canManageOthers = canManageOthersOrFalse();
 
-        return postVersionRepository.findByPostIdWithCursor(articleId, cursor, 0, finalLimit)
-                .flatMap(version -> {
-                    // 获取用户信息用于展示，但不设置到实体中
-                    return userRepository.findById(version.getEditor())
-                            .map(user -> version)
-                            .defaultIfEmpty(version);
+        return canAccessArticle(articleId, currentUserId, canManageOthers)
+                .flatMapMany(allowed -> {
+                    if (!allowed) {
+                        return Flux.error(BusinessException.postNotFound());
+                    }
+                    return postVersionRepository.findByPostIdWithCursor(articleId, cursor, 0, finalLimit)
+                            .flatMap(version -> {
+                                // 获取用户信息用于展示，但不设置到实体中
+                                return userRepository.findById(version.getEditor())
+                                        .map(user -> version)
+                                        .defaultIfEmpty(version);
+                            });
                 })
                 .doOnComplete(() -> log.debug("获取文章版本列表完成: 文章ID={}", articleId))
-                .doOnError(e -> log.error("获取文章版本列表失败: 文章ID={}, 错误信息={}", articleId, e.getMessage()));
+                .doOnError(e -> log.error("获取文章版本列表失败: 文章ID={}", articleId, e));
     }
 
     @Override
     public Mono<PostVersion> getVersion(Long articleId, Integer version) {
         log.debug("获取文章指定版本: 文章ID={}, 版本号={}", articleId, version);
-        
-        return postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version, 0)
-                .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version)))
-                .flatMap(articleVersion -> {
-                    // 获取用户信息用于展示，但不设置到实体中
-                    return userRepository.findById(articleVersion.getEditor())
-                            .map(user -> articleVersion)
-                            .defaultIfEmpty(articleVersion);
+
+        final Long currentUserId = currentUserIdOrNull();
+        // 可见性还有「管理员」一档（与写路径同档），判定依赖这一项
+        final boolean canManageOthers = canManageOthersOrFalse();
+
+        return canAccessArticle(articleId, currentUserId, canManageOthers)
+                .flatMap(allowed -> {
+                    if (!allowed) {
+                        return Mono.error(BusinessException.postNotFound());
+                    }
+                    return postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version, 0)
+                            .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version)))
+                            .flatMap(articleVersion -> {
+                                // 获取用户信息用于展示，但不设置到实体中
+                                return userRepository.findById(articleVersion.getEditor())
+                                        .map(user -> articleVersion)
+                                        .defaultIfEmpty(articleVersion);
+                            });
                 })
                 .doOnSuccess(v -> log.debug("获取文章指定版本成功: 文章ID={}, 版本号={}", articleId, version))
-                .doOnError(e -> log.error("获取文章指定版本失败: 文章ID={}, 版本号={}, 错误信息={}", articleId, version, e.getMessage()));
+                .doOnError(e -> log.error("获取文章指定版本失败: 文章ID={}, 版本号={}", articleId, version, e));
     }
 
     @Override
     public Mono<PostVersion> getLatestVersion(Long articleId) {
         log.debug("获取文章最新版本: 文章ID={}", articleId);
-        
-        return postVersionRepository.findLatestVersionByPostId(articleId, 0)
-                .switchIfEmpty(Mono.error(BusinessException.postNoVersionHistory()))
-                .flatMap(version -> {
-                    // 获取用户信息用于展示，但不设置到实体中
-                    return userRepository.findById(version.getEditor())
-                            .map(user -> version)
-                            .defaultIfEmpty(version);
+
+        final Long currentUserId = currentUserIdOrNull();
+        // 可见性还有「管理员」一档（与写路径同档），判定依赖这一项
+        final boolean canManageOthers = canManageOthersOrFalse();
+
+        return canAccessArticle(articleId, currentUserId, canManageOthers)
+                .flatMap(allowed -> {
+                    if (!allowed) {
+                        return Mono.error(BusinessException.postNotFound());
+                    }
+                    return postVersionRepository.findLatestVersionByPostId(articleId, 0)
+                            .switchIfEmpty(Mono.error(BusinessException.postNoVersionHistory()))
+                            .flatMap(version -> {
+                                // 获取用户信息用于展示，但不设置到实体中
+                                return userRepository.findById(version.getEditor())
+                                        .map(user -> version)
+                                        .defaultIfEmpty(version);
+                            });
                 })
                 .doOnSuccess(v -> log.debug("获取文章最新版本成功: 文章ID={}, 版本号={}", articleId, v.getVersion()))
-                .doOnError(e -> log.error("获取文章最新版本失败: 文章ID={}, 错误信息={}", articleId, e.getMessage()));
+                .doOnError(e -> log.error("获取文章最新版本失败: 文章ID={}", articleId, e));
+    }
+
+    /**
+     * 取当前登录用户ID，未登录或上下文不可用时返回 null
+     */
+    private Long currentUserIdOrNull() {
+        return SaTokenUtils.currentUserIdOrNull();
+    }
+
+    /**
+     * 当前操作者是否拥有「管理他人资源」的能力（{@code system:user:manage}）
+     *
+     * <p>与 {@link #currentUserIdOrNull()} 同源同时机：可见性判定依赖这两项。
+     */
+    private boolean canManageOthersOrFalse() {
+        return SaTokenUtils.currentCanManageOthers();
+    }
+
+    /**
+     * 版本历史的访问校验
+     *
+     * <p>版本里存的是文章正文全文，可见性必须与文章详情一致：
+     * <b>只有「已发布」且「公开」的文章，其版本历史才能被匿名读到</b>，
+     * 其余情况只允许作者本人与「能管理他人」的管理者。
+     *
+     * <p>原先这些读接口完全不校验 —— 只要知道 postId（自增整数，可遍历枚举）
+     * 就能拿到文章的历史版本内容，包括尚未发布的草稿内容。
+     *
+     * @param articleId 文章ID
+     * @param currentUserId 当前登录用户ID（未登录为 null）
+     * @param canManageOthers 当前操作者是否拥有「管理他人资源」的能力
+     * @return 是否允许访问
+     */
+    private Mono<Boolean> canAccessArticle(Long articleId, Long currentUserId, boolean canManageOthers) {
+        return postsRepository.findById(articleId)
+                .map(article -> ArticleVisibilityPolicy.canView(article, currentUserId, canManageOthers))
+                .defaultIfEmpty(false)
+                .doOnNext(allowed -> {
+                    if (!allowed) {
+                        log.debug("文章未公开，拒绝访问版本历史: 文章ID={}", articleId);
+                    }
+                });
     }
 
     @Override
     @Transactional
-    public Mono<Posts> rollbackToVersion(Long articleId, Integer version, Long userId) {
-        log.info("回滚文章到指定版本: 文章ID={}, 版本号={}, 用户ID={}", articleId, version, userId);
-        
+    public Mono<Posts> rollbackToVersion(Long articleId, Integer version, OperatorContext ctx) {
+        log.info("回滚文章到指定版本: 文章ID={}, 版本号={}, 操作者={}", articleId, version, ctx);
+
         // 获取指定版本
         return postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version, 0)
                 .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version)))
@@ -232,9 +307,11 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                     return postsRepository.findById(articleId)
                             .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
                             .flatMap(article -> {
-                                // 检查权限
-                                if (!article.getUserId().equals(userId)) {
-                                    log.warn("无权限操作此文章: 文章ID={}, 文章所有者={}, 请求用户={}", articleId, article.getUserId(), userId);
+                                // 归属校验：作者本人，或「能管理他人」的管理者
+                                // （与 ArticleCrudService 的写路径同一条规则）
+                                if (!OwnershipPolicy.canActOn(ctx, article.getUserId())) {
+                                    log.warn("无权限操作此文章: 文章ID={}, 文章所有者={}, 操作者={}",
+                                            articleId, article.getUserId(), ctx);
                                     return Mono.error(PermissionDeniedException.accessDenied("无权限操作此文章"));
                                 }
 
@@ -251,14 +328,14 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                             });
                 })
                 .doOnSuccess(article -> log.info("文章回滚成功: 文章ID={}, 版本号={}", article.getId(), version))
-                .doOnError(e -> log.error("文章回滚失败: 文章ID={}, 版本号={}, 错误信息={}", articleId, version, e.getMessage()));
+                .doOnError(e -> log.error("文章回滚失败: 文章ID={}, 版本号={}", articleId, version, e));
     }
 
     @Override
     @Transactional
-    public Mono<Boolean> deleteVersion(Long id, Long userId) {
-        log.info("删除文章版本: 版本ID={}, 用户ID={}", id, userId);
-        
+    public Mono<Boolean> deleteVersion(Long id, OperatorContext ctx) {
+        log.info("删除文章版本: 版本ID={}, 操作者={}", id, ctx);
+
         return postVersionRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound()))
                 .flatMap(version -> {
@@ -266,10 +343,10 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                     return postsRepository.findById(version.getPostId())
                             .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
                             .flatMap(article -> {
-                                // 检查权限
-                                if (!article.getUserId().equals(userId)) {
-                                    log.warn("无权限删除此版本: 文章ID={}, 版本ID={}, 文章所有者={}, 请求用户={}", 
-                                           version.getPostId(), id, article.getUserId(), userId);
+                                // 归属校验：作者本人，或「能管理他人」的管理者
+                                if (!OwnershipPolicy.canActOn(ctx, article.getUserId())) {
+                                    log.warn("无权限删除此版本: 文章ID={}, 版本ID={}, 文章所有者={}, 操作者={}",
+                                            version.getPostId(), id, article.getUserId(), ctx);
                                     return Mono.just(false);
                                 }
 
@@ -291,22 +368,43 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                             });
                 })
                 .defaultIfEmpty(false)
-                .doOnError(e -> log.error("删除版本失败: 版本ID={}, 错误信息={}", id, e.getMessage()));
+                .doOnError(e -> log.error("删除版本失败: 版本ID={}", id, e));
     }
 
     @Override
     public Mono<Map<String, Object>> compareVersions(Long articleId, Integer version1, Integer version2) {
         log.debug("比较文章版本差异: 文章ID={}, 版本1={}, 版本2={}", articleId, version1, version2);
-        
-        if (version1.equals(version2)) {
-            log.warn("比较相同版本: 文章ID={}, 版本={}", articleId, version1);
-            return Mono.just(Map.of("message", "相同版本无差异"));
-        }
-        
+
+        // 在订阅前取当前登录用户（Sa-Token 上下文随响应式链传播，链内再取可能已丢失）
+        final Long currentUserId = currentUserIdOrNull();
+        // 可见性还有「管理员」一档（与写路径同档），判定依赖这一项
+        final boolean canManageOthers = canManageOthersOrFalse();
+
+        // 可见性校验必须排在「两个版本相同」的短路之前，
+        // 否则未授权的人用 version1 == version2 就能试探出文章是否存在
+        return canAccessArticle(articleId, currentUserId, canManageOthers)
+                .flatMap(allowed -> {
+                    if (!allowed) {
+                        return Mono.error(BusinessException.postNotFound());
+                    }
+                    if (version1.equals(version2)) {
+                        log.warn("比较相同版本: 文章ID={}, 版本={}", articleId, version1);
+                        return Mono.just(Map.<String, Object>of("message", "相同版本无差异"));
+                    }
+                    return compareVersionsInternal(articleId, version1, version2);
+                })
+                .doOnSuccess(diff -> log.debug("比较文章版本差异成功: 文章ID={}, 版本1={}, 版本2={}", articleId, version1, version2))
+                .doOnError(e -> log.error("比较文章版本差异失败: 文章ID={}, 版本1={}, 版本2={}", articleId, version1, version2, e));
+    }
+
+    /**
+     * 比较两个版本的实际内容（调用方已完成可见性校验）
+     */
+    private Mono<Map<String, Object>> compareVersionsInternal(Long articleId, Integer version1, Integer version2) {
         // 获取两个版本
         Mono<PostVersion> v1Mono = postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version1, 0)
                 .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version1)));
-        
+
         Mono<PostVersion> v2Mono = postVersionRepository.findByPostIdAndVersionAndIsDeleted(articleId, version2, 0)
                 .switchIfEmpty(Mono.error(BusinessException.postVersionNotFound(version2)));
 
@@ -353,9 +451,6 @@ public class ArticleVersionServiceImpl implements ArticleVersionService {
                     ));
 
                     return diff;
-                })
-                .doOnSuccess(diff -> log.debug("比较文章版本差异成功: 文章ID={}, 版本1={}, 版本2={}", articleId, version1, version2))
-                .doOnError(e -> log.error("比较文章版本差异失败: 文章ID={}, 版本1={}, 版本2={}, 错误信息={}", 
-                        articleId, version1, version2, e.getMessage()));
+                });
     }
 } 

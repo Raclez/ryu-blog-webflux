@@ -1,10 +1,12 @@
 package com.ryu.blog.service.impl;
 
 import com.ryu.blog.entity.Favorite;
+import com.ryu.blog.exception.BusinessException;
 import com.ryu.blog.repository.FavoriteRepository;
 import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.service.FavoriteService;
+import com.ryu.blog.service.impl.article.ArticleVisibilityPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,10 @@ public class FavoriteServiceImpl implements FavoriteService {
      * 切换收藏状态
      * 如果文章已被收藏，则取消收藏；如果未收藏，则添加收藏
      *
+     * <p>收藏前先确认文章存在、且当前用户看得见 —— 否则可以对着任意 id
+     * 建出一堆指向不存在文章的脏收藏行（收藏列表里会渲染出 article = null 的条目），
+     * 同时也堵掉了「收藏自己看不见的草稿」这种无意义的写入。
+     *
      * @param articleId 文章ID
      * @param userId 用户ID
      * @return true表示添加收藏，false表示取消收藏
@@ -38,26 +44,34 @@ public class FavoriteServiceImpl implements FavoriteService {
     @Override
     @Transactional
     public Mono<Boolean> toggleFavorite(Long articleId, Long userId) {
-        // 先检查收藏记录是否存在
-        return favoriteRepository.findByUserIdAndArticleIdAndIsDeleted(userId, articleId, 0)
-                .flatMap(favorite -> {
-                    // 如果存在，则取消收藏
-                    favorite.setIsDeleted(true);
-                    favorite.setUpdateTime(LocalDateTime.now());
-                    return favoriteRepository.save(favorite).map(f -> false);
-                })
-                .switchIfEmpty(
-                        // 如果不存在，则添加收藏
-                        Mono.defer(() -> {
-                            Favorite favorite = new Favorite();
-                            favorite.setPostId(articleId);
-                            favorite.setUserId(userId);
-                            favorite.setCreateTime(LocalDateTime.now());
-                            favorite.setUpdateTime(LocalDateTime.now());
-                            favorite.setIsDeleted(false);
-                            return favoriteRepository.save(favorite).map(f -> true);
-                        })
-                );
+        return postsRepository.findById(articleId)
+                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
+                .flatMap(article -> {
+                    if (Boolean.TRUE.equals(article.getIsDeleted())
+                            || !ArticleVisibilityPolicy.canView(article, userId)) {
+                        return Mono.error(BusinessException.postNotFound());
+                    }
+                    // 检查收藏记录是否存在
+                    return favoriteRepository.findByUserIdAndPostIdAndIsDeleted(userId, articleId, 0)
+                            .flatMap(favorite -> {
+                                // 如果存在，则取消收藏
+                                favorite.setIsDeleted(true);
+                                favorite.setUpdateTime(LocalDateTime.now());
+                                return favoriteRepository.save(favorite).map(f -> false);
+                            })
+                            .switchIfEmpty(
+                                    // 如果不存在，则添加收藏
+                                    Mono.defer(() -> {
+                                        Favorite favorite = new Favorite();
+                                        favorite.setPostId(articleId);
+                                        favorite.setUserId(userId);
+                                        favorite.setCreateTime(LocalDateTime.now());
+                                        favorite.setUpdateTime(LocalDateTime.now());
+                                        favorite.setIsDeleted(false);
+                                        return favoriteRepository.save(favorite).map(f -> true);
+                                    })
+                            );
+                });
     }
 
     /**
@@ -69,7 +83,7 @@ public class FavoriteServiceImpl implements FavoriteService {
      */
     @Override
     public Mono<Boolean> checkFavorited(Long articleId, Long userId) {
-        return favoriteRepository.findByUserIdAndArticleIdAndIsDeleted(userId, articleId, 0)
+        return favoriteRepository.findByUserIdAndPostIdAndIsDeleted(userId, articleId, 0)
                 .map(favorite -> true)
                 .defaultIfEmpty(false);
     }
@@ -82,7 +96,7 @@ public class FavoriteServiceImpl implements FavoriteService {
      */
     @Override
     public Mono<Long> getFavoriteCount(Long articleId) {
-        return favoriteRepository.countByArticleIdAndIsDeleted(articleId, 0);
+        return favoriteRepository.countByPostIdAndIsDeleted(articleId, 0);
     }
 
     /**
@@ -150,11 +164,20 @@ public class FavoriteServiceImpl implements FavoriteService {
     /**
      * 批量获取文章的收藏数量
      *
+     * <p><b>空集合必须提前挡掉</b>：底层 SQL 是 {@code post_id IN (:articleIds)}，
+     * 集合为空时驱动会把占位符展开成 {@code IN ()} —— MySQL 直接报语法错误 1064。
+     * 这个接口是 REST 暴露的（{@code POST /favorite/batch-count}），
+     * 客户端传一个空数组就会把请求打成 500。
+     *
      * @param articleIds 文章ID集合
      * @return Map，key为文章ID，value为收藏数量
      */
     @Override
     public Mono<Map<Long, Long>> batchGetFavoriteCounts(Iterable<Long> articleIds) {
+        if (articleIds == null || !articleIds.iterator().hasNext()) {
+            return Mono.just(Collections.emptyMap());
+        }
+
         return favoriteRepository.countByArticleIdsAndIsDeleted(articleIds)
                 .collectMap(
                         objects -> (Long) objects[0],  // articleId

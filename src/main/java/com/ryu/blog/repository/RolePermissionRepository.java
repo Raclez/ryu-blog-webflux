@@ -61,4 +61,27 @@ public interface RolePermissionRepository extends R2dbcRepository<RolePermission
 
     @Query("SELECT role_id, permission_id FROM t_role_permissions WHERE role_id IN (:roleIds)")
     Flux<RolePermission> findByRoleIds(List<Long> roleIds);
+
+    /**
+     * 查询用户（经由启用中的角色）直接拥有的权限ID
+     *
+     * <p>这是权限判定的<b>唯一权威链路</b>：user → role → permission。
+     * 相比原先「先查 roleIds 再查 role_permissions 再查 permissions」的三段查询，
+     * 这里一次 JOIN 走完，并且把三处过滤条件都写进了 SQL：
+     * <ul>
+     *   <li>{@code r.is_active = 1} —— 禁用角色不再授予权限</li>
+     *   <li>{@code r.is_deleted = 0} —— 已删除角色不授予权限</li>
+     *   <li>{@code rp.is_deleted = 0} —— 已删除的授权关系不生效</li>
+     * </ul>
+     *
+     * <p>权限自身的 {@code is_active} 在 {@link PermissionsRepository#findEnabledByIdIn} 里过滤。
+     *
+     * @param userId 用户ID
+     * @return 权限ID列表（已去重）
+     */
+    @Query("SELECT DISTINCT rp.permission_id FROM t_role_permissions rp "
+            + "JOIN t_roles r ON r.id = rp.role_id "
+            + "JOIN t_user_roles ur ON ur.role_id = r.id "
+            + "WHERE ur.user_id = :userId AND r.is_active = 1 AND r.is_deleted = 0 AND rp.is_deleted = 0")
+    Flux<Long> findPermissionIdsByUserId(Long userId);
 } 

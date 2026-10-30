@@ -45,7 +45,7 @@ public class SysDictItemController {
     @GetMapping("/page")
     @Operation(summary = "分页查询字典项", description = "支持按字典类型和标签查询")
     public Mono<Result<PageResult<SysDictItemVO>>> getSysDictItem(
-            @ParameterObject SysDictItemDTO sysDictItemDTO) {
+            @ParameterObject @Valid SysDictItemDTO sysDictItemDTO) {
         log.info("分页查询字典项，查询条件: {}", sysDictItemDTO);
         return dictItemService.getDictItemPage(sysDictItemDTO)
                 .map(Result::success);

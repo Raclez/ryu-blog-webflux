@@ -1,6 +1,8 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.ryu.blog.constant.MessageConstants;
+import com.ryu.blog.constant.PermissionConstants;
 import com.ryu.blog.dto.CategoryCreateDTO;
 import com.ryu.blog.dto.CategoryListDTO;
 import com.ryu.blog.dto.CategoryUpdateDTO;
@@ -40,6 +42,7 @@ public class CategoryController {
     @Operation(summary = "创建分类", description = "创建新分类")
     @PostMapping("/save")
     @ResponseStatus(HttpStatus.CREATED)
+    @SaCheckPermission(PermissionConstants.CATEGORY_ADD)
     public Mono<Result<String>> createCategory(@RequestBody @Validated CategoryCreateDTO categoryCreateDTO) {
         log.info("创建分类请求: {}", categoryCreateDTO);
         return categoryService.createCategory(categoryCreateDTO)
@@ -50,6 +53,7 @@ public class CategoryController {
 
     @Operation(summary = "更新分类", description = "更新已有分类")
     @PutMapping("/edit")
+    @SaCheckPermission(PermissionConstants.CATEGORY_EDIT)
     public Mono<Result<String>> updateCategory(@RequestBody @Validated CategoryUpdateDTO categoryUpdateDTO) {
         log.info("更新分类请求: {}", categoryUpdateDTO);
         return categoryService.updateCategory(categoryUpdateDTO)
@@ -67,6 +71,7 @@ public class CategoryController {
 
     @Operation(summary = "删除分类", description = "根据ID删除分类")
     @DeleteMapping("/delete/{id}")
+    @SaCheckPermission(PermissionConstants.CATEGORY_REMOVE)
     public Mono<Result<String>> deleteCategory(@PathVariable Long id) {
         log.info("删除分类请求: id={}", id);
         return categoryService.deleteCategory(id)
@@ -85,6 +90,7 @@ public class CategoryController {
 
     @Operation(summary = "获取所有分类统计信息", description = "获取所有分类的统计信息列表，包含文章数量")
     @GetMapping("/stats")
+    @SaCheckPermission(PermissionConstants.CATEGORY_VIEW)
     public Mono<Result<List<CategoryStatsVO>>> getAllCategoriesWithStats() {
         return categoryService.getAllCategoriesWithArticleCount()
                 .collectList()

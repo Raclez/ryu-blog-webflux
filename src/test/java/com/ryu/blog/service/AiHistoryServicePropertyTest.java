@@ -2,7 +2,7 @@ package com.ryu.blog.service;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.*;
-import org.junit.jupiter.api.Tag;
+import net.jqwik.api.Label;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +26,7 @@ public class AiHistoryServicePropertyTest {
      * <p>验证：需求7.1, 7.3
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyRecordCompleteness(
             @ForAll @Positive Long userId,
             @ForAll @StringLength(min = 10, max = 200) @AlphaChars String prompt,
@@ -35,7 +35,7 @@ public class AiHistoryServicePropertyTest {
             @ForAll @StringLength(min = 5, max = 20) @AlphaChars String providerName,
             @ForAll @StringLength(min = 5, max = 30) @AlphaChars String modelName,
             @ForAll @IntRange(min = 100, max = 10000) int tokenCount,
-            @ForAll @DoubleRange(min = 0.001, max = 10.0) double cost,
+            @ForAll("cost") double cost,
             @ForAll @Positive long generationTime) {
         
         // 创建历史记录
@@ -77,7 +77,7 @@ public class AiHistoryServicePropertyTest {
      * 验证历史记录的不可变性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyRecordImmutability(
             @ForAll @Positive Long userId,
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String prompt,
@@ -105,7 +105,7 @@ public class AiHistoryServicePropertyTest {
      * 验证历史记录的查询完整性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyQueryCompleteness(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 1, max = 50) int recordCount) {
@@ -138,7 +138,7 @@ public class AiHistoryServicePropertyTest {
      * 验证历史记录的时间顺序
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyRecordTimeOrdering(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 2, max = 20) int recordCount) {
@@ -167,7 +167,7 @@ public class AiHistoryServicePropertyTest {
      * 验证历史记录的删除标记
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyRecordDeletionFlag(
             @ForAll @Positive Long userId,
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String prompt) {
@@ -194,11 +194,11 @@ public class AiHistoryServicePropertyTest {
      * 验证历史记录的元数据完整性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyRecordMetadataCompleteness(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 100, max = 10000) int tokenCount,
-            @ForAll @DoubleRange(min = 0.001, max = 10.0) double cost,
+            @ForAll("cost") double cost,
             @ForAll @Positive long generationTime) {
         
         // 创建历史记录
@@ -222,7 +222,7 @@ public class AiHistoryServicePropertyTest {
      * 验证批量保存的原子性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void batchSaveAtomicity(
             @ForAll @Positive Long userId,
             @ForAll @IntRange(min = 2, max = 10) int batchSize) {
@@ -251,7 +251,7 @@ public class AiHistoryServicePropertyTest {
      * 验证历史记录的唯一性
      */
     @Property(tries = 100)
-    @Tag("Feature: ai-blog-writer, Property 6: 历史记录完整性")
+    @Label("Feature: ai-blog-writer, Property 6: 历史记录完整性")
     void historyRecordUniqueness(
             @ForAll @Positive Long userId,
             @ForAll @StringLength(min = 10, max = 100) @AlphaChars String prompt) {
@@ -336,5 +336,18 @@ public class AiHistoryServicePropertyTest {
         long generationTime;
         long createTime;
         int isDeleted;
+    }
+
+    // ------------------------------------------------------------------
+    // 生成器
+    //
+    // 不用 @DoubleRange：jqwik 1.8.2 的 double 生成器内部走 BigDecimal 且默认
+    // scale=2，边界值小数位超过 2 就抛 "cannot be represented with scale 2"。
+    // ------------------------------------------------------------------
+
+    /** 生成成本，范围 0.001 ~ 10.0 美元。 */
+    @Provide
+    Arbitrary<Double> cost() {
+        return Arbitraries.doubles().between(0.001, 10.0).ofScale(6);
     }
 }

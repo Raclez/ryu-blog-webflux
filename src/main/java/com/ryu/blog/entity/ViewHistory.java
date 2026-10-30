@@ -22,7 +22,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table("t_view_history")
-@EqualsAndHashCode(callSuper = true, of = {"id"})
+@EqualsAndHashCode(callSuper = true)
 public class ViewHistory extends BaseEntity {
 
     /**
@@ -30,6 +30,14 @@ public class ViewHistory extends BaseEntity {
      */
     @Column("visitor_id")
     private String visitorId;
+
+    /**
+     * 登录用户ID。匿名访客为 null。
+     * <p>visitor_id 是前端生成的匿名访客标识，与登录用户不是一回事；
+     * 「我的浏览历史」这类接口必须按 user_id 过滤。
+     */
+    @Column("user_id")
+    private Long userId;
 
     /**
      * 被浏览文章的唯一标识

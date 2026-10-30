@@ -3,6 +3,7 @@ package com.ryu.blog.service.impl;
 import com.ryu.blog.dto.AiUsageStatistics;
 import com.ryu.blog.entity.AiUsageQuota;
 import com.ryu.blog.repository.AiGenerationHistoryRepository;
+import com.ryu.blog.config.ConditionalOnAiEnabled;
 import com.ryu.blog.service.AiUsageStatisticsService;
 import com.ryu.blog.service.RateLimitService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -26,6 +28,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnAiEnabled
 public class AiUsageStatisticsServiceImpl implements AiUsageStatisticsService {
 
     private final AiGenerationHistoryRepository historyRepository;
@@ -35,19 +38,38 @@ public class AiUsageStatisticsServiceImpl implements AiUsageStatisticsService {
     private static final String REDIS_STATS_PREFIX = "ai:stats:";
     
     // 模型定价（每1000个令牌的成本，美元）
+    //
+    // 注意：这里的价格是「每 1000 token」，且各家的输入/输出单价差异很大。
+    // 定价表会过期，用的时候记得核对官方价格。
     private static final Map<String, ModelPricing> MODEL_PRICING = new HashMap<>();
-    
+
     static {
-        // OpenAI定价
-        MODEL_PRICING.put("gpt-4", new ModelPricing(0.03, 0.06));
+        // ---- OpenAI ----
+        MODEL_PRICING.put("gpt-4o", new ModelPricing(0.0025, 0.01));
+        MODEL_PRICING.put("gpt-4o-mini", new ModelPricing(0.00015, 0.0006));
+        MODEL_PRICING.put("gpt-4.1", new ModelPricing(0.002, 0.008));
         MODEL_PRICING.put("gpt-4-turbo", new ModelPricing(0.01, 0.03));
+        MODEL_PRICING.put("gpt-4", new ModelPricing(0.03, 0.06));
         MODEL_PRICING.put("gpt-3.5-turbo", new ModelPricing(0.0005, 0.0015));
-        
-        // Anthropic定价
+
+        // ---- Anthropic ----
+        MODEL_PRICING.put("claude-3-5-sonnet", new ModelPricing(0.003, 0.015));
+        MODEL_PRICING.put("claude-3-5-haiku", new ModelPricing(0.0008, 0.004));
         MODEL_PRICING.put("claude-3-opus", new ModelPricing(0.015, 0.075));
         MODEL_PRICING.put("claude-3-sonnet", new ModelPricing(0.003, 0.015));
         MODEL_PRICING.put("claude-3-haiku", new ModelPricing(0.00025, 0.00125));
-        
+
+        // ---- 国内 / 兼容 OpenAI 协议的服务 ----
+        MODEL_PRICING.put("deepseek-reasoner", new ModelPricing(0.00055, 0.00219));
+        MODEL_PRICING.put("deepseek-chat", new ModelPricing(0.00014, 0.00028));
+        MODEL_PRICING.put("qwen-max", new ModelPricing(0.0016, 0.0064));
+        MODEL_PRICING.put("qwen-plus", new ModelPricing(0.0004, 0.0012));
+        MODEL_PRICING.put("qwen-turbo", new ModelPricing(0.0001, 0.0003));
+        MODEL_PRICING.put("gemini-1.5-pro", new ModelPricing(0.00125, 0.005));
+        MODEL_PRICING.put("gemini-1.5-flash", new ModelPricing(0.000075, 0.0003));
+        MODEL_PRICING.put("grok-3-mini", new ModelPricing(0.0003, 0.0005));
+        MODEL_PRICING.put("grok-2", new ModelPricing(0.002, 0.01));
+
         // 默认定价
         MODEL_PRICING.put("default", new ModelPricing(0.001, 0.002));
     }
@@ -64,7 +86,10 @@ public class AiUsageStatisticsServiceImpl implements AiUsageStatisticsService {
                 .increment(key, "totalRequests", 1)
                 .then(redisTemplate.opsForHash().increment(key, success ? "successCount" : "failureCount", 1))
                 .then(redisTemplate.opsForHash().increment(key, "totalTokens", tokenCount != null ? tokenCount : 0))
-                .then(redisTemplate.opsForHash().increment(key, "totalCost", cost != null ? cost.longValue() * 1000000 : 0))
+                // 成本按百万分之一美元累加。原先是 cost.longValue() * 1000000，
+                // 而单次成本普遍小于 1 美元，longValue() 直接截断成 0 —— 统计里的成本永远是 0
+                .then(redisTemplate.opsForHash().increment(key, "totalCost",
+                        cost != null ? Math.round(cost * 1_000_000) : 0))
                 .then(redisTemplate.opsForHash().increment(key, "totalResponseTime", responseTime != null ? responseTime : 0))
                 .then(redisTemplate.expire(key, Duration.ofDays(31)))
                 .then()
@@ -121,7 +146,7 @@ public class AiUsageStatisticsServiceImpl implements AiUsageStatisticsService {
     public Mono<AiUsageStatistics> getStatistics(Long userId, LocalDateTime startTime, LocalDateTime endTime) {
         log.debug("获取统计信息: userId={}, start={}, end={}", userId, startTime, endTime);
         
-        return historyRepository.findByUserIdAndCreateTimeBetween(userId, startTime, endTime, 0)
+        return historyRepository.findByUserIdAndIsDeletedAndCreateTimeBetween(userId, 0, startTime, endTime)
                 .collectList()
                 .zipWith(rateLimitService.getQuota(userId))
                 .map(tuple -> {
@@ -174,20 +199,48 @@ public class AiUsageStatisticsServiceImpl implements AiUsageStatisticsService {
         if (promptTokens == null || completionTokens == null) {
             return 0.0;
         }
-        
+
         // 查找模型定价
-        ModelPricing pricing = MODEL_PRICING.getOrDefault(modelName, MODEL_PRICING.get("default"));
-        
+        ModelPricing pricing = resolvePricing(modelName);
+
         // 计算成本（每1000个令牌）
         double promptCost = (promptTokens / 1000.0) * pricing.promptPrice;
         double completionCost = (completionTokens / 1000.0) * pricing.completionPrice;
-        
+
         double totalCost = promptCost + completionCost;
-        
+
         log.debug("成本估算: provider={}, model={}, promptTokens={}, completionTokens={}, cost=${}",
                 providerName, modelName, promptTokens, completionTokens, totalCost);
-        
+
         return totalCost;
+    }
+
+    /**
+     * 解析模型定价
+     *
+     * <p>原先是精确匹配 {@code MODEL_PRICING.get(modelName)}，于是
+     * {@code gpt-4o-2024-08-06}、{@code claude-3-5-sonnet-20241022} 这类带版本号的
+     * 模型名全部落到 default 价，成本统计会差出一个数量级。
+     * 现在按「最长前缀」匹配：{@code gpt-4o} 优先于 {@code gpt-4}。
+     *
+     * @param modelName 模型名
+     * @return 定价
+     */
+    private ModelPricing resolvePricing(String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            return MODEL_PRICING.get("default");
+        }
+        String lower = modelName.toLowerCase(Locale.ROOT);
+        ModelPricing matched = null;
+        int matchedLength = -1;
+        for (Map.Entry<String, ModelPricing> entry : MODEL_PRICING.entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ROOT);
+            if (lower.startsWith(key) && key.length() > matchedLength) {
+                matched = entry.getValue();
+                matchedLength = key.length();
+            }
+        }
+        return matched != null ? matched : MODEL_PRICING.get("default");
     }
 
     @Override

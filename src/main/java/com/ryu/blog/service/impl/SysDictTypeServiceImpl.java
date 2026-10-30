@@ -18,11 +18,6 @@ import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
-import org.springframework.data.relational.core.query.Criteria;
-import org.springframework.data.relational.core.query.Query;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,7 +42,6 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     private final SysDictTypeRepository dictTypeRepository;
     private final SysDictItemRepository dictItemRepository;
     private final SysDictTypeMapper sysDictTypeMapper;
-    private final R2dbcEntityTemplate entityTemplate;
 
     /**
      * 基础查询操作
@@ -56,32 +50,18 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     @Override
     public Mono<PageResult<SysDictTypeVO>> getDictTypePage(SysDictTypeQueryDTO queryDTO) {
         log.debug("分页查询字典类型, 查询条件: {}", queryDTO);
-        
-        Pageable pageable = PageRequest.of(queryDTO.getCurrentPage().intValue() - 1, queryDTO.getPageSize().intValue());
-        
-        Criteria criteria = Criteria.empty();
-        
-        // 只查询未删除的记录
-        criteria = criteria.and("is_deleted").is(SystemConstants.NOT_DELETED);
-        
-        // 根据类型名称模糊查询
-        if (StringUtils.hasText(queryDTO.getTypeName())) {
-            criteria = criteria.and("type_name").like("%" + queryDTO.getTypeName() + "%");
-        }
-        
-        // 根据类型编码精确查询
-        if (StringUtils.hasText(queryDTO.getTypeCode())) {
-            criteria = criteria.and("dict_type").is(queryDTO.getTypeCode());
-        }
-        
-        Query query = Query.query(criteria);
-        
-        return entityTemplate.select(SysDictType.class)
-                .matching(query.with(pageable))
-                .all()
+
+        int limit = queryDTO.getPageSize().intValue();
+        long offset = (queryDTO.getCurrentPage().intValue() - 1L) * limit;
+
+        // 空串表示不过滤该条件（见 SysDictTypeRepository#findByCondition）
+        String typeName = StringUtils.hasText(queryDTO.getTypeName()) ? queryDTO.getTypeName() : "";
+        String dictType = StringUtils.hasText(queryDTO.getTypeCode()) ? queryDTO.getTypeCode() : "";
+
+        return dictTypeRepository.findByCondition(typeName, dictType, limit, offset)
                 .map(sysDictTypeMapper::toVO)
                 .collectList()
-                .zipWith(entityTemplate.count(Query.query(criteria), SysDictType.class))
+                .zipWith(dictTypeRepository.countByCondition(typeName, dictType))
                 .map(tuple -> {
                     List<SysDictTypeVO> content = tuple.getT1();
                     Long total = tuple.getT2();
@@ -126,7 +106,9 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     @Override
     @Caching(evict = {
             @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'"),
-            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+            // 用入参而不是 #result：响应式场景下 #result 拿到的是返回的 Mono，
+            // 取不到解析后的实体的属性，key 会算错、缓存清不掉
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #dictTypeDTO.dictType")
     })
     public Mono<SysDictTypeVO> createDictType(SysDictTypeAddDTO dictTypeDTO) {
         log.debug("创建字典类型: {}", dictTypeDTO);
@@ -155,7 +137,8 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     @Caching(evict = {
             @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'"),
             @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_ID_KEY + "' + #dictTypeDTO.id"),
-            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #result.dictType", condition = "#result != null")
+            // 用入参而不是 #result（响应式下 #result 取不到实体的属性）
+            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #dictTypeDTO.dictType")
     })
     public Mono<SysDictTypeVO> updateDictType(SysDictTypeUpdateDTO dictTypeDTO) {
         log.debug("更新字典类型: {}", dictTypeDTO);

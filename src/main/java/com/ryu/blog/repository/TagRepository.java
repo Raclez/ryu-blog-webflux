@@ -97,9 +97,15 @@ public interface TagRepository extends R2dbcRepository<Tag, Long> {
 
     /**
      * 根据名称查询标签
+     *
+     * <p>{@code isDeleted} 必须真的参与条件判断 —— 原来这里写的是硬编码的
+     * {@code is_deleted = 0}，参数形同虚设：调用方传 1 想查已删除的标签，
+     * 拿到的仍然是未删除的那条。
+     *
      * @param name 标签名称
+     * @param isDeleted 删除标记（0-未删除，1-已删除）
      * @return 标签信息
      */
-    @Query("SELECT * FROM t_tags WHERE name = :name AND is_deleted = 0 LIMIT 1")
+    @Query("SELECT * FROM t_tags WHERE name = :name AND is_deleted = :isDeleted LIMIT 1")
     Mono<Tag> findByNameAndIsDeleted(String name, Integer isDeleted);
 } 

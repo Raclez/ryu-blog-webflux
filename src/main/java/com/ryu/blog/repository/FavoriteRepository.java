@@ -22,7 +22,7 @@ public interface FavoriteRepository extends R2dbcRepository<Favorite, Long> {
      * @param articleId 文章ID
      * @return 收藏记录
      */
-    Mono<Favorite> findByUserIdAndArticleIdAndIsDeleted(Long userId, Long articleId, Integer isDeleted);
+    Mono<Favorite> findByUserIdAndPostIdAndIsDeleted(Long userId, Long articleId, Integer isDeleted);
 
     /**
      * 根据文章ID查询收藏记录
@@ -30,7 +30,7 @@ public interface FavoriteRepository extends R2dbcRepository<Favorite, Long> {
      * @param articleId 文章ID
      * @return 收藏记录列表
      */
-    Flux<Favorite> findByArticleIdAndIsDeleted(Long articleId, Integer isDeleted);
+    Flux<Favorite> findByPostIdAndIsDeleted(Long articleId, Integer isDeleted);
 
     /**
      * 统计某篇文章的收藏数
@@ -38,7 +38,7 @@ public interface FavoriteRepository extends R2dbcRepository<Favorite, Long> {
      * @param articleId 文章ID
      * @return 收藏数
      */
-    Mono<Long> countByArticleIdAndIsDeleted(Long articleId, Integer isDeleted);
+    Mono<Long> countByPostIdAndIsDeleted(Long articleId, Integer isDeleted);
 
     /**
      * 根据用户ID查询收藏记录
@@ -56,7 +56,7 @@ public interface FavoriteRepository extends R2dbcRepository<Favorite, Long> {
      * @param pageable  分页参数
      * @return 收藏记录列表
      */
-    @Query("SELECT f.* FROM t_favorite f WHERE f.user_id = :userId AND f.is_deleted = :isDeleted ORDER BY f.create_time DESC LIMIT :limit OFFSET :offset")
+    @Query("SELECT f.* FROM t_favorites f WHERE f.user_id = :userId AND f.is_deleted = :isDeleted ORDER BY f.create_time DESC LIMIT :limit OFFSET :offset")
     Flux<Favorite> findByUserIdAndIsDeletedOrderByCreateTimeDesc(Long userId, Integer isDeleted, int limit, long offset);
 
     /**
@@ -74,6 +74,6 @@ public interface FavoriteRepository extends R2dbcRepository<Favorite, Long> {
      * @param articleIds 文章ID列表
      * @return 文章ID和收藏数的映射
      */
-    @Query("SELECT article_id, COUNT(*) as count FROM t_favorite WHERE article_id IN (:articleIds) AND is_deleted = 0 GROUP BY article_id")
+    @Query("SELECT post_id, COUNT(*) as count FROM t_favorites WHERE post_id IN (:articleIds) AND is_deleted = 0 GROUP BY post_id")
     Flux<Object[]> countByArticleIdsAndIsDeleted(Iterable<Long> articleIds);
 } 

@@ -29,10 +29,21 @@ import java.util.*;
  * @author ryu 475118582@qq.com
  */
 @Slf4j
-public class FileUtils {
+public final class FileUtils {
+
+    private FileUtils() {
+    }
 
     private static final Map<String, String> MIME_TYPE_MAP = new HashMap<>();
     private static final int BUFFER_SIZE = 8192;
+
+    /** 文件名长度上限（保留扩展名），与常见 varchar(255) 列对齐 */
+    private static final int MAX_FILE_NAME_LENGTH = 200;
+
+    /**
+     * Tika 实例是线程安全的，且构造开销不小 —— 每次上传都 new 一个纯属浪费。
+     */
+    private static final Tika TIKA = new Tika();
 
     static {
         // 初始化MIME类型映射
@@ -134,15 +145,46 @@ public class FileUtils {
     }
 
     /**
-     * 生成唯一文件名（yyyyMMddHHmmssUUID8位.扩展名，无任何分隔符）
+     * 生成唯一文件名（完整 UUID + 原扩展名）
+     *
+     * <p><b>为什么换掉时间戳方案</b>：早先是 {@code yyyyMMddHHmmss} + 8 位十六进制，
+     * 同一秒内只有 <b>32 bit</b> 随机量。文件名一旦撞了，后写的文件会覆盖先写的 ——
+     * 而「覆盖」在本地存储上意味着数据丢失。完整 UUID 是 128 bit，任何规模下都不撞。
+     *
+     * <p><b>扩展名为什么自己取</b>：{@link #getFileExtension} 会把扩展名转小写
+     * （那是给 MIME 查表用的），而且对 {@code ../../etc/passwd} 这种输入，
+     * 它的 {@code lastIndexOf('.')} 会落在 {@code ..} 上，返回 {@code /etc/passwd} ——
+     * 于是「生成的文件名」里混进了路径分隔符。这里先剥掉路径段，
+     * 再只接受纯字母数字的扩展名，保留原大小写。
+     *
      * @param originalFileName 原始文件名
-     * @return 唯一文件名
+     * @return 唯一的文件名
      */
     public static String generateUniqueFileName(String originalFileName) {
-        String ext = getFileExtension(originalFileName);
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String uuid = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8);
-        return ext.isEmpty() ? (timestamp + uuid) : (timestamp + uuid + "." + ext);
+        String uuid = UUID.randomUUID().toString().replace("-", "");
+        String ext = safeExtensionOf(originalFileName);
+        return ext.isEmpty() ? uuid : (uuid + "." + ext);
+    }
+
+    /**
+     * 取「安全的」扩展名：先剥掉路径段，只接受 1~10 位的字母数字，保留原大小写。
+     *
+     * @param fileName 原始文件名（可能带路径）
+     * @return 扩展名，不合法时返回空串
+     */
+    private static String safeExtensionOf(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        String base = fileName.substring(
+                Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\')) + 1);
+        int dotIndex = base.lastIndexOf('.');
+        if (dotIndex <= 0 || dotIndex == base.length() - 1) {
+            return "";
+        }
+        String ext = base.substring(dotIndex + 1);
+        // 只认字母数字：路径分隔符、控制字符、空白一律不要
+        return ext.matches("[A-Za-z0-9]{1,10}") ? ext : "";
     }
 
     /**
@@ -271,8 +313,7 @@ public class FileUtils {
      */
     public static String getMimeType(byte[] data, String fileName) {
         try (InputStream is = new ByteArrayInputStream(data)) {
-            Tika tika = new Tika();
-            String mime = tika.detect(is, fileName);
+            String mime = TIKA.detect(is, fileName);
             return mime != null ? mime : getContentType(fileName);
         } catch (IOException e) {
             log.warn("Tika识别MIME失败-IO异常，降级为扩展名: {}", e.getMessage());
@@ -300,7 +341,27 @@ public class FileUtils {
      * @return 安全文件名
      */
     public static String sanitizeFileName(String fileName) {
-        return fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (fileName == null || fileName.trim().isEmpty()) {
+            return "unnamed";
+        }
+        // 路径分隔符、Windows 保留字符、控制字符一律替换，避免 ../ 或 NUL 注入
+        String cleaned = fileName.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
+        if (cleaned.isEmpty()) {
+            return "unnamed";
+        }
+        // 数据库列/对象键都有长度上限；截断时保留扩展名
+        if (cleaned.length() > MAX_FILE_NAME_LENGTH) {
+            String ext = getFileExtension(cleaned);
+            // 异常超长「扩展名」（其实是文件名的一部分）不保留
+            if (ext.length() > 20) {
+                ext = "";
+            }
+            int keep = ext.isEmpty()
+                    ? MAX_FILE_NAME_LENGTH
+                    : MAX_FILE_NAME_LENGTH - ext.length() - 1;
+            cleaned = cleaned.substring(0, keep) + (ext.isEmpty() ? "" : "." + ext);
+        }
+        return cleaned;
     }
 
     /**
@@ -460,24 +521,29 @@ public class FileUtils {
     
     /**
      * 生成安全令牌（用于文件预览、下载等）
-     * 
+     *
+     * <p>用 <b>SHA-256</b> 而不是 MD5：MD5 已被证明可构造碰撞，
+     * 用它做「不可伪造的令牌」是不安全的。MD5 只保留给<b>内容指纹</b>
+     * 用途（{@link #calculateChecksum} / {@link #calculateMD5}）——
+     * 那里的目的是「判断内容是否相同」，不是「证明来源可信」。
+     *
      * @param data 令牌数据
      * @return 安全令牌
      */
     public static String generateSecureToken(String data) {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hashBytes = md.digest(data.getBytes(StandardCharsets.UTF_8));
-            
+
             // 转换为十六进制字符串
             StringBuilder sb = new StringBuilder();
             for (byte b : hashBytes) {
                 sb.append(String.format("%02x", b));
             }
-            
+
             return sb.toString();
         } catch (NoSuchAlgorithmException e) {
-            log.error("生成令牌失败: {}", e.getMessage());
+            log.error("生成令牌失败", e);
             return UUID.randomUUID().toString().replace("-", "");
         }
     }

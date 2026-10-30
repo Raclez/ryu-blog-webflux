@@ -31,10 +31,4 @@ public class BatchAssignRoleDTO {
     @NotNull(message = "角色ID不能为空")
     @Schema(description = "角色ID", required = true)
     private Long roleId;
-    
-    /**
-     * 分配人
-     */
-    @Schema(description = "分配人")
-    private String assignBy;
 } 

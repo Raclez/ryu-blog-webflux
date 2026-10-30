@@ -5,8 +5,11 @@ package com.ryu.blog.constant;
  * 
  * @author ryu
  */
-public class MessageConstants {
-    
+public final class MessageConstants {
+
+    private MessageConstants() {
+    }
+
     /** 通用消息 */
     public static final String SUCCESS = "操作成功";
     public static final String ERROR = "系统内部错误";
@@ -34,6 +37,11 @@ public class MessageConstants {
     public static final String USER_OLD_PASSWORD_ERROR = "原密码错误";
     public static final String USER_ROLE_NOT_EXISTS = "角色不存在";
     public static final String USER_LOGIN_FAILED = "用户名或密码错误";
+    public static final String USER_ROLE_CODE_EXISTS = "角色编码已存在";
+    public static final String USER_ROLE_NAME_EXISTS = "角色名称已存在";
+    public static final String USER_PERMISSION_NOT_EXISTS = "权限不存在";
+    public static final String MENU_NOT_FOUND = "菜单不存在";
+    public static final String MENU_PARENT_NOT_EXISTS = "父菜单不存在";
     public static final String USER_CREATE_SUCCESS = "用户创建成功";
     public static final String USER_UPDATE_SUCCESS = "用户信息更新成功";
     public static final String USER_DELETE_SUCCESS = "用户删除成功";

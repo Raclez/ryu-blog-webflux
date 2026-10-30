@@ -12,12 +12,12 @@ import java.time.LocalDateTime;
  *
  * @author ryu 475118582@qq.com
  */
-@Mapper(componentModel = "spring", imports = {LocalDateTime.class})
+@Mapper(unmappedTargetPolicy = ReportingPolicy.ERROR, componentModel = "spring", imports = {LocalDateTime.class})
 public interface StorageConfigMapper {
 
     @Named("mapIsEnable")
-    default Boolean mapIsEnable(Integer value) {
-        return value != null && value == 1;
+    default Boolean mapIsEnable(Boolean value) {
+        return Boolean.TRUE.equals(value);
     }
 
     @Mapping(target = "id", ignore = true)
@@ -44,6 +44,9 @@ public interface StorageConfigMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "config", ignore = true)
+    // configMap 是 config 列的派生视图（getConfigMap/setConfigMap 走的是同一列），
+    // 由下面的 default 方法单独处理，这里显式忽略避免歧义
+    @Mapping(target = "configMap", ignore = true)
     @Mapping(target = "maxFileSize", ignore = true)
     @Mapping(target = "defaultExpiry", ignore = true)
     @Mapping(target = "creatorId", ignore = true)

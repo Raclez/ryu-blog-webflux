@@ -1,5 +1,7 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.ryu.blog.constant.PermissionConstants;
 import com.ryu.blog.dto.*;
 import com.ryu.blog.entity.Role;
 import com.ryu.blog.service.RoleService;
@@ -44,12 +46,13 @@ public class RoleController {
      * @param roleDTO 角色信息DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.ROLE_ADD)
     @PostMapping("/add")
     @Operation(summary = "保存角色", description = "添加新的角色")
     public Mono<Result<String>> saveRole(@Valid @RequestBody RoleDTO roleDTO) {
-        log.info("请求保存角色: {}", roleDTO);
-        
-        return roleService.saveRole(roleDTO)
+        log.info("请求保存角色: name={}, code={}", roleDTO.getName(), roleDTO.getCode());
+
+        return roleService.saveRole(OperatorContext.current(), roleDTO)
                 .thenReturn(Result.success("角色保存成功"))
                 .doOnSuccess(result -> log.info("成功保存角色: {}", roleDTO.getName()));
     }
@@ -61,16 +64,17 @@ public class RoleController {
      * @param id 角色ID
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.ROLE_REMOVE)
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除角色", description = "删除指定ID的角色")
     public Mono<Result<String>> deleteRole(
-            @PathVariable("id") 
-            @Parameter(description = "角色ID") 
-            @NotNull(message = "角色ID不能为空") 
+            @PathVariable("id")
+            @Parameter(description = "角色ID")
+            @NotNull(message = "角色ID不能为空")
             Long id) {
         log.info("请求删除角色, ID: {}", id);
-        
-        return roleService.removeById(id)
+
+        return roleService.removeById(OperatorContext.current(), id)
                 .thenReturn(Result.success("角色删除成功"))
                 .doOnSuccess(result -> log.info("成功删除角色, ID: {}", id));
     }
@@ -82,15 +86,15 @@ public class RoleController {
      * @param permissionsAssignDTO 权限分配DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.ROLE_ASSIGN)
     @PostMapping("/assign-permissions")
     @Operation(summary = "分配角色权限", description = "为角色分配权限")
     public Mono<Result<String>> assignPermissions(@Valid @RequestBody PermissionsAssignDTO permissionsAssignDTO) {
-        log.info("请求为角色分配权限: {}", permissionsAssignDTO);
-        
-        return roleService.assignPermissions(permissionsAssignDTO)
+        log.info("请求为角色分配权限: roleId={}", permissionsAssignDTO.getRoleId());
+
+        return roleService.assignPermissions(OperatorContext.current(), permissionsAssignDTO)
                 .thenReturn(Result.success("角色权限分配成功"))
-                .doOnSuccess(result -> log.info("成功为角色分配权限, roleId: {}, 权限数量: {}", 
-                        permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds().size()));
+                .doOnSuccess(result -> log.info("成功为角色分配权限, roleId: {}", permissionsAssignDTO.getRoleId()));
     }
 
     /**
@@ -100,19 +104,15 @@ public class RoleController {
      * @param roleListDTO 角色查询条件DTO
      * @return 角色分页列表
      */
+    @SaCheckPermission(PermissionConstants.ROLE_VIEW)
     @GetMapping("/page")
     @Operation(summary = "获取角色列表", description = "获取角色列表，支持分页和条件查询")
-    public Mono<Result<PageResult<Role>>> getRoles(@ParameterObject RoleListDTO roleListDTO) {
-        log.info("请求获取角色列表: {}", roleListDTO);
-        
-        if (roleListDTO == null) {
-            return Mono.just(Result.error("查询条件不能为空"));
-        }
-        
+    public Mono<Result<PageResult<Role>>> getRoles(@ParameterObject @Validated RoleListDTO roleListDTO) {
+        log.info("请求获取角色列表: currentPage={}, pageSize={}", roleListDTO.getCurrentPage(), roleListDTO.getPageSize());
+
         return roleService.getRolesByConditions(roleListDTO)
                 .map(pageResult -> {
-                    log.info("成功获取角色列表, 总数: {}, 当前页: {}, 每页大小: {}", 
-                            pageResult.getTotal(), pageResult.getCurrent(), pageResult.getSize());
+                    log.info("成功获取角色列表, 总数: {}", pageResult.getTotal());
                     return Result.success(pageResult);
                 })
                 .defaultIfEmpty(Result.success(new PageResult<>()));
@@ -125,15 +125,16 @@ public class RoleController {
      * @param id 角色ID
      * @return 角色详情，包含权限信息
      */
+    @SaCheckPermission(PermissionConstants.ROLE_VIEW)
     @GetMapping("/get/{id}")
     @Operation(summary = "获取角色详情", description = "获取指定角色的详细信息（包含权限）")
     public Mono<Result<RoleVO>> getRoleDetails(
-            @PathVariable("id") 
-            @Parameter(description = "角色ID") 
-            @NotNull(message = "角色ID不能为空") 
+            @PathVariable("id")
+            @Parameter(description = "角色ID")
+            @NotNull(message = "角色ID不能为空")
             Long id) {
         log.info("请求获取角色详情, ID: {}", id);
-        
+
         return roleService.getRoleDetails(id)
                 .map(roleVO -> {
                     log.info("成功获取角色详情, ID: {}, 名称: {}", id, roleVO.getName());
@@ -145,50 +146,50 @@ public class RoleController {
     /**
      * 删除角色权限
      * 移除角色的指定权限
-     * 
+     *
      * @param permissionsAssignDTO 角色权限DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.ROLE_ASSIGN)
     @PostMapping("/removePermission")
     @Operation(summary = "删除角色权限", description = "删除角色的权限")
     public Mono<Result<String>> removePermission(@Valid @RequestBody PermissionsAssignDTO permissionsAssignDTO) {
-        log.info("请求删除角色权限: {}", permissionsAssignDTO);
-        
-        return roleService.removePermission(permissionsAssignDTO)
+        log.info("请求删除角色权限: roleId={}", permissionsAssignDTO.getRoleId());
+
+        return roleService.removePermission(OperatorContext.current(), permissionsAssignDTO)
                 .thenReturn(Result.success("角色权限删除成功"))
-                .doOnSuccess(result -> log.info("成功删除角色权限, roleId: {}, 权限数量: {}", 
-                        permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds().size()));
+                .doOnSuccess(result -> log.info("成功删除角色权限, roleId: {}", permissionsAssignDTO.getRoleId()));
     }
 
     /**
      * 获取角色的所有权限
      * 获取指定角色拥有的所有权限信息
-     * 
+     *
      * @param id 角色ID
      * @return 角色权限信息
      */
+    @SaCheckPermission(PermissionConstants.ROLE_VIEW)
     @GetMapping("/{id}/permissions")
     @Operation(summary = "获取角色权限", description = "获取指定角色的所有权限")
     public Mono<Result<RolePermissionsVO>> getRolePermissions(
-            @PathVariable("id") 
-            @Parameter(description = "角色ID") 
-            @NotNull(message = "角色ID不能为空") 
+            @PathVariable("id")
+            @Parameter(description = "角色ID")
+            @NotNull(message = "角色ID不能为空")
             Long id) {
         log.info("请求获取角色的所有权限, ID: {}", id);
-        
+
         return roleService.getRolePermissions(id)
                 .map(permissions -> {
-                    log.info("成功获取角色权限, ID: {}, 权限数量: {}", 
-                            id, permissions.getPermissions() != null ? permissions.getPermissions().size() : 0);
+                    log.info("成功获取角色权限, ID: {}", id);
                     return Result.success(permissions);
                 })
                 .defaultIfEmpty(Result.error("角色不存在"));
     }
-    
+
     /**
      * 获取默认角色
      * 获取系统设置的默认角色
-     * 
+     *
      * @return 默认角色信息
      */
     @GetMapping("/default")
@@ -197,82 +198,87 @@ public class RoleController {
         log.info("请求获取默认角色");
         return roleService.getDefaultRole()
                 .map(defaultRole -> {
-                    log.info("成功获取默认角色, ID: {}, 名称: {}", defaultRole.getId(), defaultRole.getName());
+                    log.info("成功获取默认角色, ID: {}", defaultRole.getId());
                     return Result.success(defaultRole);
                 })
                 .defaultIfEmpty(Result.error("系统未设置默认角色"));
     }
-    
+
     /**
      * 获取用户的所有角色
-     * 获取指定用户拥有的所有角色
-     * 
+     *
+     * <p>归属校验：只能查自己的角色，或持有 {@code system:user:manage}。
+     *
      * @param userId 用户ID
      * @return 角色列表
      */
+    @SaCheckPermission(PermissionConstants.ROLE_VIEW)
     @GetMapping("/user/{userId}")
     @Operation(summary = "获取用户角色", description = "获取用户拥有的所有角色")
     public Mono<Result<List<Role>>> getUserRoles(
-            @PathVariable("userId") 
-            @Parameter(description = "用户ID") 
-            @NotNull(message = "用户ID不能为空") 
+            @PathVariable("userId")
+            @Parameter(description = "用户ID")
+            @NotNull(message = "用户ID不能为空")
             Long userId) {
         log.info("请求获取用户角色, userId: {}", userId);
-        
-        return roleService.getUserRoles(userId)
+
+        return roleService.getUserRoles(OperatorContext.current(), userId)
                 .collectList()
                 .map(roles -> {
                     log.info("成功获取用户角色, userId: {}, 角色数量: {}", userId, roles.size());
                     return Result.success(roles);
                 });
     }
-    
+
     /**
      * 更改角色状态
      * 启用或禁用指定角色
-     * 
+     *
      * @param roleStatusDTO 角色状态DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.ROLE_STATUS)
     @PostMapping("/changeStatus")
     @Operation(summary = "更改角色状态", description = "启用或禁用角色")
     public Mono<Result<String>> changeRoleStatus(@Valid @RequestBody RoleStatusDTO roleStatusDTO) {
-        log.info("请求更改角色状态: {}", roleStatusDTO);
-        
-        return roleService.changeRoleStatus(roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive())
+        log.info("请求更改角色状态: roleId={}, isActive={}",
+                roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive());
+
+        return roleService.changeRoleStatus(OperatorContext.current(),
+                        roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive())
                 .thenReturn(Result.success("角色状态更改成功"))
-                .doOnSuccess(result -> log.info("成功更改角色状态, roleId: {}, isActive: {}", 
-                        roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive()));
+                .doOnSuccess(result -> log.info("成功更改角色状态, roleId: {}", roleStatusDTO.getRoleId()));
     }
-    
+
     /**
      * 批量分配用户角色
      * 为多个用户分配同一个角色
-     * 
+     *
      * @param batchAssignRoleDTO 批量分配角色DTO
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.USER_ASSIGN)
     @PostMapping("/batchAssign")
     @Operation(summary = "批量分配用户角色", description = "为多个用户分配同一个角色")
     public Mono<Result<String>> batchAssignUserRoles(@Valid @RequestBody BatchAssignRoleDTO batchAssignRoleDTO) {
-        log.info("请求批量分配用户角色: {}", batchAssignRoleDTO);
-        
+        log.info("请求批量分配用户角色: roleId={}", batchAssignRoleDTO.getRoleId());
+
         return roleService.batchAssignUserRoles(
-                    batchAssignRoleDTO.getUserIds(), 
-                    batchAssignRoleDTO.getRoleId(), 
-                    batchAssignRoleDTO.getAssignBy()
+                    OperatorContext.current(),
+                    batchAssignRoleDTO.getUserIds(),
+                    batchAssignRoleDTO.getRoleId()
                 )
                 .thenReturn(Result.success("批量分配用户角色成功"))
-                .doOnSuccess(result -> log.info("成功批量分配用户角色, roleId: {}, 用户数量: {}", 
-                        batchAssignRoleDTO.getRoleId(), batchAssignRoleDTO.getUserIds().size()));
+                .doOnSuccess(result -> log.info("成功批量分配用户角色, roleId: {}", batchAssignRoleDTO.getRoleId()));
     }
-    
+
     /**
      * 获取所有角色
      * 获取系统中所有的角色列表
-     * 
+     *
      * @return 角色列表
      */
+    @SaCheckPermission(PermissionConstants.ROLE_VIEW)
     @GetMapping("/list")
     @Operation(summary = "获取所有角色", description = "获取系统中所有角色")
     public Mono<Result<List<Role>>> getAllRoles() {
@@ -293,15 +299,16 @@ public class RoleController {
      * @param roleUpdateDTO 角色更新信息DTO（包含ID）
      * @return 操作结果
      */
+    @SaCheckPermission(PermissionConstants.ROLE_EDIT)
     @PutMapping("/edit")
     @Operation(summary = "更新角色信息", description = "使用DTO中的ID修改角色信息")
     public Mono<Result<Role>> updateRoleWithDTO(@Valid @RequestBody RoleUpdateDTO roleUpdateDTO) {
-        log.info("请求更新角色信息, 更新信息: {}", roleUpdateDTO);
-        
-        return roleService.updateRole(roleUpdateDTO)
+        log.info("请求更新角色信息, id: {}", roleUpdateDTO.getId());
+
+        return roleService.updateRole(OperatorContext.current(), roleUpdateDTO)
                 .map(updatedRole -> {
-                    log.info("成功更新角色信息, ID: {}, 名称: {}", roleUpdateDTO.getId(), updatedRole.getName());
+                    log.info("成功更新角色信息, ID: {}", roleUpdateDTO.getId());
                     return Result.success(updatedRole);
                 });
     }
-} 
+}

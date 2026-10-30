@@ -1,8 +1,10 @@
 package com.ryu.blog.service;
 
 
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.dto.PostCreateDTO;
 import com.ryu.blog.dto.PostStatusDTO;
+import com.ryu.blog.dto.PostStickyDTO;
 import com.ryu.blog.dto.PostUpdateDTO;
 import com.ryu.blog.entity.PostCategory;
 import com.ryu.blog.entity.Posts;
@@ -43,12 +45,16 @@ public interface ArticleService {
      * 3. 热门文章缓存
      * 4. 相关文章推荐缓存
      * 5. 后台文章列表缓存
-     * 
+     *
+     * <p><b>归属校验</b>：只能改自己的文章（管理员除外），
+     * 规则见 {@code OwnershipPolicy#requireCanActOn}。
+     *
      * @param articleUpdateDTO 文章更新DTO
+     * @param ctx 操作者上下文
      * @return 更新结果
      */
-    Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO);
-    
+    Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO, OperatorContext ctx);
+
     /**
      * 更新文章状态
      * 使用Spring Cache注解自动管理缓存，会清除以下缓存：
@@ -57,13 +63,44 @@ public interface ArticleService {
      * 3. 热门文章缓存
      * 4. 相关文章推荐缓存
      * 5. 后台文章列表缓存
-     * 
+     *
+     * <p><b>归属校验</b>：只能改自己的文章（管理员除外）。
+     *
      * @param statusDTO 文章状态DTO
+     * @param ctx 操作者上下文
      * @return 更新结果
      */
-    Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO);
+    Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO, OperatorContext ctx);
 
-    
+    /**
+     * 取消定时发布
+     *
+     * <p>文章从「待发布」退回「草稿」，{@code publish_time} 一并清空；
+     * 对应的待执行发布任务也会被撤销（尽力而为 ——
+     * 就算没撤掉，任务到点时也会因为文章状态已变而自行跳过）。
+     *
+     * <p><b>归属校验</b>：只能取消自己的文章（管理员除外）。
+     *
+     * @param postId 文章ID
+     * @param ctx    操作者上下文
+     * @return 退回草稿后的文章
+     */
+    Mono<Posts> cancelScheduledPublish(Long postId, OperatorContext ctx);
+
+    /**
+     * 设置/取消文章置顶
+     *
+     * <p>置顶是独立于正文编辑的开关，列表页上一键切换即可。
+     *
+     * <p><b>归属校验</b>：只能置顶自己的文章（管理员除外）。
+     *
+     * @param stickyDTO 文章ID与目标置顶状态
+     * @param ctx       操作者上下文
+     * @return 设置后的文章
+     */
+    Mono<Posts> updateSticky(PostStickyDTO stickyDTO, OperatorContext ctx);
+
+
     /**
      * 根据ID获取文章详情视图对象
      * @param id 文章ID
@@ -74,20 +111,27 @@ public interface ArticleService {
     /**
      * 删除文章
      * 使用Spring Cache注解自动清除相关缓存
-     * 
+     *
+     * <p><b>归属校验</b>：只能删自己的文章（管理员除外）。
+     *
      * @param id 文章ID
+     * @param ctx 操作者上下文
      * @return 删除结果
      */
-    Mono<Void> deleteArticle(Long id);
+    Mono<Void> deleteArticle(Long id, OperatorContext ctx);
 
     /**
      * 批量删除文章
      * 使用Spring Cache注解自动清除所有相关缓存
-     * 
+     *
+     * <p><b>归属校验</b>：批次里的<b>每一篇</b>都必须归操作者所有（管理员除外）——
+     * 只要有一篇不是本人的，整批拒绝，不做「删掉能删的、跳过不能删的」。
+     *
      * @param ids 文章ID列表
+     * @param ctx 操作者上下文
      * @return 删除结果
      */
-    Mono<Void> batchDeleteArticles(List<String> ids);
+    Mono<Void> batchDeleteArticles(List<String> ids, OperatorContext ctx);
 
     /**
      * 获取已发布的文章列表
@@ -177,33 +221,6 @@ public interface ArticleService {
     Mono<Long> countArticlesByUserId(Long userId);
 
     /**
-     * 增加文章点赞数
-     * 使用Spring Cache注解自动清除文章详情、热门文章和前台列表缓存
-     * 
-     * @param id 文章ID
-     * @return 更新结果
-     */
-    Mono<Integer> incrementLikes(Long id);
-
-    /**
-     * 增加文章评论数
-     * 使用Spring Cache注解自动清除文章详情、热门文章和前台列表缓存
-     * 
-     * @param id 文章ID
-     * @return 更新结果
-     */
-    Mono<Integer> incrementComments(Long id);
-
-    /**
-     * 减少文章评论数
-     * 使用Spring Cache注解自动清除文章详情、热门文章和前台列表缓存
-     * 
-     * @param id 文章ID
-     * @return 更新结果
-     */
-    Mono<Integer> decrementComments(Long id);
-
-    /**
      * 获取热门文章
      * @param limit 限制数量
      * @return 文章列表
@@ -266,8 +283,12 @@ public interface ArticleService {
     
     /**
      * 将文章导出为Markdown文件
+     *
+     * <p><b>归属校验</b>：导出等于拿走全文，只允许作者本人（管理员除外）。
+     *
      * @param id 文章ID
+     * @param ctx 操作者上下文
      * @return Markdown内容和文件名
      */
-    Mono<MarkdownExportVO> exportArticleToMarkdown(Long id);
+    Mono<MarkdownExportVO> exportArticleToMarkdown(Long id, OperatorContext ctx);
 } 

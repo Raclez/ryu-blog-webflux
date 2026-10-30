@@ -2,7 +2,11 @@ package com.ryu.blog.strategy.impl;
 
 import com.ryu.blog.constant.CacheConstants;
 import com.ryu.blog.event.ConfigChangeEvent;
+import com.ryu.blog.strategy.ChecksumCapable;
+import com.ryu.blog.strategy.MetadataCapable;
+import com.ryu.blog.strategy.PresignCapable;
 import com.ryu.blog.strategy.StorageConfigManager;
+import com.ryu.blog.strategy.ThumbnailCapable;
 import com.ryu.blog.utils.FileUtils;
 import com.ryu.blog.utils.MinioUtils;
 import io.minio.MinioClient;
@@ -32,13 +36,33 @@ import java.util.stream.Collectors;
  */
 @Component
 @Slf4j
-public class MinioStorageStrategy extends AbstractFileStorageStrategy {
+public class MinioStorageStrategy extends AbstractFileStorageStrategy
+        implements MetadataCapable, ChecksumCapable, PresignCapable, ThumbnailCapable {
 
     private final DataBufferFactory bufferFactory = new DefaultDataBufferFactory();
     private final CacheManager cacheManager;
     
     // 分片上传信息
     private final Map<String, Map<String, Object>> multipartUploadsInfo = new ConcurrentHashMap<>();
+
+    /**
+     * 自身代理 —— 让类内部的调用也能命中 {@code @Cacheable}。
+     *
+     * <p>{@code getMinioClient()} 与 {@code getBucketName()} 都带 {@code @Cacheable}，
+     * 但它们在本类内部被调用了 27 次（每个文件操作都会用到）。直接写方法名是
+     * <b>自调用</b>：Spring AOP 的 CGLIB 代理里，目标对象内部的 {@code this}
+     * 指向目标实例而不是代理，拦截器不触发 ——
+     * <b>每一次文件操作都会重新创建一个 MinioClient</b>（含连接池与 TLS 握手），
+     * 并重新读一遍配置。
+     *
+     * <p>{@code @Lazy} 用来打破「代理依赖自己」的循环依赖。
+     */
+    private MinioStorageStrategy self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy MinioStorageStrategy self) {
+        this.self = self;
+    }
 
     public MinioStorageStrategy(StorageConfigManager configManager, CacheManager cacheManager) {
         super(configManager);
@@ -56,67 +80,46 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
         String contentType = FileUtils.getContentType(fileName);
         
         return buildObjectNameAsync(fileName)
-            .flatMap(objectName -> 
-                DataBufferUtils.join(filePart.content())
-                    .flatMap(dataBuffer -> {
-                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(bytes);
-                        DataBufferUtils.release(dataBuffer);
-
-                        return getMinioClient()
-                            .flatMap(minioClient -> 
-                                getBucketName().flatMap(bucketName -> 
-                                    MinioUtils.uploadFile(
-                                        minioClient,
-                                        bucketName,
-                                        objectName,
-                                        bytes,
-                                        contentType
-                                    )
-                                )
-                            )
-                            // 直接返回objectName，不添加前缀
-                            .thenReturn(objectName);
-                    })
+            .flatMap(objectName ->
+                // 同 uploadFile(Flux)：不再把整个文件 join 进堆，落临时文件后流式上传
+                StreamSpool.spool(filePart.content())
+                    .flatMap(spooled -> self.getMinioClient()
+                        .flatMap(minioClient -> self.getBucketName()
+                            .flatMap(bucketName -> MinioUtils.uploadFileStreaming(
+                                minioClient, bucketName, objectName, spooled.path(), contentType)))
+                        .doFinally(signal -> spooled.close())
+                        // 直接返回objectName，不添加前缀
+                        .thenReturn(objectName))
             );
     }
     
     @Override
     public Mono<String> uploadFile(Flux<DataBuffer> dataBufferFlux, String fileName, long size) {
         String contentType = FileUtils.getContentType(fileName);
-        
+
         return buildObjectNameAsync(fileName)
-            .flatMap(objectName -> 
-                DataBufferUtils.join(dataBufferFlux)
-                    .flatMap(dataBuffer -> {
-                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(bytes);
-                        DataBufferUtils.release(dataBuffer);
-                        
-                        return getMinioClient()
-                            .flatMap(minioClient -> 
-                                getBucketName().flatMap(bucketName ->
-                                    MinioUtils.uploadFile(
-                                        minioClient, 
-                                        bucketName, 
-                                        objectName, 
-                                        bytes, 
-                                        contentType
-                                    )
-                                )
-                            )
-                            // 直接返回objectName，不添加前缀
-                            .thenReturn(objectName);
-                    })
+            .flatMap(objectName ->
+                // 不再 DataBufferUtils.join 成整块 byte[]：
+                // 那等于把上游的流式上传又退化成「整个文件进堆」，
+                // 批量上传 4 并发时堆占用是 4 × 文件大小。
+                // 现在先落到临时文件，再由 SDK 边读边传。
+                StreamSpool.spool(dataBufferFlux)
+                    .flatMap(spooled -> self.getMinioClient()
+                        .flatMap(minioClient -> self.getBucketName()
+                            .flatMap(bucketName -> MinioUtils.uploadFileStreaming(
+                                minioClient, bucketName, objectName, spooled.path(), contentType)))
+                        .doFinally(signal -> spooled.close())
+                        // 直接返回objectName，不添加前缀
+                        .thenReturn(objectName))
             );
     }
     
     @Override
     public Mono<Flux<DataBuffer>> downloadFile(String path) {
         // 不需要添加prefix，因为path已经是完整存储路径
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.downloadFile(
                             minioClient, 
                             bucketName, 
@@ -133,9 +136,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     @Override
     public Mono<Boolean> deleteFile(String path) {
         // 不需要添加prefix，因为path已经是完整存储路径
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.deleteFile(
                             minioClient, 
                             bucketName, 
@@ -152,9 +155,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                 .map(FileUtils::normalizePath)
                 .collect(Collectors.toList());
                 
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.batchDeleteFiles(
                             minioClient, 
                             bucketName, 
@@ -167,9 +170,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     @Override
     public Mono<Boolean> fileExists(String path) {
         // 不需要添加prefix，因为path已经是完整存储路径
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.fileExists(
                             minioClient, 
                             bucketName, 
@@ -181,9 +184,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     
     @Override
     public Mono<Map<String, Object>> getMetadata(String path) {
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.getMetadata(
                             minioClient, 
                             bucketName, 
@@ -195,9 +198,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     
     @Override
     public Mono<String> generatePreviewUrl(String path, long expireSeconds) {
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.generatePreviewUrl(
                             minioClient, 
                             bucketName, 
@@ -210,9 +213,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
 
     @Override
     public Mono<String> generateDownloadUrl(String path, long expireSeconds) {
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.generateDownloadUrl(
                             minioClient, 
                             bucketName, 
@@ -225,9 +228,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     
     @Override
     public Mono<String> calculateFileChecksum(String path) {
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
-                    getBucketName().flatMap(bucketName ->
+                    self.getBucketName().flatMap(bucketName ->
                         MinioUtils.downloadFile(
                             minioClient, 
                             bucketName, 
@@ -250,9 +253,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
         
         return buildObjectNameAsync(fileName)
             .flatMap(objectName -> 
-                getMinioClient()
+                self.getMinioClient()
                     .flatMap(minioClient -> 
-                        getBucketName().flatMap(bucketName ->
+                        self.getBucketName().flatMap(bucketName ->
                             MinioUtils.initiateMultipartUpload(
                                 minioClient, 
                                 bucketName, 
@@ -293,9 +296,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
                     
-                    return getMinioClient()
+                    return self.getMinioClient()
                             .flatMap(minioClient -> 
-                                getBucketName().flatMap(bucketName ->
+                                self.getBucketName().flatMap(bucketName ->
                                     MinioUtils.uploadPart(
                                         minioClient, 
                                         bucketName, 
@@ -327,9 +330,9 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
         @SuppressWarnings("unchecked")
         Map<Integer, String> parts = (Map<Integer, String>) uploadInfo.get("parts");
         
-        return getMinioClient()
+        return self.getMinioClient()
             .flatMap(minioClient -> 
-                getBucketName().flatMap(bucketName ->
+                self.getBucketName().flatMap(bucketName ->
                     MinioUtils.completeMultipartUpload(
                         minioClient, 
                         bucketName, 
@@ -359,7 +362,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
         log.info("[minio] 终止分片上传: uploadId={}, objectName={}, bucketName={}", 
                 uploadId, objectName, bucketName);
         
-        return getMinioClient()
+        return self.getMinioClient()
                 .flatMap(minioClient -> 
                     MinioUtils.abortMultipartUpload(
                         minioClient, 
@@ -373,7 +376,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 获取MinIO客户端
      */
-    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE, key = "'" + CacheConstants.STORAGE_CLIENT_KEY + ":" + "' + #this.getStrategyKey()")
+    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE, key = "'" + CacheConstants.STORAGE_CLIENT_KEY + ":" + "' + #root.target.getStrategyKey()")
     public Mono<MinioClient> getMinioClient() {
         log.debug("创建新的MinIO客户端实例 (缓存未命中)");
         
@@ -407,7 +410,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     /**
      * 获取存储桶名称
      */
-    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE, key = "'" + CacheConstants.STORAGE_BUCKET_KEY + ":" + "' + #this.getStrategyKey()")
+    @Cacheable(value = CacheConstants.STORAGE_CLIENT_CACHE, key = "'" + CacheConstants.STORAGE_BUCKET_KEY + ":" + "' + #root.target.getStrategyKey()")
     public Mono<String> getBucketName() {
         log.debug("获取MinIO存储桶名称 (缓存未命中)");
         
@@ -452,7 +455,7 @@ public class MinioStorageStrategy extends AbstractFileStorageStrategy {
     @Override
     protected Mono<String> buildAccessUrlAsync(String objectName) {
         return getConfigPropertyAsync("endpoint", "")
-            .flatMap(endpoint -> getBucketName().map(bucketName -> {
+            .flatMap(endpoint -> self.getBucketName().map(bucketName -> {
                 if (endpoint.isEmpty()) {
                     return objectName;
                 }
