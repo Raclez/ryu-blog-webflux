@@ -2,6 +2,7 @@ package com.ryu.blog.repository;
 
 import com.ryu.blog.entity.SysConfig;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -20,6 +21,18 @@ public interface SysConfigRepository extends ReactiveCrudRepository<SysConfig, L
      * @return 配置信息
      */
     Mono<SysConfig> findByConfigKey(String configKey);
+
+    /**
+     * 查询全部全局配置（user_id = 0 或为空，且未删除）
+     *
+     * <p>公开配置接口只认全局配置：用户级配置（{@code user.*}）属于个人，
+     * 不能出现在任何匿名响应里。用 SQL 过滤而不是在内存里筛，
+     * 是为了让「用户级配置绝不外泄」这件事在数据源上就成立。
+     *
+     * @return 全局配置列表
+     */
+    @Query("SELECT * FROM t_sys_config WHERE COALESCE(user_id, 0) = 0 AND is_deleted = 0 ORDER BY config_key")
+    Flux<SysConfig> findAllGlobal();
 
     /**
      * 根据配置键查询配置（包含逻辑删除条件）

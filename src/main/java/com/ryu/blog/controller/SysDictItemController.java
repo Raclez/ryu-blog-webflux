@@ -1,5 +1,6 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.ryu.blog.dto.SysDictItemDTO;
 import com.ryu.blog.dto.SysDictItemSaveDTO;
 import com.ryu.blog.dto.SysDictItemUpdateDTO;
@@ -8,6 +9,7 @@ import com.ryu.blog.utils.Result;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictItemVO;
 import com.ryu.blog.constant.MessageConstants;
+import com.ryu.blog.constant.PermissionConstants;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,6 +46,7 @@ public class SysDictItemController {
 
     @GetMapping("/page")
     @Operation(summary = "分页查询字典项", description = "支持按字典类型和标签查询")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<PageResult<SysDictItemVO>>> getSysDictItem(
             @ParameterObject @Valid SysDictItemDTO sysDictItemDTO) {
         log.info("分页查询字典项，查询条件: {}", sysDictItemDTO);
@@ -53,6 +56,7 @@ public class SysDictItemController {
 
     @GetMapping("/{id}")
     @Operation(summary = "根据ID获取字典项", description = "通过字典项ID获取详细信息")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<SysDictItemVO>> getDictItemById(
             @Parameter(description = "字典项ID") @PathVariable Long id) {
         log.info("根据ID获取字典项，id={}", id);
@@ -62,6 +66,7 @@ public class SysDictItemController {
     
     @GetMapping("/typeId/{dictTypeId}")
     @Operation(summary = "根据字典类型ID获取字典项", description = "获取指定字典类型的所有启用字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<List<SysDictItemVO>>> getDictItemsByTypeId(
             @Parameter(description = "字典类型ID", example = "1") @PathVariable Long dictTypeId) {
         log.info("根据字典类型ID获取字典项，dictTypeId={}", dictTypeId);
@@ -82,6 +87,7 @@ public class SysDictItemController {
     
     @PostMapping("/batch")
     @Operation(summary = "批量获取字典项（按ID）", description = "一次性获取多个字典类型的字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<Map<Long, List<SysDictItemVO>>>> batchGetDictItems(
             @Parameter(description = "字典类型ID列表") 
             @RequestBody @NotEmpty(message = "字典类型ID列表不能为空") List<Long> dictTypeIds) {
@@ -128,6 +134,7 @@ public class SysDictItemController {
 
     @PostMapping("/save")
     @Operation(summary = "创建字典项", description = "添加新的字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> createDictItem(@Valid @RequestBody SysDictItemSaveDTO saveDTO) {
         log.info("创建字典项: {}", saveDTO);
         return dictItemService.createDictItem(saveDTO)
@@ -136,6 +143,7 @@ public class SysDictItemController {
 
     @PutMapping("/edit")
     @Operation(summary = "更新字典项", description = "修改字典项信息")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> updateDictItem(@Valid @RequestBody SysDictItemUpdateDTO dictItemDTO) {
         log.info("更新字典项: {}", dictItemDTO);
         return dictItemService.updateDictItem(dictItemDTO)
@@ -144,6 +152,7 @@ public class SysDictItemController {
 
     @PutMapping("/updateStatus")
     @Operation(summary = "修改字典项状态", description = "启用或禁用字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> editStatus(
             @Parameter(description = "字典项ID") @RequestParam Long id, 
             @Parameter(description = "状态：true-启用，false-禁用") @RequestParam Boolean status) {
@@ -154,6 +163,7 @@ public class SysDictItemController {
 
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除字典项", description = "删除指定的字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> deleteDictItem(
             @Parameter(description = "字典项ID") @PathVariable Long id) {
         log.info("删除字典项，ID: {}", id);
@@ -167,6 +177,7 @@ public class SysDictItemController {
     
     @DeleteMapping("/cache/clear")
     @Operation(summary = "清除所有字典项缓存", description = "清除字典项相关的所有缓存")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Boolean>> clearCache() {
         log.info("清除所有字典项缓存");
         return dictItemService.clearAllCache()
@@ -175,6 +186,7 @@ public class SysDictItemController {
     
     @DeleteMapping("/cache/refresh/{dictTypeId}")
     @Operation(summary = "刷新指定字典类型的字典项缓存（按ID）", description = "刷新指定字典类型的字典项缓存")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Boolean>> refreshCache(
             @Parameter(description = "字典类型ID") @PathVariable Long dictTypeId) {
         log.info("刷新字典项缓存: {}", dictTypeId);
@@ -184,6 +196,7 @@ public class SysDictItemController {
     
     @DeleteMapping("/cache/refreshByCode/{dictType}")
     @Operation(summary = "刷新指定字典类型的字典项缓存（按编码）", description = "刷新指定字典类型的字典项缓存")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Boolean>> refreshCacheByCode(
             @Parameter(description = "字典类型编码") @PathVariable String dictType) {
         log.info("刷新字典项缓存（按编码）: {}", dictType);

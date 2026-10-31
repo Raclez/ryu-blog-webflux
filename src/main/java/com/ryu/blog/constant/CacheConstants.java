@@ -57,6 +57,14 @@ public final class CacheConstants {
     /** 系统配置缓存 */
     public static final String SYS_CONFIG_CACHE = "sysConfig";
 
+    /**
+     * 公开配置缓存
+     *
+     * <p>只放白名单内的键（见 {@code PublicConfigKeys}），TTL 比 {@link #SYS_CONFIG_CACHE}
+     * 短得多 —— 它要被未登录调用方使用，改动后不能等 12 小时才收敛。
+     */
+    public static final String PUBLIC_CONFIG_CACHE = "publicConfig";
+
     /** 字典类型缓存 */
     public static final String DICT_TYPE_CACHE = "dictType";
 
@@ -203,6 +211,9 @@ public final class CacheConstants {
     public static final String CONFIG_ENTITY_BY_ID_KEY_PREFIX = "entityById:";
     public static final String CONFIG_GROUPS_KEY_PREFIX = "configGroups";
 
+    /** 公开配置缓存键（整张公开表只有一条记录，用固定键即可） */
+    public static final String CONFIG_PUBLIC_KEY_PREFIX = "public";
+
     /** 字典类型缓存键前缀 */
     public static final String DICT_TYPE_ALL_KEY_PREFIX = "all";
     public static final String DICT_TYPE_BY_ID_KEY_PREFIX = "id:";
@@ -315,6 +326,7 @@ public final class CacheConstants {
     public static final String CONFIG_ENTITY_KEY = CONFIG_ENTITY_KEY_PREFIX;
     public static final String CONFIG_ENTITY_BY_ID_KEY = CONFIG_ENTITY_BY_ID_KEY_PREFIX;
     public static final String CONFIG_GROUPS_KEY = CONFIG_GROUPS_KEY_PREFIX;
+    public static final String CONFIG_PUBLIC_KEY = CONFIG_PUBLIC_KEY_PREFIX;
 
     /**
      * 文件缓存完整键（SpEL 用，同样只放前缀）

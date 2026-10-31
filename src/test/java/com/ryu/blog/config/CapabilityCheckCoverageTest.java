@@ -191,33 +191,18 @@ class CapabilityCheckCoverageTest {
         // （类级 @SaCheckPermission(system:config:view)，整类都要权限，不登记）
 
         // ---------- SysDictItemController ----------
-        CAPABILITY_FREE.put("SysDictItemController.getSysDictItem", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictItemController.getDictItemById", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictItemController.getDictItemsByTypeId", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictItemController.getDictItemsByType", "公开接口：按字典类型取值");
-        CAPABILITY_FREE.put("SysDictItemController.batchGetDictItems", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictItemController.batchGetDictItemsByCode", "公开接口：按字典编码批量取值");
-        CAPABILITY_FREE.put("SysDictItemController.getDictItemValue", "公开接口：取字典值");
-        CAPABILITY_FREE.put("SysDictItemController.getDictItemValueByCode", "公开接口：取字典值");
-        CAPABILITY_FREE.put("SysDictItemController.createDictItem", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictItemController.updateDictItem", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictItemController.editStatus", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictItemController.deleteDictItem", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictItemController.clearCache", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictItemController.refreshCache", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictItemController.refreshCacheByCode", "待补能力校验（Stage 9：system:config:edit）");
+        // 管理类端点已补上 @SaCheckPermission（读 system:config:view / 写 system:config:edit），
+        // 不在登记表里。留下的四条是「渲染用只读」：前端编辑器与看板按编码取
+        // 已启用的字典项，普通作者也必须能拿到 —— 收紧到 system:config:view
+        // 会把他们挡在文章编辑器外面（详见 DictPermissionBoundaryTest）。
+        CAPABILITY_FREE.put("SysDictItemController.getDictItemsByType", "渲染用只读：前端编辑器/看板按编码取「已启用」的字典项，后端只读，无写能力");
+        CAPABILITY_FREE.put("SysDictItemController.batchGetDictItemsByCode", "渲染用只读：前端编辑器/看板按编码取「已启用」的字典项，后端只读，无写能力");
+        CAPABILITY_FREE.put("SysDictItemController.getDictItemValue", "渲染用只读：前端编辑器/看板按编码取「已启用」的字典项，后端只读，无写能力");
+        CAPABILITY_FREE.put("SysDictItemController.getDictItemValueByCode", "渲染用只读：前端编辑器/看板按编码取「已启用」的字典项，后端只读，无写能力");
 
         // ---------- SysDictTypeController ----------
-        CAPABILITY_FREE.put("SysDictTypeController.getDictTypeById", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictTypeController.getDictTypeByCode", "公开接口：按字典编码取值");
-        CAPABILITY_FREE.put("SysDictTypeController.getSysDictTypePage", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictTypeController.getAllSysDictTypes", "待补能力校验（Stage 9：system:config:view）");
-        CAPABILITY_FREE.put("SysDictTypeController.createDictType", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictTypeController.updateDictType", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictTypeController.deleteDictType", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictTypeController.batchDeleteSysDictType", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictTypeController.clearCache", "待补能力校验（Stage 9：system:config:edit）");
-        CAPABILITY_FREE.put("SysDictTypeController.refreshCache", "待补能力校验（Stage 9：system:config:edit）");
+        // 同上：只有按编码取类型这一条保持无注解，其余都已加能力校验。
+        CAPABILITY_FREE.put("SysDictTypeController.getDictTypeByCode", "渲染用只读：前端编辑器/看板按编码取「已启用」的字典项，后端只读，无写能力");
 
         // ---------- TagController ----------
         // 管理类端点已补上 @SaCheckPermission（content:tag:add|edit|remove）；
@@ -324,7 +309,10 @@ class CapabilityCheckCoverageTest {
         List<Class<?>> controllers = scanControllers();
         assertTrue(controllers.size() >= 15,
                 "只扫到 " + controllers.size() + " 个控制器，扫描范围不对，护栏等于没生效");
-        assertTrue(CAPABILITY_FREE.size() >= 100,
+        // 这个下限只防「登记表被清空 / 扫描逻辑失效」，不是覆盖率指标。
+        // 2026-10-31 字典的两个控制器补齐能力校验后，登记表从 105 条降到 85 条；
+        // 后续每补一块都应该继续下降 —— 真降下去了就把它调低，别反过来往表里塞条目。
+        assertTrue(CAPABILITY_FREE.size() >= 80,
                 "登记表只有 " + CAPABILITY_FREE.size() + " 条，缺口清单不完整");
     }
 

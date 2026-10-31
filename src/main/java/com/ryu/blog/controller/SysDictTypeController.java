@@ -1,5 +1,6 @@
 package com.ryu.blog.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.ryu.blog.dto.SysDictTypeAddDTO;
 import com.ryu.blog.dto.SysDictTypeUpdateDTO;
 import com.ryu.blog.dto.SysDictTypeQueryDTO;
@@ -8,6 +9,7 @@ import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.SysDictTypeVO;
 import com.ryu.blog.utils.Result;
 import com.ryu.blog.constant.MessageConstants;
+import com.ryu.blog.constant.PermissionConstants;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,6 +44,7 @@ public class SysDictTypeController {
     
     @GetMapping("/{id}")
     @Operation(summary = "根据ID获取字典类型", description = "通过字典类型ID获取详细信息")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<SysDictTypeVO>> getDictTypeById(
             @Parameter(description = "字典类型ID") @PathVariable Long id) {
         log.info("根据ID获取字典类型，id={}", id);
@@ -61,6 +64,7 @@ public class SysDictTypeController {
 
     @GetMapping("/page")
     @Operation(summary = "分页查询字典类型", description = "支持按名称和编码查询")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<PageResult<SysDictTypeVO>>> getSysDictTypePage(
             @ParameterObject @Valid SysDictTypeQueryDTO queryDTO
     ) {
@@ -71,6 +75,7 @@ public class SysDictTypeController {
 
     @GetMapping("/list")
     @Operation(summary = "查询所有字典类型", description = "获取所有启用的字典类型列表")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_VIEW)
     public Mono<Result<List<SysDictTypeVO>>> getAllSysDictTypes() {
         log.info("查询所有字典类型");
         return dictTypeService.getAllDictTypes()
@@ -84,6 +89,7 @@ public class SysDictTypeController {
     
     @PostMapping("/add")
     @Operation(summary = "创建字典类型", description = "添加新的字典类型")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> createDictType(@Valid @RequestBody SysDictTypeAddDTO dictTypeDTO) {
         log.info("创建字典类型: {}", dictTypeDTO);
         return dictTypeService.createDictType(dictTypeDTO)
@@ -92,6 +98,7 @@ public class SysDictTypeController {
 
     @PutMapping("/edit")
     @Operation(summary = "更新字典类型", description = "修改字典类型信息")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> updateDictType(@Valid @RequestBody SysDictTypeUpdateDTO dictTypeDTO) {
         log.info("更新字典类型: {}", dictTypeDTO);
         return dictTypeService.updateDictType(dictTypeDTO)
@@ -100,6 +107,7 @@ public class SysDictTypeController {
 
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除字典类型", description = "删除字典类型及其关联的字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> deleteDictType(
             @Parameter(description = "字典类型ID") @PathVariable Long id) {
         log.info("删除字典类型，ID: {}", id);
@@ -109,6 +117,7 @@ public class SysDictTypeController {
     
     @PostMapping("/delete/batch")
     @Operation(summary = "批量删除字典类型", description = "批量删除字典类型及其关联的字典项")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Void>> batchDeleteSysDictType(
             @Parameter(description = "字典类型ID列表") @RequestBody List<String> ids) {
         log.info("批量删除字典类型，IDs: {}", ids);
@@ -122,6 +131,7 @@ public class SysDictTypeController {
     
     @DeleteMapping("/cache/clear")
     @Operation(summary = "清除所有字典类型缓存", description = "清除字典类型相关的所有缓存")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Boolean>> clearCache() {
         log.info("清除所有字典类型缓存");
         return dictTypeService.clearAllCache()
@@ -130,6 +140,7 @@ public class SysDictTypeController {
     
     @DeleteMapping("/cache/refresh/{dictType}")
     @Operation(summary = "刷新指定字典类型缓存", description = "刷新指定字典类型的缓存")
+    @SaCheckPermission(PermissionConstants.SYSTEM_CONFIG_EDIT)
     public Mono<Result<Boolean>> refreshCache(
             @Parameter(description = "字典类型编码") @PathVariable String dictType) {
         log.info("刷新字典类型缓存: {}", dictType);

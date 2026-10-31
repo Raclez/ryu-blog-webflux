@@ -33,6 +33,18 @@ public interface SysDictTypeRepository extends R2dbcRepository<SysDictType, Long
     Mono<SysDictType> findByDictTypeAndNotDeleted(String dictType);
 
     /**
+     * 根据字典类型编码查询「启用且未删除」的记录
+     *
+     * <p>渲染路径专用：停用的字典类型不应该再把选项吐给前端。
+     * 管理页仍然用 {@link #findByDictTypeAndNotDeleted(String)}，它要看到全部。
+     *
+     * @param dictType 字典类型编码
+     * @return 字典类型信息
+     */
+    @Query("SELECT * FROM t_sys_dict_types WHERE dict_type = :dictType AND status = 1 AND is_deleted = 0")
+    Mono<SysDictType> findEnabledByDictTypeAndNotDeleted(String dictType);
+
+    /**
      * 根据字典类型编码查询
      *
      * @param dictType 字典类型编码

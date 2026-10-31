@@ -23,9 +23,13 @@
 Thumbs.db
 
 # 数据库
-/.jqwik-database/
+# jqwik 的属性测试库是**文件**，不是目录 —— 带斜杠的规则匹配不到它
+/.jqwik-database
 
 # 构建产物
 *.class
 *.jar
 *.war
+
+# Claude Code 本地设置（只与本机有关，不进仓库）
+/.claude/settings.local.json

@@ -110,6 +110,12 @@ public class SaTokenConfig {
                         "/tags/page",
                         "/comment/article/**",
 
+                        // 公开配置（站点名称/logo/展示参数）。
+                        // 登录页在拿不到 token 时也要渲染品牌信息，所以必须匿名可达；
+                        // 只返回 PublicConfigKeys 白名单内的键，AI/安全/存储类配置
+                        // 仍然待在 /sysConfig/** 的管理员权限之后。
+                        "/sysConfig/public",
+
                         // 公开文件直链。
                         // 匿名可访问 —— <img src> 带不了 Authorization 头，
                         // 按 ID 的预览路由每次访问都要 system:file:view 权限 + 请求头，

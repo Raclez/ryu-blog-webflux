@@ -73,6 +73,16 @@ public class CacheConfig {
                 .recordStats()
                 .buildAsync());
         
+        // 公开配置缓存 - 短期缓存
+        // 它服务于未登录调用方（登录页品牌、前台展示类配置），改动必须尽快收敛；
+        // 管理员改配置时 SysConfigServiceImpl 会主动清空，这里只是跨实例的兜底。
+        cacheManager.registerCustomCache(CacheConstants.PUBLIC_CONFIG_CACHE,
+            Caffeine.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)
+                .maximumSize(1)   // 整张公开表只按固定键缓存一条
+                .recordStats()
+                .buildAsync());
+
         // 字典类型缓存 - 长期缓存
         cacheManager.registerCustomCache(CacheConstants.DICT_TYPE_CACHE, 
             Caffeine.newBuilder()

@@ -135,10 +135,11 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
 
     @Override
     @Caching(evict = {
-            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'"),
-            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_ID_KEY + "' + #dictTypeDTO.id"),
-            // 用入参而不是 #result（响应式下 #result 取不到实体的属性）
-            @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_BY_CODE_KEY + "' + #dictTypeDTO.dictType")
+            // 编码可以被改掉，而缓存键里存的是编码 —— 用新的编码驱逐只会删掉一个
+            // 本来就不存在的键，旧的 code:xxx 会一直留到 TTL 结束。整片清最稳。
+            @CacheEvict(allEntries = true),
+            // 字典项的缓存键同样含类型编码/类型ID，改类型名或编码后都必须失效
+            @CacheEvict(cacheNames = CacheConstants.DICT_ITEM_CACHE, allEntries = true)
     })
     public Mono<SysDictTypeVO> updateDictType(SysDictTypeUpdateDTO dictTypeDTO) {
         log.debug("更新字典类型: {}", dictTypeDTO);
@@ -168,7 +169,12 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
 
     @Override
     @Transactional
-    @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'")
+    @Caching(evict = {
+            // 删类型会级联逻辑删除它的字典项，两个缓存都要清，
+            // 否则 getDictItemsByType 还能把已删类型的项吐出来。
+            @CacheEvict(allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.DICT_ITEM_CACHE, allEntries = true)
+    })
     public Mono<Void> deleteDictType(Long id) {
         log.debug("删除字典类型, ID: {}", id);
         
@@ -187,7 +193,10 @@ public class SysDictTypeServiceImpl implements SysDictTypeService {
     }
     
     @Override
-    @CacheEvict(key = "'" + CacheConstants.DICT_TYPE_ALL_KEY + "'")
+    @Caching(evict = {
+            @CacheEvict(allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.DICT_ITEM_CACHE, allEntries = true)
+    })
     public Mono<Void> batchDeleteDictTypes(List<String> ids) {
         log.debug("批量删除字典类型, IDs: {}", ids);
         

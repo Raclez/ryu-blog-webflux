@@ -90,9 +90,11 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     public Flux<SysDictItemVO> getDictItemsByType(String dictType) {
         log.debug("根据字典类型编码查询字典项: {}", dictType);
         
-        return dictTypeRepository.findByDictTypeAndNotDeleted(dictType)
-                .flatMapMany(type -> 
-                    dictItemRepository.findByDictTypeIdAndNotDeletedOrderBySort(type.getId())
+        // 渲染路径：类型和字典项都只认 status = 1。
+        // 停用的项仍然留在库里（管理页要看得到），但不会再进任何下拉框。
+        return dictTypeRepository.findEnabledByDictTypeAndNotDeleted(dictType)
+                .flatMapMany(type ->
+                    dictItemRepository.findEnabledByDictTypeId(type.getId())
                         .flatMap(item -> enrichWithDictType(item, type))
                 );
     }
@@ -104,7 +106,8 @@ public class SysDictItemServiceImpl implements SysDictItemService {
         
         return dictTypeService.getDictTypeEntityById(dictTypeId)
                 .flatMapMany(type ->
-                    dictItemRepository.findByDictTypeIdAndNotDeletedOrderBySort(dictTypeId)
+                    // 同上：只返回启用项
+                    dictItemRepository.findEnabledByDictTypeId(dictTypeId)
                         .flatMap(item -> enrichWithDictType(item, type))
                 );
     }
@@ -148,9 +151,9 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     public Mono<String> getDictItemValue(String dictType, String key) {
         log.debug("获取字典项值（按编码）, dictType: {}, key: {}", dictType, key);
         
-        return dictTypeRepository.findByDictTypeAndNotDeleted(dictType)
-                .flatMap(type -> 
-                    dictItemRepository.findByDictTypeIdAndDictItemKeyAndNotDeleted(type.getId(), key)
+        return dictTypeRepository.findEnabledByDictTypeAndNotDeleted(dictType)
+                .flatMap(type ->
+                    dictItemRepository.findEnabledByDictTypeIdAndDictItemKey(type.getId(), key)
                         .map(SysDictItem::getDictItemValue)
                 );
     }
@@ -166,7 +169,7 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     public Mono<String> getDictItemValueById(Long dictTypeId, String key) {
         log.debug("获取字典项值（按ID）, dictTypeId: {}, key: {}", dictTypeId, key);
         
-        return dictItemRepository.findByDictTypeIdAndDictItemKeyAndNotDeleted(dictTypeId, key)
+        return dictItemRepository.findEnabledByDictTypeIdAndDictItemKey(dictTypeId, key)
                 .map(SysDictItem::getDictItemValue);
     }
     
@@ -336,7 +339,10 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id")
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id"),
+            // 列表/取值的缓存键含类型编码（typeCode:xxx），从 id 推不出来，
+            // 只能整片清 —— 字典项变动很少，代价可以接受。
+            @CacheEvict(allEntries = true)
     })
     public Mono<Void> deleteDictItem(Long id) {
         log.debug("删除字典项, ID: {}", id);
@@ -353,7 +359,9 @@ public class SysDictItemServiceImpl implements SysDictItemService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id")
+            @CacheEvict(key = "'" + CacheConstants.DICT_ITEM_BY_ID_KEY + "' + #id"),
+            // 状态变了会改变「渲染路径能看到哪些项」，同样整片清
+            @CacheEvict(allEntries = true)
     })
     public Mono<Void> updateDictItemStatus(Long id, Boolean status) {
         log.debug("更新字典项状态, ID: {}, 状态: {}", id, status);

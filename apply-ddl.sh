@@ -505,6 +505,76 @@ drop_column t_file has_thumbnail
 drop_column t_file thumbnail_path
 
 # =============================================================================
+# 十一、字典与后端契约对齐（db/08_dict_alignment.sql）
+#
+# article_status 的 key 曾经是 draft/published/pending/offline，而 t_posts.status
+# 是 Integer 0..3 —— 前端把字典 value 原样当查询参数发出去，状态筛选根本用不了。
+# 这一步把它改成数字键，并补上看板待办在用的 todo_priority（库里一直没有）。
+#
+# 同样必须在唯一键就位之后执行（第四节建 uk_dict_type / uk_dict_type_key），
+# 否则 ON DUPLICATE KEY UPDATE 不触发，重跑会插出重复项。
+# =============================================================================
+echo
+echo "==> 十一、字典对齐（db/08_dict_alignment.sql）"
+DICT_ALIGN_FILE="src/main/resources/db/08_dict_alignment.sql"
+if [ ! -f "$DICT_ALIGN_FILE" ]; then
+    echo "    !! 找不到 $DICT_ALIGN_FILE，跳过 —— 文章状态筛选与看板优先级会是空的"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$DICT_ALIGN_FILE" && echo "    字典对齐完成" || echo "    !! 字典对齐失败"
+fi
+
+# =============================================================================
+# 十二、清洗不生效的系统配置（db/09_purge_dead_config.sql）
+#
+# system.storage.* / system.cache.* / security.jwt.* / security.login.* /
+# security.password.* 在代码里零引用：管理员在系统设置页改它们会显示「更新成功」，
+# 但系统行为不会变。它们各自都有真正生效的配置来源（t_storage_config、
+# CacheConfig 里的 Caffeine、application.yml 的 sa-token.*）。
+#
+# 留着比删掉危险 —— 删了至少没人以为自己改的生效了。
+# =============================================================================
+echo
+echo "==> 十二、清洗不生效的系统配置（db/09_purge_dead_config.sql）"
+DEAD_CONFIG_FILE="src/main/resources/db/09_purge_dead_config.sql"
+if [ ! -f "$DEAD_CONFIG_FILE" ]; then
+    echo "    !! 找不到 $DEAD_CONFIG_FILE，跳过"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$DEAD_CONFIG_FILE" && echo "    死配置清理完成" || echo "    !! 死配置清理失败"
+fi
+
+# =============================================================================
+# 十三、字典 key 对齐（db/10_dict_key_alignment.sql）
+#
+# file_type / user_status / menu_type 三个字典的 key 与代码里实际用的值对不上
+# （小写 vs 首字母大写、字符串 vs Integer），前端拿到也匹配不上。
+# 这一步把 key 改成代码的契约值，并删掉已下线的 menu_type=button。
+# =============================================================================
+echo
+echo "==> 十三、字典 key 对齐（db/10_dict_key_alignment.sql）"
+DICT_KEY_FILE="src/main/resources/db/10_dict_key_alignment.sql"
+if [ ! -f "$DICT_KEY_FILE" ]; then
+    echo "    !! 找不到 $DICT_KEY_FILE，跳过"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$DICT_KEY_FILE" && echo "    字典 key 对齐完成" || echo "    !! 字典 key 对齐失败"
+fi
+
+# =============================================================================
+# 十四、storage_type 字典与实现对齐（db/11_storage_type_alignment.sql）
+#
+# 字典原本是 local/aliyun/qiniu/tencent，而真实可用的是 local/minio：
+# aliyun、tencent 是占位实现（调用即抛异常），qiniu/s3 没有实现。
+# 前端把 6 个都列出来，配了看起来能用、上传时才失败 —— 这里收敛到真能用的两种。
+# =============================================================================
+echo
+echo "==> 十四、存储类型字典对齐（db/11_storage_type_alignment.sql）"
+STORAGE_DICT_FILE="src/main/resources/db/11_storage_type_alignment.sql"
+if [ ! -f "$STORAGE_DICT_FILE" ]; then
+    echo "    !! 找不到 $STORAGE_DICT_FILE，跳过"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$STORAGE_DICT_FILE" && echo "    存储类型字典对齐完成" || echo "    !! 存储类型字典对齐失败"
+fi
+
+# =============================================================================
 # 校验
 # =============================================================================
 echo
@@ -577,10 +647,72 @@ if ! table_missing "t_async_tasks"; then
         "SELECT COUNT(*) FROM \`t_async_tasks\`
            WHERE \`task_type\` IN ('EMAIL','REPORT','DATA_EXPORT','FILE_PROCESS')" 0
 fi
+# 文章状态字典：只应有 0..3 四个数字键。旧的 draft/published/... 若还在，
+# 说明迁移没生效，前端的状态筛选会重新坏掉。
+check "article_status 字典项（期望 4）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'article_status'
+         AND di.`dict_item_key` IN ('0','1','2','3')
+         AND di.`is_deleted` = 0 AND di.`status` = 1" 4
+check "article_status 旧字符串键残留（期望 0）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'article_status'
+         AND di.`dict_item_key` IN ('draft','published','pending','offline')" 0
+check "todo_priority 字典项（期望 3）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'todo_priority'
+         AND di.`dict_item_key` IN ('high','medium','low')
+         AND di.`is_deleted` = 0 AND di.`status` = 1" 3
+
+# 死配置：与真实配置来源冲突的那几组必须清空，否则管理员会以为改了生效
+check "死配置残留（期望 0）" \
+    "SELECT COUNT(*) FROM `t_sys_config`
+       WHERE `config_key` LIKE 'system.storage.%'
+          OR `config_key` LIKE 'system.cache.%'
+          OR `config_key` LIKE 'security.jwt.%'
+          OR `config_key` LIKE 'security.login.%'
+          OR `config_key` LIKE 'security.password.%'" 0
+
 check "t_posts 冗余索引残留（期望 0）" \
     "SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
        WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='t_posts'
          AND INDEX_NAME IN ('idx_user','idx_user_id')" 0
+# 字典 key 与代码契约对齐：file_type 大写、user_status/menu_type 用数值
+check "file_type 字典项（期望 5）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'file_type'
+         AND di.`dict_item_key` IN ('Image','Video','Audio','Document','other')
+         AND di.`is_deleted` = 0 AND di.`status` = 1" 5
+check "user_status 字典项（期望 3）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'user_status'
+         AND di.`dict_item_key` IN ('0','1','2')
+         AND di.`is_deleted` = 0 AND di.`status` = 1" 3
+check "menu_type 字典项（期望 2，button 已下线）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'menu_type'
+         AND di.`dict_item_key` IN ('0','1')
+         AND di.`is_deleted` = 0 AND di.`status` = 1" 2
+
+# 存储类型字典只保留真能用的两种（local / minio）
+check "storage_type 字典项（期望 2）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'storage_type'
+         AND di.`dict_item_key` IN ('local','minio')
+         AND di.`is_deleted` = 0 AND di.`status` = 1" 2
+check "storage_type 未实现策略残留（期望 0）" \
+    "SELECT COUNT(*) FROM `t_sys_dict_items` di
+       JOIN `t_sys_dict_types` dt ON dt.`id` = di.`dict_type_id`
+       WHERE dt.`dict_type` = 'storage_type'
+         AND di.`dict_item_key` IN ('aliyun','tencent','qiniu','s3')" 0
+
 check "t_sys_role_menus 审计字段（期望 3）" \
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME'
        AND TABLE_NAME='t_sys_role_menus'

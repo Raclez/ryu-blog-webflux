@@ -1,6 +1,7 @@
 package com.ryu.blog.service.impl;
 
 import com.ryu.blog.constant.CacheConstants;
+import com.ryu.blog.constant.PublicConfigKeys;
 import com.ryu.blog.dto.SysConfigDTO;
 import com.ryu.blog.dto.SysConfigUpdateDTO;
 import com.ryu.blog.entity.SysConfig;
@@ -274,6 +275,9 @@ public class SysConfigServiceImpl implements SysConfigService {
                 })
                 .doOnNext(saved -> {
                     evictConfigCaches(saved);
+                    // 新增键会改变分组树（/sysConfig/groups 的级联选项），
+                    // 不驱逐的话管理页要等 12 小时才能看到新分组。
+                    evictGroupsCache();
                     publishConfigChange(saved.getConfigKey());
                 });
     }
@@ -341,6 +345,8 @@ public class SysConfigServiceImpl implements SysConfigService {
                 )
                 .doOnNext(config -> {
                     evictConfigCaches(config);
+                    // 删掉最后一个同前缀的键会让分组消失，同样要清分组缓存
+                    evictGroupsCache();
                     publishConfigChange(config.getConfigKey());
                 });
     }
@@ -373,6 +379,41 @@ public class SysConfigServiceImpl implements SysConfigService {
         if (config.getUserId() != null) {
             evictUserConfigCache(config.getUserId(), config.getConfigKey());
         }
+        evictPublicConfigCache(config.getConfigKey());
+    }
+
+    /**
+     * 驱逐公开配置缓存
+     *
+     * <p>只有白名单内的键会影响 {@code /sysConfig/public} 的响应。
+     * 这也意味着「删掉一个敏感键」不会触发公开缓存清空 —— 它本来就不在里面。
+     *
+     * @param configKey 变更的配置键
+     */
+    private void evictPublicConfigCache(String configKey) {
+        if (!PublicConfigKeys.isPublic(configKey)) {
+            return;
+        }
+        Cache publicCache = cacheManager.getCache(CacheConstants.PUBLIC_CONFIG_CACHE);
+        if (publicCache == null) {
+            log.warn("缓存 {} 不存在，跳过驱逐", CacheConstants.PUBLIC_CONFIG_CACHE);
+            return;
+        }
+        publicCache.clear();
+    }
+
+    /**
+     * 驱逐配置分组缓存
+     *
+     * <p>{@code getConfigGroups} 同样挂在 {@link CacheConstants#SYS_CONFIG_CACHE} 上，
+     * 但它的键是固定值，与具体配置键无关 —— 增删键时必须单独清。
+     */
+    private void evictGroupsCache() {
+        Cache cache = cacheManager.getCache(CacheConstants.SYS_CONFIG_CACHE);
+        if (cache == null) {
+            return;
+        }
+        cache.evict(CacheConstants.CONFIG_GROUPS_KEY);
     }
 
     /**
@@ -447,8 +488,15 @@ public class SysConfigServiceImpl implements SysConfigService {
                                 config.setUpdateTime(LocalDateTime.now());
                                 return sysConfigRepository.save(config);
                             })
+                            // 批量更新以前只写库：缓存不驱逐、事件也不发，
+                            // 于是走 PUT /sysConfig/batch/update 改 AI Provider 配置
+                            // 要等 12 小时缓存过期或重启才生效。
+                            .doOnNext(saved -> {
+                                evictConfigCaches(saved);
+                                publishConfigChange(saved.getConfigKey());
+                            })
                             .onErrorResume(e -> {
-                                log.error("更新配置失败，跳过 - key: {}", key);
+                                log.error("更新配置失败，跳过 - key: {}", key, e);
                                 return Mono.empty();
                             });
                 })
@@ -467,6 +515,26 @@ public class SysConfigServiceImpl implements SysConfigService {
         }).subscribeOn(Schedulers.boundedElastic());
     }
     
+    /**
+     * 获取公开配置
+     *
+     * <p>缓存用独立的 {@code publicConfig}（5 分钟），不复用 12 小时的系统配置缓存：
+     * 它要面向未登录调用方，改动必须尽快收敛。
+     *
+     * <p>只查全局配置（{@code user_id = 0}）—— 用户级配置永远不进公开响应。
+     *
+     * @return 公开配置键值对
+     */
+    @Override
+    @Cacheable(cacheNames = CacheConstants.PUBLIC_CONFIG_CACHE,
+            key = "'" + CacheConstants.CONFIG_PUBLIC_KEY + "'")
+    public Mono<Map<String, String>> getPublicConfigValues() {
+        return sysConfigRepository.findAllGlobal()
+                .filter(config -> PublicConfigKeys.isPublic(config.getConfigKey()))
+                .collectMap(SysConfig::getConfigKey,
+                        config -> config.getConfigValue() == null ? "" : config.getConfigValue());
+    }
+
     /**
      * 获取配置分组列表
      */
