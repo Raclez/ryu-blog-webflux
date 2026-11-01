@@ -87,8 +87,11 @@ class MenusRouteTreeIntegrationTest {
         // 覆盖三个层面：一级目录、叶子页面、隐藏路由
         assertTrue(routeNames.contains("SystemManagement"), "缺少一级目录 SystemManagement");
         assertTrue(routeNames.contains("UserList"), "缺少页面 UserList");
-        assertTrue(routeNames.contains("Dashboard"), "缺少首页 Dashboard");
         assertTrue(routeNames.contains("ArticleEditor"), "隐藏路由 ArticleEditor 也必须在树里");
+        // 首页是前端核心路由（router/routes/core.ts），不再由菜单表提供；
+        // 它若出现在菜单树里，会变成一条无意义的隐藏菜单行
+        assertFalse(routeNames.contains("Dashboard"),
+                "首页已改为核心路由，不应再出现在菜单树里");
 
         // 路由名重复会让 vue-router 覆盖同名路由
         assertFalse(routeNames.size() != routeNames.stream().distinct().count(),

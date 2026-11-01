@@ -620,6 +620,20 @@ else
 fi
 
 # =============================================================================
+# 十八、首页移出菜单表（db/15_remove_dashboard_menu.sql）
+#
+# 首页改为前端核心路由（core.ts），不再作为一条 hidden 菜单行出现在菜单管理里。
+# =============================================================================
+echo
+echo "==> 十八、首页移出菜单表（db/15_remove_dashboard_menu.sql）"
+DASHBOARD_FILE="src/main/resources/db/15_remove_dashboard_menu.sql"
+if [ ! -f "$DASHBOARD_FILE" ]; then
+    echo "    !! 找不到 $DASHBOARD_FILE，跳过"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$DASHBOARD_FILE" && echo "    首页已移出菜单表" || echo "    !! 首页移出失败"
+fi
+
+# =============================================================================
 # 校验
 # =============================================================================
 echo
@@ -747,6 +761,10 @@ check "菜单 component 格式非法（期望 0）" \
          AND `component` REGEXP '[^A-Za-z0-9_/-]'" 0
 check "菜单 component 仍是完整 features 路径（期望 0）" \
     "SELECT COUNT(*) FROM `t_menus` WHERE `component` LIKE 'views/features/%'" 0
+
+# 首页不再作为菜单行存在（它已是前端核心路由）
+check "首页菜单行残留（期望 0）" \
+    "SELECT COUNT(*) FROM `t_menus` WHERE `is_deleted` = 0 AND `route_name` = 'Dashboard'" 0
 
 check "t_posts 冗余索引残留（期望 0）" \
     "SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
