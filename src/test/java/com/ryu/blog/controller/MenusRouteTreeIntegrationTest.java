@@ -95,6 +95,47 @@ class MenusRouteTreeIntegrationTest {
                 "routeName 存在重复: " + routeNames);
     }
 
+    @Test
+    @DisplayName("菜单管理页的树：只有目录/菜单两种类型，且不含已退役的旧种子行")
+    void adminTreeHasNoLegacyRows() {
+        byte[] body = webTestClient.get()
+                .uri("/menus/tree")
+                .header(HttpHeaders.AUTHORIZATION, authToken)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .returnResult()
+                .getResponseBody();
+
+        assertNotNull(body);
+        JsonNode root = JsonUtils.parseTree(new String(body, StandardCharsets.UTF_8));
+        List<JsonNode> flat = new ArrayList<>();
+        flatten(root.get("data"), flat);
+        assertFalse(flat.isEmpty(), "菜单管理页的树不能为空");
+
+        for (JsonNode node : flat) {
+            // type=2「按钮」随旧「菜单↔权限」模型下线，菜单表里不该再出现
+            int type = node.path("type").asInt(-1);
+            assertTrue(type == 0 || type == 1,
+                    "菜单类型只能是 0(目录) 或 1(菜单)，实际: " + type + " / " + node.path("name"));
+        }
+
+        List<String> names = flat.stream().map(node -> node.path("name").asText()).toList();
+        for (String legacy : List.of("评论管理", "个人中心", "数据统计", "文档中心")) {
+            assertFalse(names.contains(legacy),
+                    "已退役的旧种子菜单仍在树里: " + legacy);
+        }
+
+        // 文章管理是叶子：旧模型下它下面挂过按钮行
+        for (JsonNode node : flat) {
+            if ("文章管理".equals(node.path("name").asText())) {
+                JsonNode children = node.get("children");
+                assertTrue(children == null || children.isEmpty(),
+                        "文章管理不应再有子节点（按钮行应已下线）");
+            }
+        }
+    }
+
     private void flatten(JsonNode nodes, List<JsonNode> out) {
         if (nodes == null || !nodes.isArray()) {
             return;
