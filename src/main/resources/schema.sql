@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS `t_role_permissions` (
 CREATE TABLE IF NOT EXISTS `t_menus` (
     `id`          bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '菜单ID',
     `name`        varchar(255) DEFAULT NULL COMMENT '菜单名称',
+    `route_name`  varchar(64)  DEFAULT NULL COMMENT '前端路由名（vue-router 的 name）',
     `icon`        varchar(255) DEFAULT NULL COMMENT '菜单图标',
     `path`        varchar(255) DEFAULT NULL COMMENT '路由路径',
     `component`   varchar(255) DEFAULT NULL COMMENT '前端组件路径',
@@ -115,6 +116,7 @@ CREATE TABLE IF NOT EXISTS `t_menus` (
     `is_link`     tinyint      DEFAULT NULL COMMENT '是否外链',
     `is_deleted`  tinyint(1)   DEFAULT 0 COMMENT '是否删除',
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_menus_route_name` (`route_name`),
     KEY `idx_menus_parent_sort` (`parent_id`, `sort`),
     KEY `idx_menus_type` (`type`, `is_deleted`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '菜单表';

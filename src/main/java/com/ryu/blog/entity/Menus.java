@@ -29,6 +29,16 @@ public class Menus extends BaseEntity {
      */
     @Schema(description = "菜单名称")
     private String name;
+
+    /**
+     * 前端路由名（vue-router 的 name）
+     *
+     * <p>菜单名是中文、可以随时改；路由名必须 ASCII 且稳定 ——
+     * 前端的 keep-alive、按 name 去重、以及「后端驱动菜单」模式下
+     * {@code generateRoutesByBackend} 都拿它当路由标识。
+     */
+    @Schema(description = "前端路由名（vue-router 的 name）")
+    private String routeName;
     
     /**
      * 菜单图标

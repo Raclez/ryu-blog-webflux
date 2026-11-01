@@ -31,6 +31,26 @@ public interface MenusRepository extends R2dbcRepository<Menus, Long> {
     Flux<Menus> findAllOrderByParentIdAndSort();
 
     /**
+     * 路由名是否已存在
+     *
+     * <p>查的是全表（不过滤 is_deleted）：{@code uk_menus_route_name} 是唯一索引，
+     * 软删的行同样占着这个值，只查未删除会漏掉、最后报 Duplicate entry。
+     *
+     * @param routeName 路由名
+     * @return 是否存在
+     */
+    Mono<Boolean> existsByRouteName(String routeName);
+
+    /**
+     * 路由名是否已被<b>其它</b>菜单占用
+     *
+     * @param routeName 路由名
+     * @param id        当前菜单ID
+     * @return 是否存在
+     */
+    Mono<Boolean> existsByRouteNameAndIdNot(String routeName, Long id);
+
+    /**
      * 根据ID列表查询未删除的菜单
      *
      * @param ids 菜单ID列表

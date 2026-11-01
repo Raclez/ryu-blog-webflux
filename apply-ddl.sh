@@ -575,6 +575,36 @@ else
 fi
 
 # =============================================================================
+# 十五、菜单路由名（db/12_menu_route_name.sql）
+#
+# vben 的「后端驱动菜单」把后端菜单直接转成 vue-router 路由，需要稳定的 ASCII name。
+# 这里补 t_menus.route_name 列与唯一键；菜单数据由第十六节重建。
+# =============================================================================
+echo
+echo "==> 十五、菜单路由名字段（db/12_menu_route_name.sql）"
+MENU_ROUTE_FILE="src/main/resources/db/12_menu_route_name.sql"
+if [ ! -f "$MENU_ROUTE_FILE" ]; then
+    echo "    !! 找不到 $MENU_ROUTE_FILE，跳过"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$MENU_ROUTE_FILE" && echo "    路由名字段就绪" || echo "    !! 路由名字段创建失败"
+fi
+
+# =============================================================================
+# 十六、按前端路由清单重建菜单树（db/13_menu_routes_seed.sql）
+#
+# 旧种子是另一套结构（个人中心/数据统计/评论管理/文档中心），组件路径也对不上真实文件。
+# 切到后端驱动菜单后，缺一条菜单就等于少一个页面 —— 必须整树替换。
+# =============================================================================
+echo
+echo "==> 十六、重建菜单树（db/13_menu_routes_seed.sql）"
+MENU_SEED_FILE="src/main/resources/db/13_menu_routes_seed.sql"
+if [ ! -f "$MENU_SEED_FILE" ]; then
+    echo "    !! 找不到 $MENU_SEED_FILE，跳过 —— 后端驱动菜单模式下侧边栏会是空的"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$MENU_SEED_FILE" && echo "    菜单树重建完成" || echo "    !! 菜单树重建失败"
+fi
+
+# =============================================================================
 # 校验
 # =============================================================================
 echo
@@ -675,6 +705,22 @@ check "死配置残留（期望 0）" \
           OR `config_key` LIKE 'security.jwt.%'
           OR `config_key` LIKE 'security.login.%'
           OR `config_key` LIKE 'security.password.%'" 0
+
+check "t_menus.route_name 列（期望 1）" \
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME'
+       AND TABLE_NAME='t_menus' AND COLUMN_NAME='route_name'" 1
+check "t_menus 路由名唯一键（期望 1）" \
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA='$DB_NAME'
+       AND TABLE_NAME='t_menus' AND INDEX_NAME='uk_menus_route_name'" 1
+# 后端驱动菜单模式下，每条可见菜单都必须有路由名 —— 缺一条就等于少一个页面
+check "菜单缺路由名（期望 0）" \
+    "SELECT COUNT(*) FROM `t_menus` WHERE `is_deleted` = 0 AND (`route_name` IS NULL OR `route_name` = '')" 0
+check "可见菜单数量（期望 >= 25）" \
+    "SELECT IF(COUNT(*) >= 25, 1, 0) FROM `t_menus` WHERE `is_deleted` = 0" 1
+check "ADMIN 菜单绑定（期望 >= 25）" \
+    "SELECT IF(COUNT(*) >= 25, 1, 0) FROM `t_sys_role_menus` rm
+       JOIN `t_roles` r ON r.`id` = rm.`role_id`
+       WHERE r.`code` = 'ADMIN' AND rm.`is_deleted` = 0" 1
 
 check "t_posts 冗余索引残留（期望 0）" \
     "SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS

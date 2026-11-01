@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
@@ -17,6 +19,15 @@ public class MenusSaveDTO {
     @NotBlank(message = "菜单名称不能为空")
     @Schema(description = "菜单名称", required = true)
     private String name;
+
+    /**
+     * 前端路由名（vue-router 的 name）
+     */
+    @Pattern(regexp = "^[A-Za-z][A-Za-z0-9_]*$",
+            message = "路由名只能由字母、数字、下划线组成，且以字母开头")
+    @Size(max = 64, message = "路由名长度不能超过 64")
+    @Schema(description = "前端路由名（vue-router 的 name）")
+    private String routeName;
 
     /**
      * 菜单链接

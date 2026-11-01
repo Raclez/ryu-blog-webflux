@@ -232,6 +232,7 @@ public final class MenuTreeBuilder {
         node.setWeight(menu.getSort());
 
         Map<String, Object> extra = new HashMap<>();
+        extra.put("routeName", menu.getRouteName());
         extra.put("icon", menu.getIcon());
         extra.put("path", menu.getPath());
         extra.put("component", menu.getComponent());

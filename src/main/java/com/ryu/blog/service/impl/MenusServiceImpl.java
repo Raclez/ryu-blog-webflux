@@ -193,7 +193,9 @@ public class MenusServiceImpl implements MenusService {
 
         // 父菜单必须存在 —— 否则这个菜单会变成孤儿，
         // 在树里被静默丢弃（接口不报错，菜单却凭空消失）
-        return validateParent(menu.getParentId(), null)
+        // 路由名同理：缺了它，前端在后端驱动模式下建不出这条路由
+        return validateRouteName(menu.getRouteName(), null)
+                .then(validateParent(menu.getParentId(), null))
                 .then(Mono.defer(() -> {
                     LocalDateTime now = LocalDateTime.now();
                     menu.setCreateTime(now);
@@ -219,7 +221,7 @@ public class MenusServiceImpl implements MenusService {
                     // 菜单就从树上凭空消失了
                     BeanUtil.copyProperties(menusUpdateDTO, menu,
                             "id", "menuType", "url", "parentId", "sort", "hidden",
-                            "component", "redirect", "icon");
+                            "component", "redirect", "icon", "routeName");
                     if (menusUpdateDTO.getMenuType() != null) {
                         menu.setType(menusUpdateDTO.getMenuType());
                     }
@@ -244,13 +246,17 @@ public class MenusServiceImpl implements MenusService {
                     if (menusUpdateDTO.getIcon() != null) {
                         menu.setIcon(menusUpdateDTO.getIcon());
                     }
+                    if (menusUpdateDTO.getRouteName() != null) {
+                        menu.setRouteName(menusUpdateDTO.getRouteName());
+                    }
                     if (menusUpdateDTO.getIsLink() != null) {
                         menu.setIsLink(menusUpdateDTO.getIsLink());
                     }
                     menu.setUpdateTime(LocalDateTime.now());
 
-                    // 父菜单必须存在，且不能成环
-                    return validateParent(menu.getParentId(), menu.getId())
+                    // 父菜单必须存在，且不能成环；路由名必须唯一
+                    return validateRouteName(menu.getRouteName(), menu.getId())
+                            .then(validateParent(menu.getParentId(), menu.getId()))
                             .then(menusRepository.save(menu))
                             .then();
                 });
@@ -281,6 +287,30 @@ public class MenusServiceImpl implements MenusService {
     // =====================================================================
     // 内部工具
     // =====================================================================
+
+    /**
+     * 校验路由名：不能为空，且全局唯一
+     *
+     * <p>前端的「后端驱动菜单」模式会把它直接当作 vue-router 的 {@code name}：
+     * 空值建不出路由，重复会让 vue-router 覆盖掉先注册的那条。
+     * 这里的唯一性判断覆盖全表（含软删行），与 {@code uk_menus_route_name} 一致。
+     *
+     * @param routeName 路由名
+     * @param menuId    当前菜单ID（新建时为 null）
+     * @return 校验通过
+     */
+    private Mono<Void> validateRouteName(String routeName, Long menuId) {
+        if (routeName == null || routeName.isBlank()) {
+            return Mono.error(new IllegalArgumentException(
+                    "路由名不能为空 —— 前端用它作为 vue-router 的 name"));
+        }
+        Mono<Boolean> exists = menuId == null
+                ? menusRepository.existsByRouteName(routeName)
+                : menusRepository.existsByRouteNameAndIdNot(routeName, menuId);
+        return exists.flatMap(duplicated -> Boolean.TRUE.equals(duplicated)
+                ? Mono.error(new IllegalArgumentException("路由名已存在: " + routeName))
+                : Mono.empty());
+    }
 
     /**
      * 校验父菜单：必须存在，且不能形成环
