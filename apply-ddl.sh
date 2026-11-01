@@ -605,6 +605,21 @@ else
 fi
 
 # =============================================================================
+# 十七、菜单组件路径改写为 page_key（db/14_menu_page_key.sql）
+#
+# 菜单里存完整组件路径时，管理员抄错一个字符就是 not-found 且没有任何提示。
+# 改成约定 key（user/UserList）后，前端按约定解析，并能从下拉里选、保存前校验。
+# =============================================================================
+echo
+echo "==> 十七、菜单 page_key 改写（db/14_menu_page_key.sql）"
+MENU_KEY_FILE="src/main/resources/db/14_menu_page_key.sql"
+if [ ! -f "$MENU_KEY_FILE" ]; then
+    echo "    !! 找不到 $MENU_KEY_FILE，跳过"
+else
+    "$MYSQL_BIN" --default-character-set=utf8mb4 -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"         < "$MENU_KEY_FILE" && echo "    菜单 page_key 改写完成" || echo "    !! 菜单 page_key 改写失败"
+fi
+
+# =============================================================================
 # 校验
 # =============================================================================
 echo
@@ -721,6 +736,17 @@ check "ADMIN 菜单绑定（期望 >= 25）" \
     "SELECT IF(COUNT(*) >= 25, 1, 0) FROM `t_sys_role_menus` rm
        JOIN `t_roles` r ON r.`id` = rm.`role_id`
        WHERE r.`code` = 'ADMIN' AND rm.`is_deleted` = 0" 1
+
+# 菜单 component 必须是 page_key 或显式 .vue 路径：
+# 不含 .vue 的值只允许字母/数字/下划线/斜杠
+check "菜单 component 格式非法（期望 0）" \
+    "SELECT COUNT(*) FROM `t_menus`
+       WHERE `is_deleted` = 0
+         AND `component` IS NOT NULL AND `component` <> ''
+         AND `component` NOT LIKE '%.vue'
+         AND `component` REGEXP '[^A-Za-z0-9_/-]'" 0
+check "菜单 component 仍是完整 features 路径（期望 0）" \
+    "SELECT COUNT(*) FROM `t_menus` WHERE `component` LIKE 'views/features/%'" 0
 
 check "t_posts 冗余索引残留（期望 0）" \
     "SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS

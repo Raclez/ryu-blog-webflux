@@ -53,9 +53,21 @@ public class Menus extends BaseEntity {
     private String path;
     
     /**
-     * 组件路径
+     * 页面标识：约定 page_key 或显式组件路径
+     *
+     * <p>两种写法都支持，解析规则在前端 {@code utils/page-registry.ts}：
+     * <ul>
+     *   <li>约定 key —— {@code user/UserList} 对应
+     *       {@code views/features/user/UserList.vue}（也支持 {@code a/B/index.vue} 形式）；</li>
+     *   <li>显式路径 —— 含 {@code .vue}，相对 {@code src}，如
+     *       {@code views/api-doc/index.vue}。</li>
+     * </ul>
+     *
+     * <p>为什么不再只存完整路径：路径是管理员手填的，抄错一个字符，
+     * 前端路由照样建得出来，点进去却是 not-found。key 更短、可从下拉里选、
+     * 保存前还能校验文件是否存在。
      */
-    @Schema(description = "组件路径")
+    @Schema(description = "页面标识：page_key（如 user/UserList）或显式组件路径")
     private String component;
     
     /**
