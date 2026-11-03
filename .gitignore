@@ -33,3 +33,6 @@ Thumbs.db
 
 # Claude Code 本地设置（只与本机有关，不进仓库）
 /.claude/settings.local.json
+
+# Playwright MCP 本地产物（截图/trace，不进仓库）
+/.playwright-mcp/
