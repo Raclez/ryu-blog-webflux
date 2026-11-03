@@ -51,6 +51,18 @@ public interface MenusRepository extends R2dbcRepository<Menus, Long> {
     Mono<Boolean> existsByRouteNameAndIdNot(String routeName, Long id);
 
     /**
+     * 根据路由名查询菜单
+     *
+     * <p>不过滤 {@code is_deleted}：{@code route_name} 是全局唯一键，
+     * 软删的行同样占着这个值 —— 新建菜单后回查自增 ID 时用它兜底。
+     *
+     * @param routeName 路由名
+     * @return 菜单
+     */
+    @Query("SELECT * FROM t_menus WHERE route_name = :routeName LIMIT 1")
+    Mono<Menus> findByRouteName(String routeName);
+
+    /**
      * 根据ID列表查询未删除的菜单
      *
      * @param ids 菜单ID列表

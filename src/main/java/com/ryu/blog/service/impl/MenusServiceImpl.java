@@ -170,7 +170,7 @@ public class MenusServiceImpl implements MenusService {
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
-    public Mono<Void> saveMenu(OperatorContext ctx, MenusSaveDTO menusSaveDTO) {
+    public Mono<Long> saveMenu(OperatorContext ctx, MenusSaveDTO menusSaveDTO) {
         log.info("保存菜单: name={}", menusSaveDTO.getName());
 
         Menus menu = new Menus();
@@ -203,7 +203,18 @@ public class MenusServiceImpl implements MenusService {
                     // is_deleted 必须显式赋值：t_menus.is_deleted 虽然可空，
                     // 但写成 NULL 会让将来补上的 `is_deleted = 0` 过滤把存量菜单全滤掉
                     menu.setIsDeleted(false);
-                    return menusRepository.save(menu).then();
+                    // 必须把新菜单的 ID 回传：前端紧接着要调 /menus/bindRoles?menuId=...
+                    return menusRepository.save(menu)
+                            .flatMap(saved -> {
+                                Long id = saved.getId();
+                                if (id != null) {
+                                    return Mono.just(id);
+                                }
+                                // 驱动没把自增主键回填到实体上时，按唯一键 route_name 兜底查一次
+                                return menusRepository.findByRouteName(menu.getRouteName())
+                                        .map(Menus::getId)
+                                        .single();
+                            });
                 }));
     }
 

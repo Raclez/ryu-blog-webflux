@@ -49,6 +49,24 @@ public class Result<T> implements Serializable {
     }
     
     /**
+     * 成功，自定义消息并带数据
+     *
+     * <p>用于「既要一句可读提示、又要回一个值」的接口
+     * （例如新建菜单：message=菜单创建成功，data=新菜单ID）。
+     *
+     * @param message 消息
+     * @param data    数据
+     * @return 结果
+     */
+    public static <T> Result<T> success(String message, T data) {
+        Result<T> result = new Result<>();
+        result.code = 200;
+        result.message = message;
+        result.data = data;
+        return result;
+    }
+
+    /**
      * 成功，自定义消息，不返回数据
      * @param message 消息
      * @return 结果

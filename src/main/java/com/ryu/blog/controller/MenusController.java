@@ -149,16 +149,16 @@ public class MenusController {
      * （原「按钮」类型已随「菜单↔权限」模型下线）
      *
      * @param menusSaveDTO 菜单保存DTO对象
-     * @return 操作结果
+     * @return <b>新菜单的 ID</b>（前端紧接着用它调 {@code /menus/bindRoles}）
      */
     @SaCheckPermission(PermissionConstants.MENU_ADD)
     @PostMapping("/save")
-    @Operation(summary = "创建菜单", description = "创建新的系统菜单")
+    @Operation(summary = "创建菜单", description = "创建新的系统菜单，返回新菜单ID")
     public Mono<Result<String>> saveMenus(@Valid @RequestBody MenusSaveDTO menusSaveDTO) {
         log.info("请求创建菜单: name={}", menusSaveDTO.getName());
 
         return menusService.saveMenu(OperatorContext.current(), menusSaveDTO)
-                .thenReturn(Result.success("菜单创建成功"));
+                .map(id -> Result.success("菜单创建成功", String.valueOf(id)));
     }
 
     /**

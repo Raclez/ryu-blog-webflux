@@ -71,10 +71,17 @@ public interface MenusService {
     /**
      * 新建菜单
      *
+     * <p><b>返回新菜单的 ID</b> —— 前端拿到它才能紧接着做「分配角色」
+     * （{@code POST /menus/bindRoles?menuId=...}）。早先这里返回的是
+     * {@code Mono<Void>}，控制器只能回一句「菜单创建成功」，
+     * 前端把这句话当 menuId 传下去，服务端直接
+     * {@code Type mismatch: For input string: "菜单创建成功"}。
+     *
      * @param ctx         操作者上下文
      * @param menusSaveDTO 菜单信息
+     * @return 新建菜单的 ID
      */
-    Mono<Void> saveMenu(OperatorContext ctx, MenusSaveDTO menusSaveDTO);
+    Mono<Long> saveMenu(OperatorContext ctx, MenusSaveDTO menusSaveDTO);
 
     /**
      * 更新菜单
