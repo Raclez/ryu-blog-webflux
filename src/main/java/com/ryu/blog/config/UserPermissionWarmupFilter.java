@@ -62,7 +62,7 @@ public class UserPermissionWarmupFilter implements WebFilter {
         // 解析失败也不能阻断请求 —— 鉴权侧会 fail-closed 返回 403，而不是 500。
         // 但必须留下日志：否则「权限快照拉取失败」在日志里完全看不见，
         // 现场只看到一堆莫名其妙的 403，无从判断是权限确实不足还是快照没就绪。
-        return permissionCache.refresh(userId)
+        return permissionCache.ensureWarm(userId)
                 .onErrorResume(e -> {
                     log.warn("预热用户权限快照失败，本次请求将按无权限处理: userId={}, 原因: {}",
                             userId, e.getMessage(), e);

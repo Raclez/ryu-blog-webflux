@@ -1,6 +1,7 @@
 package com.ryu.blog.config;
 
 import cn.dev33.satoken.stp.StpInterface;
+import com.ryu.blog.service.impl.PermissionSnapshot;
 import com.ryu.blog.service.impl.UserPermissionCache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,7 +46,7 @@ public class SaTokenStpInterface implements StpInterface {
         if (userId == null) {
             return List.of();
         }
-        UserPermissionCache.Snapshot snapshot = permissionCache.getSnapshot(userId);
+        PermissionSnapshot snapshot = permissionCache.getSnapshot(userId);
         if (snapshot == null) {
             log.debug("用户权限快照未就绪，按无权限处理: userId={}", userId);
             return List.of();
@@ -59,7 +60,7 @@ public class SaTokenStpInterface implements StpInterface {
         if (userId == null) {
             return List.of();
         }
-        UserPermissionCache.Snapshot snapshot = permissionCache.getSnapshot(userId);
+        PermissionSnapshot snapshot = permissionCache.getSnapshot(userId);
         if (snapshot == null) {
             return List.of();
         }

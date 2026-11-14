@@ -13,7 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,6 +45,7 @@ class UserPermissionCacheTest {
     private static final long BACKOFF_MILLIS = 10_000L;
 
     private UserPermissionResolver resolver;
+    private PermissionSnapshotStore store;
     private UserPermissionCache cache;
 
     @BeforeEach
@@ -51,7 +54,14 @@ class UserPermissionCacheTest {
         when(resolver.resolveRoleCodes(anyLong())).thenReturn(Mono.just(Set.of("ADMIN")));
         when(resolver.resolvePermissionIdentities(anyLong()))
                 .thenReturn(Mono.just(Set.of("system:user:view")));
-        cache = new UserPermissionCache(resolver, TTL_MILLIS, BACKOFF_MILLIS);
+
+        // L2（Redis）默认未命中 —— 走 L3（库）。
+        store = mock(PermissionSnapshotStore.class);
+        when(store.load(anyLong())).thenReturn(Mono.empty());
+        when(store.save(anyLong(), any())).thenReturn(Mono.empty());
+        when(store.delete(anyLong())).thenReturn(Mono.empty());
+
+        cache = new UserPermissionCache(resolver, store, TTL_MILLIS, BACKOFF_MILLIS);
     }
 
     @Test
@@ -106,7 +116,7 @@ class UserPermissionCacheTest {
         when(resolver.resolveRoleCodes(anyLong()))
                 .thenReturn(Mono.error(new RuntimeException("数据库连不上")));
 
-        UserPermissionCache shortBackoff = new UserPermissionCache(resolver, TTL_MILLIS, 50L);
+        UserPermissionCache shortBackoff = new UserPermissionCache(resolver, store, TTL_MILLIS, 50L);
         shortBackoff.refresh(1L).block();
         shortBackoff.refresh(1L).block();
         verify(resolver, times(1)).resolveRoleCodes(1L);
@@ -142,9 +152,38 @@ class UserPermissionCacheTest {
     void snapshotCarriesRolesAndPermissions() {
         cache.refresh(1L).block();
 
-        UserPermissionCache.Snapshot snapshot = cache.getSnapshot(1L);
+        PermissionSnapshot snapshot = cache.getSnapshot(1L);
         assertEquals(Set.of("ADMIN"), snapshot.roles());
         assertEquals(Set.of("system:user:view"), snapshot.permissions());
+    }
+
+    @Test
+    @DisplayName("L1 未命中时先问 Redis，命中就不查库")
+    void hitsRedisBeforeDatabase() {
+        PermissionSnapshot shared = new PermissionSnapshot(Set.of("ADMIN"), Set.of("system:user:view"));
+        when(store.load(1L)).thenReturn(Mono.just(shared));
+
+        cache.ensureWarm(1L).block();
+
+        assertEquals(Set.of("ADMIN"), cache.getSnapshot(1L).roles());
+        verify(resolver, times(0)).resolveRoleCodes(anyLong());
+    }
+
+    @Test
+    @DisplayName("Redis 也没有才查库，查完写回 Redis")
+    void fallsBackToDatabaseAndWritesBack() {
+        cache.ensureWarm(1L).block();
+
+        verify(resolver, times(1)).resolveRoleCodes(1L);
+        verify(store, times(1)).save(eq(1L), any());
+    }
+
+    @Test
+    @DisplayName("失效快照时 Redis 里的那份也要删掉")
+    void evictAlsoDeletesRedisEntry() {
+        cache.evict(1L).block();
+
+        verify(store, times(1)).delete(1L);
     }
 
     @Test

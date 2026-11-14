@@ -232,3 +232,16 @@ task:
       failed-retention-days: 7
       # 清理任务执行时间（cron表达式）
       cron: "0 0 2 * * ?"
+
+# ==================== 鉴权 / 权限快照 ====================
+blog:
+  auth:
+    # 权限快照的本地缓存（L1，Caffeine）有效期，毫秒。
+    # 它只用来扛住「同一秒的连续请求」—— 跨实例的一致性靠下面的 Redis 共享层。
+    permission-snapshot-local-ttl-ms: 5000
+    # 权限快照的 Redis 共享层（L2）有效期，秒。
+    # 角色/权限变更后，新快照会写进 Redis；其它实例的本地缓存过期后从 Redis 读到新的。
+    permission-snapshot-redis-ttl-seconds: 300
+    # 快照刷新失败后的退避窗口，毫秒。
+    # 数据库抖动时避免「每个请求都重试」把查询量放大成风暴。
+    permission-snapshot-backoff-ms: 5000

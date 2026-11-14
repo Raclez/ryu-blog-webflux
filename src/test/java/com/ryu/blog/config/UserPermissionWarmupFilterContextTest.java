@@ -67,7 +67,7 @@ class UserPermissionWarmupFilterContextTest {
         UserPermissionCache permissionCache = mock(UserPermissionCache.class);
         when(permissionCache.isWarm(7L)).thenReturn(false);
         // 模拟 refresh 走 R2DBC / Redis：续作在另一个线程上恢复
-        when(permissionCache.refresh(7L)).thenReturn(
+        when(permissionCache.ensureWarm(7L)).thenReturn(
                 Mono.fromRunnable(() -> { }).subscribeOn(Schedulers.boundedElastic()).then());
 
         AtomicReference<String> chainThread = new AtomicReference<>();
