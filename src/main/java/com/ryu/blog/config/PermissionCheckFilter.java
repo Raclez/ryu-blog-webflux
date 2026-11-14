@@ -75,9 +75,17 @@ public class PermissionCheckFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        // <b>不能写成 .then(chain.filter(exchange))</b> ——
+        // chain.filter(exchange) 是 then() 的<b>实参</b>，会被<b>提前求值</b>：
+        // 判定还没跑，下游就已经被调用了。于是「写了 403 之后请求仍继续往下走」，
+        // 业务逻辑照常执行（响应写不进去而已，但副作用已经发生）。
+        //
+        // 所以必须先拿到「放行 / 拒绝」的结论，再决定要不要走下游。
         return resolveHandler(exchange)
                 .flatMap(handler -> verify(exchange, handler))
-                .then(chain.filter(exchange));
+                // 没有 handler、没有能力要求 —— 放行
+                .defaultIfEmpty(Boolean.TRUE)
+                .flatMap(granted -> granted ? chain.filter(exchange) : Mono.empty());
     }
 
     /**
@@ -97,13 +105,13 @@ public class PermissionCheckFilter implements WebFilter {
     /**
      * 判定这个端点要不要权限，以及当前操作者有没有。
      */
-    private Mono<Void> verify(ServerWebExchange exchange, HandlerMethod handler) {
+    private Mono<Boolean> verify(ServerWebExchange exchange, HandlerMethod handler) {
         Class<?> beanType = handler.getBeanType();
         java.lang.reflect.Method method = handler.getMethod();
 
         if (AnnotatedElementUtils.hasAnnotation(method, SaIgnore.class)
                 || AnnotatedElementUtils.hasAnnotation(beanType, SaIgnore.class)) {
-            return Mono.empty();
+            return Mono.just(Boolean.TRUE);
         }
 
         SaCheckPermission annotation = AnnotatedElementUtils.findMergedAnnotation(method, SaCheckPermission.class);
@@ -112,17 +120,17 @@ public class PermissionCheckFilter implements WebFilter {
         }
         if (annotation == null) {
             // 没有能力要求 —— 交给后面（登录校验仍然生效）。
-            return Mono.empty();
+            return Mono.just(Boolean.TRUE);
         }
 
         String[] required = annotation.value();
         if (required == null || required.length == 0) {
-            return Mono.empty();
+            return Mono.just(Boolean.TRUE);
         }
         String[] orRoles = annotation.orRole();
         if (orRoles != null && orRoles.length > 0) {
             // orRole 的语义（权限或角色任一满足）由切面实现，这边不重复判断。
-            return Mono.empty();
+            return Mono.just(Boolean.TRUE);
         }
 
         boolean and = annotation.mode() != cn.dev33.satoken.annotation.SaMode.OR;
@@ -142,7 +150,7 @@ public class PermissionCheckFilter implements WebFilter {
             if (!granted) {
                 return deny(exchange, new NotPermissionException(required[0]));
             }
-            return Mono.empty();
+            return Mono.just(Boolean.TRUE);
         });
     }
 
@@ -153,7 +161,7 @@ public class PermissionCheckFilter implements WebFilter {
      * 抛出去的异常到不了 {@code @RestControllerAdvice}，
      * 会被 Boot 的兜底错误处理器渲染成另一种 body。
      */
-    private Mono<Void> deny(ServerWebExchange exchange, Throwable e) {
-        return errorRenderer.write(exchange, e);
+    private Mono<Boolean> deny(ServerWebExchange exchange, Throwable e) {
+        return errorRenderer.write(exchange, e).thenReturn(Boolean.FALSE);
     }
 }
