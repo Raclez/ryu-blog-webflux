@@ -18,6 +18,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -72,32 +73,41 @@ import java.lang.reflect.Method;
  * </ul>
  *
  * <p>上下文丢了之后，{@code StpUtil} 抛的是
- * {@code SaTokenContextException: 未能获取有效的上下文} —— 一个 <b>500</b>。更麻烦的是它
- * 只在某些请求上出现：{@code boundedElastic} 是线程池，某条线程上若恰好残留着上一次请求
- * 建立的 box（{@code UserPermissionWarmupFilter} 建完是不清的），那次请求就「碰巧成功」。
- * 现场看起来就是「偶发的鉴权故障」，重启后第一次必挂、后面时好时坏。
+ * {@code SaTokenContextException: 未能获取有效的上下文} —— 一个 <b>500</b>。
  *
  * <p><b>不要</b>用 {@code try { StpUtil... } catch (SaTokenContextException e) { 403 }} 糊过去：
  * 那是把「上下文没带过来」误报成「你没有权限」，500 换成一个更难查的 403。
  *
- * <p>正确做法是<b>把上下文恢复出来</b>。exchange 并没有丢 —— {@code SaReactorFilter} 用
- * {@code contextWrite} 把它写进了 Reactor Context（key 是
- * {@code ServerWebExchange.class}），而 Reactor Context 是跟着数据流穿过线程切换的。于是：
+ * <p><b>更危险的不是 500，是「没报错但用错了人」。</b>
+ *
+ * <p>ThreadLocal 挂在池化线程上，而 box 里装的是<b>上一次请求</b>的 exchange
+ * （含上一次请求的 Authorization 头）。所以「当前线程上有没有 box」
+ * <b>不等于</b>「这个 box 是不是本次请求的」。早先的实现用前者当后者的判据
+ * （{@code isSaTokenContextPresent()}），命中就走快路径，直接拿<b>上一个请求</b>的
+ * token 做判定 —— 上一次是管理员，这一次普通用户就被放行；上一次匿名，
+ * 这一次合法用户被判 401。
+ *
+ * <p>正确做法是<b>无条件</b>把上下文恢复出来。exchange 并没有丢 ——
+ * 框架的 {@code SaTokenContextFilterForReactor} 用 {@code contextWrite} 把它写进了
+ * Reactor Context（key 是 {@code SaReactorHolder.EXCHANGE_KEY}），
+ * 而 Reactor Context 是跟着数据流穿过线程切换的，
+ * 里面的 exchange <b>按构造就是本次请求的</b>。于是：
  * <pre>
- *   SaReactorHolder.getContextAndSetSync()      // 从 Reactor Context 取回 exchange，
- *                                               // 在当前线程重建 ThreadLocal，收尾时 clear
- *       .flatMap(exchange -&gt; {
+ *   SaReactorHolder.getExchange(contextView)   // 从 Reactor Context 取回本次请求的 exchange
+ *       .flatMap(exchange -&gt; Mono.defer(() -&gt; {
+ *           SaReactorSyncHolder.setContext(exchange);   // 在当前线程重建 ThreadLocal
  *           鉴权();                                // 此刻 StpUtil 又能用了
  *           return proceed();                      // 调用 Controller
- *       });
+ *       }));
  * </pre>
- * 本切面只在<b>检测到当前线程没有上下文</b>时才走这条兜底路径（见
- * {@code deferredWithRestoredContext}），正常路径不多花一次判断之外的任何代价。
+ * 本切面<b>总是</b>走这条路径（见 {@code deferredWithRestoredContext}）——
+ * 不是「检测到没有上下文才恢复」，而是「不管当前线程上有什么，都以 Reactor Context 为准」。
+ * 代价只是每次多一次 {@code deferContextual}，换来的是「判定用的永远是本次请求的身份」。
  *
  * <p>同一条规律对任何「可能在别的线程上摸 StpUtil」的代码都成立，例如
  * {@code UserPermissionWarmupFilter} 刷新权限快照后的那次线程切换。
- * 回归护栏：{@code SaPermissionAspectContextTest}（把兜底分支关掉就会红）、
- * {@code UserPermissionWarmupFilterContextTest}。
+ * 回归护栏：{@code SaPermissionAspectContextTest}、
+ * {@code SaPermissionAspectStaleContextTest}（残留上下文的两种方向都要挡住）。
  *
  * @author ryu
  * @since 1.0.0
@@ -139,25 +149,15 @@ public class SaPermissionAspect {
             }
         };
 
-        // Sa-Token 的上下文是 ThreadLocal 的，只存在于「处理这次请求的那个线程」上。
-        // 但 Controller 的调用线程不一定是它：@RequestPart FilePart 的参数解析是异步的，
-        // multipart 落盘会把调用切到 boundedElastic（或另一个 nio 线程）上 ——
-        // 那时 StpUtil 抛 SaTokenContextException「未能获取有效的上下文」，接口 500。
-        // 表现极像「偶发鉴权故障」：某个线程上刚好残留着上一次的上下文就成功，否则失败。
-        // 上下文其实一直在 Reactor Context 里（SaReactorFilter 写进去的 ServerWebExchange），
-        // 所以缺失时把「鉴权 + 调用」整体推迟到订阅后，在当前线程上先把它恢复出来。
-        if (!isSaTokenContextPresent()) {
-            return deferredWithRestoredContext(signature, joinPoint, method.getName(), check);
-        }
-
-        try {
-            check.run();
-        } catch (Throwable e) {
-            log.debug("注解鉴权失败: method={}, error={}", method.getName(), e.getMessage());
-            return toErrorPublisher(signature, e);
-        }
-
-        return joinPoint.proceed();
+        // 无条件从 Reactor Context 恢复上下文 —— 不要再用「当前线程上有没有 box」当判据。
+        //
+        // 「有没有 box」回答不了「这个 box 是不是本次请求的」：ThreadLocal 挂在池化线程上，
+        // 而 box 里装的是**上一个请求**的 exchange（含上一个请求的 Authorization 头）。
+        // 拿它做鉴权等于「用别人的 token 判权限」——
+        // 上一次是管理员，这一次普通用户就被放行；上一次匿名，这一次合法用户被判 401。
+        //
+        // Reactor Context 里的 exchange 按构造就是本次请求的，没有这种歧义。
+        return deferredWithRestoredContext(signature, joinPoint, method.getName(), check);
     }
 
     // =====================================================================
@@ -216,29 +216,35 @@ public class SaPermissionAspect {
     }
 
     /**
-     * 当前线程上有没有可用的 Sa-Token 上下文。
+     * 从 <b>Reactor Context</b> 里取回本次请求的 {@link ServerWebExchange}。
      *
-     * <p>注意 {@code SaReactorSyncHolder.getContext()} 在上下文缺失时是<b>直接抛</b>
-     * （{@code SaTokenContextException}），不是返回 null —— 所以这里必须 try/catch。
+     * <p>Reactor Context 随数据流走、跨线程仍在，而且里面的 exchange
+     * <b>按构造就是本次请求的</b> —— 这是它比 ThreadLocal 强的地方：
+     * ThreadLocal 只知道「这个线程上有没有 box」，不知道「box 是不是我的」。
      *
-     * @return 有上下文返回 true
+     * <p>取不到时给一个明确的异常，而不是让下游抛 {@code NullPointerException}
+     * （{@code Mono.just(null)} 会直接 NPE，堆栈指向 Reactor 内部，很难定位）。
+     *
+     * @return 本次请求的 exchange；Reactor Context 里没有时抛 IllegalStateException
      */
-    private boolean isSaTokenContextPresent() {
-        try {
-            SaReactorSyncHolder.getContext();
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+    private Mono<ServerWebExchange> currentExchange() {
+        return Mono.deferContextual(cv -> {
+            ServerWebExchange exchange = SaReactorHolder.getExchange(cv);
+            if (exchange == null) {
+                return Mono.error(new IllegalStateException(
+                        "Reactor Context 里没有 ServerWebExchange —— 无法恢复 Sa-Token 上下文。"
+                                + "该请求很可能不是从 WebFlux 的过滤器链进来的。"));
+            }
+            return Mono.just(exchange);
+        });
     }
 
     /**
-     * 上下文缺失时的兜底路径：从 Reactor Context 取回 {@code ServerWebExchange}，
-     * 在当前线程上重建 Sa-Token 上下文，再鉴权并调用目标方法。
+     * 恢复上下文 → 鉴权 → 调用目标方法。
      *
-     * <p>用 {@link SaReactorHolder#getContextAndSetSync()}：它读的是
-     * {@code SaReactorFilter} 用 {@code contextWrite} 写进去的那个 exchange，
-     * 同时负责在当前线程上 set / 收尾时 clear。
+     * <p>exchange 来自 Reactor Context（框架的 {@code SaTokenContextFilterForReactor}
+     * 用 {@code contextWrite} 写进去的），<b>按构造就是本次请求的</b>。
+     * 在当前线程上重建 Sa-Token 的 ThreadLocal 上下文，鉴权与目标方法都在这个作用域里执行。
      *
      * @param signature  被调用方法的签名
      * @param joinPoint  连接点
@@ -251,8 +257,11 @@ public class SaPermissionAspect {
         Class<?> returnType = signature.getReturnType();
 
         if (Mono.class.isAssignableFrom(returnType)) {
-            return SaReactorHolder.getContextAndSetSync()
+            return currentExchange()
                     .flatMap(exchange -> Mono.defer(() -> {
+                        // getMonoExchange() 只「取」exchange，不建 ThreadLocal —— 必须自己建，
+                        // 否则 defer 里的鉴权与 proceed() 都读不到 Sa-Token 上下文。
+                        SaReactorSyncHolder.setContext(exchange);
                         try {
                             check.run();
                             return (Mono<?>) joinPoint.proceed();
@@ -260,11 +269,13 @@ public class SaPermissionAspect {
                             log.debug("注解鉴权失败: method={}, error={}", methodName, e.getMessage());
                             return Mono.error(e);
                         }
-                    }));
+                    }).doFinally(signal -> SaReactorSyncHolder.clearContext()));
         }
         if (Flux.class.isAssignableFrom(returnType)) {
-            return SaReactorHolder.getContextAndSetSync()
+            return currentExchange()
                     .flatMapMany(exchange -> Flux.defer(() -> {
+                        // 同上：自己建 ThreadLocal，并在收尾时清理
+                        SaReactorSyncHolder.setContext(exchange);
                         try {
                             check.run();
                             return (Flux<?>) joinPoint.proceed();
@@ -272,34 +283,11 @@ public class SaPermissionAspect {
                             log.debug("注解鉴权失败: method={}, error={}", methodName, e.getMessage());
                             return Flux.error(e);
                         }
-                    }));
+                    }).doFinally(signal -> SaReactorSyncHolder.clearContext()));
         }
 
         // 非响应式返回值：没有 Reactor Context 可读，只能如实报错，不要伪装成「没权限」
         throw new IllegalStateException("Sa-Token 上下文缺失，且 " + methodName
                 + " 不是响应式返回值，无法从 Reactor Context 中恢复");
-    }
-
-    /**
-     * 把异常包装成对应返回类型的错误 Publisher
-     *
-     * <p>方法没被调用（鉴权在调用前就失败了），所以只能按声明的返回类型构造。
-     */
-    private Object toErrorPublisher(MethodSignature signature, Throwable error) {
-        Class<?> returnType = signature.getReturnType();
-        if (Flux.class.isAssignableFrom(returnType)) {
-            return Flux.error(error);
-        }
-        if (Mono.class.isAssignableFrom(returnType)) {
-            return Mono.error(error);
-        }
-        // 非响应式返回值：直接抛，让上层的异常处理接管
-        if (error instanceof RuntimeException runtimeException) {
-            throw runtimeException;
-        }
-        if (error instanceof Error fatal) {
-            throw fatal;
-        }
-        throw new IllegalStateException(error);
     }
 }
