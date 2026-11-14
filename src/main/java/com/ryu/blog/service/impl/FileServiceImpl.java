@@ -11,6 +11,8 @@ import com.ryu.blog.service.impl.file.FileAdminService;
 import com.ryu.blog.service.impl.file.FileDownloadService;
 import com.ryu.blog.service.impl.file.FileMetadataService;
 import com.ryu.blog.service.impl.file.FileUploadService;
+import com.ryu.blog.utils.OperatorContexts;
+import com.ryu.blog.utils.SaTokenUtils;
 import com.ryu.blog.vo.FileDownloadVO;
 import com.ryu.blog.vo.FileInfoVO;
 import com.ryu.blog.vo.FileUploadVO;
@@ -97,8 +99,8 @@ public class FileServiceImpl implements FileService {
     // ------------------------------------------------------------------
 
     @Override
-    public Mono<FileDownloadVO> handleFileDownload(Long fileId, OperatorContext ctx) {
-        return fileDownloadService.downloadById(fileId, ctx);
+    public Mono<FileDownloadVO> handleFileDownload(Long fileId) {
+        return fileDownloadService.downloadById(fileId);
     }
 
     @Override
@@ -112,13 +114,13 @@ public class FileServiceImpl implements FileService {
     // FILE_CACHE 的 TTL 一旦长于 URL 的 expireSeconds，缓存里就会留下已失效的 URL，
     // 前端表现为「间歇性 403」。批量方法内部固定用 3600 秒，可以安全缓存。
     @Override
-    public Mono<String> generatePreviewUrl(Long fileId, long expireSeconds, OperatorContext ctx) {
-        return fileDownloadService.generatePreviewUrl(fileId, expireSeconds, ctx);
+    public Mono<String> generatePreviewUrl(Long fileId, long expireSeconds) {
+        return fileDownloadService.generatePreviewUrl(fileId, expireSeconds);
     }
 
     @Override
-    public Mono<String> generateDownloadUrl(Long fileId, long expireSeconds, OperatorContext ctx) {
-        return fileDownloadService.generateDownloadUrl(fileId, expireSeconds, ctx);
+    public Mono<String> generateDownloadUrl(Long fileId, long expireSeconds) {
+        return fileDownloadService.generateDownloadUrl(fileId, expireSeconds);
     }
 
     // ------------------------------------------------------------------
@@ -131,20 +133,26 @@ public class FileServiceImpl implements FileService {
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentUserIdOrNull()"
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentCanManageOthers()",
             unless = "#result == null")
-    public Mono<FileInfoVO> getFileInfo(Long fileId, OperatorContext ctx) {
-        return fileMetadataService.getFileInfo(fileId, ctx);
+    public Mono<FileInfoVO> getFileInfo(Long fileId) {
+        return fileMetadataService.getFileInfo(fileId);
     }
 
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.FILE_CACHE, allEntries = true)
-    public Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO, OperatorContext ctx) {
-        return fileMetadataService.updateFileInfo(fileId, fileUpdateDTO, ctx);
+    public Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return fileMetadataService.updateFileInfo(fileId, fileUpdateDTO, ctx);
+        });
     }
 
     @Override
-    public Mono<Map<String, Object>> searchFiles(FileSearchDTO searchDTO, OperatorContext ctx) {
-        return fileMetadataService.searchFiles(searchDTO, ctx);
+    public Mono<Map<String, Object>> searchFiles(FileSearchDTO searchDTO) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return fileMetadataService.searchFiles(searchDTO, ctx);
+        });
     }
 
     @Override
@@ -153,8 +161,8 @@ public class FileServiceImpl implements FileService {
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentUserIdOrNull()"
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentCanManageOthers()",
             unless = "#result.isEmpty()")
-    public Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds, OperatorContext ctx) {
-        return fileMetadataService.getBatchFileInfos(fileIds, ctx);
+    public Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds) {
+        return fileMetadataService.getBatchFileInfos(fileIds);
     }
 
     @Override
@@ -171,8 +179,8 @@ public class FileServiceImpl implements FileService {
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentUserIdOrNull()"
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentCanManageOthers()",
             unless = "#result.isEmpty()")
-    public Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds, OperatorContext ctx) {
-        return fileMetadataService.getBatchFileUrls(fileIds, ctx);
+    public Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds) {
+        return fileMetadataService.getBatchFileUrls(fileIds);
     }
 
     // ------------------------------------------------------------------
@@ -182,14 +190,20 @@ public class FileServiceImpl implements FileService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.FILE_CACHE, allEntries = true)
-    public Mono<Void> handleFileDelete(Long fileId, OperatorContext ctx) {
-        return fileAdminService.deleteFile(fileId, ctx);
+    public Mono<Void> handleFileDelete(Long fileId) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return fileAdminService.deleteFile(fileId, ctx);
+        });
     }
 
     @Override
     @Transactional
-    public Mono<Map<Long, Boolean>> batchDeleteFiles(List<Long> fileIds, OperatorContext ctx) {
-        return fileAdminService.batchDeleteFiles(fileIds, ctx);
+    public Mono<Map<Long, Boolean>> batchDeleteFiles(List<Long> fileIds) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return fileAdminService.batchDeleteFiles(fileIds, ctx);
+        });
     }
 
     @Override
@@ -198,8 +212,11 @@ public class FileServiceImpl implements FileService {
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentUserIdOrNull()"
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentCanManageOthers()",
             unless = "#result == null")
-    public Flux<FileInfoVO> getUserFiles(Long userId, OperatorContext ctx) {
-        return fileAdminService.getUserFiles(userId, ctx);
+    public Flux<FileInfoVO> getUserFiles(Long userId) {
+        // 身份在组装期取一次：缓存 key 也是在组装期算的（SpEL 只能同步取值），
+        // 两者必须同源同时刻，否则就是「A 的可见性判定配 B 的缓存 key」。
+        OperatorContext ctx = SaTokenUtils.currentOperatorContext();
+        return Flux.defer(() -> fileAdminService.getUserFiles(userId, ctx));
     }
 
     @Override
@@ -208,12 +225,17 @@ public class FileServiceImpl implements FileService {
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentUserIdOrNull()"
                     + " + ':' + T(com.ryu.blog.utils.SaTokenUtils).currentCanManageOthers()",
             unless = "#result == null")
-    public Flux<FileInfoVO> getFilesByType(String type, OperatorContext ctx) {
-        return fileAdminService.getFilesByType(type, ctx);
+    public Flux<FileInfoVO> getFilesByType(String type) {
+        // 同 getUserFiles：判定与缓存 key 必须同源。
+        OperatorContext ctx = SaTokenUtils.currentOperatorContext();
+        return Flux.defer(() -> fileAdminService.getFilesByType(type, ctx));
     }
 
     @Override
-    public Mono<Map<String, Object>> getFileList(int page, int size, OperatorContext ctx) {
-        return fileAdminService.getFileList(page, size, ctx);
+    public Mono<Map<String, Object>> getFileList(int page, int size) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return fileAdminService.getFileList(page, size, ctx);
+        });
     }
 }

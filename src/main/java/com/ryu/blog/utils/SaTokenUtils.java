@@ -3,6 +3,7 @@ package com.ryu.blog.utils;
 import cn.dev33.satoken.reactor.context.SaReactorSyncHolder;
 import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.constant.PermissionConstants;
+import com.ryu.blog.dto.OperatorContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -174,5 +175,28 @@ public final class SaTokenUtils {
             log.debug("获取当前操作者能力失败，按普通用户处理: {}", e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 当前操作者身份，<b>与缓存 key 用的是同一个来源</b>。
+     *
+     * <p><b>为什么要有这个方法</b>：身份有两个来源 ——
+     * {@code SaTokenUtils}（ThreadLocal，缓存 key 的 SpEL 只能用它）和
+     * {@code OperatorContexts}（Reactor Context，归属校验用它）。
+     * 两者混用就会出现「<b>A 的可见性判定配 B 的缓存 key</b>」：
+     * 判定按 A 放行、key 按 B 落库 → A 看到的私有内容被缓存到了 B 的槽位上，
+     * 之后任何命中那个 key 的请求都能读到。
+     *
+     * <p>凡是 <b>缓存 key 里带身份</b> 的方法，它的可见性判定就必须走这里 ——
+     * 同一个来源、同一个时刻（都在组装期）。
+     *
+     * <p><b>取不到就是匿名</b>：非 HTTP 路径（任务处理器）没有 ThreadLocal，
+     * 这类方法应当<b>拒绝</b>而不是按 Reactor Context 的身份放行 ——
+     * 放行的话，key 却是「匿名」那个，结果就写进了匿名槽位。
+     *
+     * @return 当前操作者身份；取不到登录态时是 {@link OperatorContext#ANONYMOUS}
+     */
+    public static OperatorContext currentOperatorContext() {
+        return new OperatorContext(currentUserIdOrNull(), currentCanManageOthers());
     }
 } 
