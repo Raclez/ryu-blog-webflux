@@ -125,6 +125,15 @@ class PermissionSnapshotStoreTest {
     }
 
     @Test
+    @DisplayName("读版本号失败必须冒出去 —— 当作 0 就等于无法判断快照是不是旧版")
+    void epochReadFailureMustPropagate() {
+        when(ops.get("perm:epoch:1")).thenReturn(Mono.error(new RuntimeException("redis down")));
+
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> store.currentEpoch(1L).block());
+    }
+
+    @Test
     @DisplayName("写入必须带 TTL")
     void saveSetsTtl() {
         when(ops.set(eq("perm:snap:1"), anyString(), any(Duration.class))).thenReturn(Mono.just(Boolean.TRUE));

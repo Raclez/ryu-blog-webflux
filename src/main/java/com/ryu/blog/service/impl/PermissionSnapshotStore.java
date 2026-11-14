@@ -98,15 +98,14 @@ public class PermissionSnapshotStore {
      * @return 版本号；没有记录时是 0
      */
     public Mono<Long> currentEpoch(Long userId) {
+        // 「没有记录」是正常情况（这个用户还没做过权限变更）→ 0。
+        // 「读不出来」是<b>故障</b>，必须冒出去 —— 不能当作 0：
+        // 版本号读不到就无从判断快照是不是旧版，这时若还信任那份快照，
+        // 就等于「已撤销的权限继续生效」。冒出去之后调用方走回库重取，
+        // 而回库路径同样要写 Redis，写不进去 → fail-closed（拒绝），而不是放行。
         return redis.opsForValue().get(epochKey(userId))
                 .map(this::parseEpoch)
-                .defaultIfEmpty(0L)
-                .onErrorResume(e -> {
-                    // 读不到版本号 = 当作 0。配合快照里的 epoch 比较：
-                    // 快照的 epoch 会大于 0，于是会被判为「旧版」→ 回库重取（fail-closed）。
-                    log.warn("读取权限版本号失败，当作 0: userId={}, 原因: {}", userId, e.getMessage(), e);
-                    return Mono.just(0L);
-                });
+                .defaultIfEmpty(0L);
     }
 
     /**
