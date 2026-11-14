@@ -236,6 +236,35 @@ task:
 # ==================== 鉴权 / 权限快照 ====================
 blog:
   auth:
+    # 匿名可访问的公开路径（白名单）。这是安全边界 —— 加一条就是加一个匿名可读的端点。
+    # 基础设施路径（静态资源 / 接口文档 / 健康检查 / 认证接口）写死在 SaTokenConfig 里，
+    # 这里只放「业务上确实要匿名可达」的接口。
+    public-paths:
+      # 前台博客的公开只读接口。
+      # 原先的白名单写的是 /content/article/list、/content/article/detail/**
+      # 这类**并不存在的路由**，而真实存在的 /posts/detail/{id}、
+      # /posts/related/{postId}/{limit} 反而没被放行 ——
+      # 结果是公开博客的文章正文匿名访问会 401。
+      - /posts/front
+      - /posts/detail/**
+      - /posts/related/**
+      - /category/all
+      - /category/page
+      - /tags/list
+      - /tags/hot
+      - /tags/page
+      - /comment/article/**
+      # 公开配置（站点名称/logo/展示参数）。
+      # 登录页在拿不到 token 时也要渲染品牌信息，所以必须匿名可达；
+      # 只返回 PublicConfigKeys 白名单内的键，AI/安全/存储类配置
+      # 仍然待在 /sysConfig/** 的管理员权限之后。
+      - /sysConfig/public
+      # 公开文件直链。
+      # 匿名可访问 —— <img src> 带不了 Authorization 头，
+      # 按 ID 的预览路由每次访问都要 system:file:view 权限 + 请求头，
+      # 博客正文里的图根本渲染不出来。
+      # 文件可见性已下线（桶本身就是匿名可读的），这条路由不再做权限判定。
+      - /files/public/**
     # 权限快照的本地缓存（L1，Caffeine）有效期，毫秒。
     # 它只用来扛住「同一秒的连续请求」—— 跨实例的一致性靠下面的 Redis 共享层。
     permission-snapshot-local-ttl-ms: 5000

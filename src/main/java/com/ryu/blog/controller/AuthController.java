@@ -5,9 +5,11 @@ import com.ryu.blog.dto.LoginDTO;
 import com.ryu.blog.dto.RegisterDTO;
 import com.ryu.blog.entity.User;
 import com.ryu.blog.service.UserService;
+import com.ryu.blog.dto.OperatorContext;
 import com.ryu.blog.service.impl.UserPermissionCache;
 import com.ryu.blog.service.impl.UserPermissionResolver;
 import com.ryu.blog.utils.Result;
+import com.ryu.blog.utils.OperatorContexts;
 import com.ryu.blog.utils.SaTokenUtils;
 import com.ryu.blog.vo.LoginVO;
 import com.ryu.blog.vo.UserInfoVO;
@@ -257,8 +259,16 @@ public class AuthController {
     @Operation(summary = "用户登出", description = "用户登出")
     @PostMapping("/logout")
     public Mono<Result<String>> logout(ServerWebExchange exchange) {
-        // 使用SaTokenUtils执行登出操作
+        // 登出前把当前用户的权限快照一起失效 —— 否则 Redis 里那份共享快照还留着，
+        // 登出后同账号在别的实例上仍能读到这份权限。
         return SaTokenUtils.logout(exchange)
+                .then(Mono.deferContextual(cv -> {
+                    OperatorContext operator = OperatorContexts.from(cv);
+                    if (operator.userId() == null) {
+                        return Mono.empty();
+                    }
+                    return permissionCache.evict(operator.userId());
+                }))
                 .thenReturn(Result.success("登出成功"));
     }
 

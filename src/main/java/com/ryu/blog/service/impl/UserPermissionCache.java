@@ -189,37 +189,60 @@ public class UserPermissionCache {
         if (isBackingOff(userId)) {
             return Mono.empty();
         }
-        return inFlight.computeIfAbsent(userId, id -> loadFromDb(id)
+        // <b>先自增版本号</b>：这一步是「这次变更能被别的实例感知到」的锚点。
+        // 自增之后所有旧快照都会被判为过期 —— 于是即便后面「写新快照」失败了，
+        // 别的实例读的时候也会发现版本对不上、回库重取（自愈）。
+        // 自增失败则直接冒出去：变更没有生效到共享层，调用方必须知道。
+        return inFlight.computeIfAbsent(userId, id -> store.bumpEpoch(id)
+                .then(loadFromDb(id))
                 .doFinally(signal -> inFlight.remove(id))
                 .cache());
     }
 
     /**
      * L1 → L2（Redis） → L3（库）的读取路径。
+     *
+     * <p><b>拿到 Redis 里的快照还要比版本号</b>：快照带的 epoch 比当前 epoch 小，
+     * 说明它是旧版权限（多半是上一次写 Redis 失败了）—— 这种快照不能信，回库重取。
+     * 少了这一步，一次写失败就会让别的实例继续按旧权限放行。
      */
     private Mono<Void> loadThroughLayers(Long userId) {
         return store.load(userId)
-                .flatMap(snapshot -> {
-                    snapshots.put(userId, snapshot);
-                    return Mono.just(Boolean.TRUE);
-                })
+                .flatMap(snapshot -> store.currentEpoch(userId)
+                        .defaultIfEmpty(0L)
+                        .flatMap(current -> {
+                            if (snapshot.epoch() < current) {
+                                // 旧版权限，不能信 —— 回库重取。
+                                return Mono.just(Boolean.FALSE);
+                            }
+                            snapshots.put(userId, snapshot);
+                            return Mono.just(Boolean.TRUE);
+                        }))
                 .defaultIfEmpty(Boolean.FALSE)
-                .flatMap(hit -> hit ? Mono.empty() : loadFromDb(userId));
+                .flatMap(fresh -> fresh ? Mono.empty() : loadFromDb(userId));
     }
 
     /**
      * 真正去查库，并写入 L1 与 L2（Redis）。
+     *
+     * <p><b>先写 Redis，成功了才写 L1</b>：Redis 写不进去就意味着别的实例看不到这份权限，
+     * 这时本实例也不能装作「我有权限」—— 宁可这次 fail-closed（403），
+     * 也不要出现「一个实例有权限、另一个实例没有」的鬼状态。
      */
     private Mono<Void> loadFromDb(Long userId) {
         return resolver.resolveRoleCodes(userId)
                 .zipWith(resolver.resolvePermissionIdentities(userId), (roles, permissions) ->
                         new PermissionSnapshot(roles, permissions))
-                .flatMap(snapshot -> {
-                    snapshots.put(userId, snapshot);
-                    // 写回 Redis：其它实例的 L1 过期后就能直接拿到这份新快照，
-                    // 不用各自再查一次库。
-                    return store.save(userId, snapshot);
-                })
+                .flatMap(snapshot -> store.currentEpoch(userId)
+                        .defaultIfEmpty(0L)
+                        .flatMap(epoch -> {
+                            PermissionSnapshot versioned =
+                                    new PermissionSnapshot(snapshot.roles(), snapshot.permissions(), epoch);
+                            // 写回 Redis：其它实例的 L1 过期后就能直接拿到这份新快照，
+                            // 不用各自再查一次库。写失败会让异常冒出去（见 save 的注释）。
+                            return store.save(userId, versioned).thenReturn(versioned);
+                        }))
+                .doOnNext(snapshot -> snapshots.put(userId, snapshot))
                 .doOnError(e -> {
                     recentFailures.put(userId, System.currentTimeMillis());
                     // 必须把异常对象本身传进去：只打 getMessage() 会把异常类型和堆栈全部丢掉。

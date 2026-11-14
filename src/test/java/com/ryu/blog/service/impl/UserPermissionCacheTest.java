@@ -60,6 +60,8 @@ class UserPermissionCacheTest {
         when(store.load(anyLong())).thenReturn(Mono.empty());
         when(store.save(anyLong(), any())).thenReturn(Mono.empty());
         when(store.delete(anyLong())).thenReturn(Mono.empty());
+        when(store.currentEpoch(anyLong())).thenReturn(Mono.just(0L));
+        when(store.bumpEpoch(anyLong())).thenReturn(Mono.just(1L));
 
         cache = new UserPermissionCache(resolver, store, TTL_MILLIS, BACKOFF_MILLIS);
     }
@@ -160,8 +162,9 @@ class UserPermissionCacheTest {
     @Test
     @DisplayName("L1 未命中时先问 Redis，命中就不查库")
     void hitsRedisBeforeDatabase() {
-        PermissionSnapshot shared = new PermissionSnapshot(Set.of("ADMIN"), Set.of("system:user:view"));
+        PermissionSnapshot shared = new PermissionSnapshot(Set.of("ADMIN"), Set.of("system:user:view"), 0L);
         when(store.load(1L)).thenReturn(Mono.just(shared));
+        when(store.currentEpoch(1L)).thenReturn(Mono.just(0L));
 
         cache.ensureWarm(1L).block();
 
@@ -184,6 +187,40 @@ class UserPermissionCacheTest {
         cache.evict(1L).block();
 
         verify(store, times(1)).delete(1L);
+    }
+
+    @Test
+    @DisplayName("Redis 里的快照版本号比当前版本旧 —— 不能信，要回库重取")
+    void staleEpochSnapshotIsNotTrusted() {
+        // 快照是第 0 版写的，当前版本已经到第 3 版 —— 说明中间有一次写 Redis 失败了，
+        // 这份快照带着的是旧版权限。
+        PermissionSnapshot stale = new PermissionSnapshot(Set.of("ADMIN"), Set.of("system:user:view"), 0L);
+        when(store.load(1L)).thenReturn(Mono.just(stale));
+        when(store.currentEpoch(1L)).thenReturn(Mono.just(3L));
+
+        cache.ensureWarm(1L).block();
+
+        verify(resolver, times(1)).resolveRoleCodes(1L);
+    }
+
+    @Test
+    @DisplayName("写 Redis 失败时本地也不留快照 —— fail-closed，不装作有权限")
+    void failedRedisWriteLeavesNoLocalSnapshot() {
+        when(store.save(anyLong(), any())).thenReturn(Mono.error(new RuntimeException("redis down")));
+
+        cache.ensureWarm(1L).block();
+
+        assertFalse(cache.isWarm(1L),
+                "共享层写不进去时，本实例也不能留一份「自己有权限」的快照 —— "
+                        + "否则就出现「一个实例有权限、另一个没有」的鬼状态");
+    }
+
+    @Test
+    @DisplayName("强制刷新必须先自增权限版本号")
+    void forcedRefreshBumpsEpoch() {
+        cache.refresh(1L).block();
+
+        verify(store, times(1)).bumpEpoch(1L);
     }
 
     @Test

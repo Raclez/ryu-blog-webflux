@@ -90,6 +90,41 @@ class PermissionSnapshotStoreTest {
     }
 
     @Test
+    @DisplayName("权限版本号自增")
+    void bumpEpochIncrements() {
+        when(ops.increment("perm:epoch:1")).thenReturn(Mono.just(3L));
+
+        assertEquals(3L, store.bumpEpoch(1L).block());
+    }
+
+    @Test
+    @DisplayName("读版本号：没有记录时是 0")
+    void currentEpochDefaultsToZero() {
+        when(ops.get("perm:epoch:1")).thenReturn(Mono.empty());
+
+        assertEquals(0L, store.currentEpoch(1L).block());
+    }
+
+    @Test
+    @DisplayName("写 Redis 失败必须冒出去 —— 吞掉就等于静默地让旧权限继续生效")
+    void saveFailureMustPropagate() {
+        when(ops.set(eq("perm:snap:1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.error(new RuntimeException("redis down")));
+
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> store.save(1L, new PermissionSnapshot(Set.of("ADMIN"), Set.of())).block());
+    }
+
+    @Test
+    @DisplayName("删除失败必须冒出去 —— 吞掉就等于删用户后权限还在")
+    void deleteFailureMustPropagate() {
+        when(redis.delete("perm:snap:1")).thenReturn(Mono.error(new RuntimeException("redis down")));
+
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> store.delete(1L).block());
+    }
+
+    @Test
     @DisplayName("写入必须带 TTL")
     void saveSetsTtl() {
         when(ops.set(eq("perm:snap:1"), anyString(), any(Duration.class))).thenReturn(Mono.just(Boolean.TRUE));

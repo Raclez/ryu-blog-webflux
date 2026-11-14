@@ -10,12 +10,17 @@ import cn.dev33.satoken.stp.StpLogic;
 import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.utils.JsonUtils;
 import com.ryu.blog.utils.Result;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.event.Level;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+
+import java.util.List;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.server.ServerWebExchange;
 
@@ -48,7 +53,25 @@ import org.springframework.web.server.ServerWebExchange;
  */
 @Slf4j
 @Configuration
+@EnableConfigurationProperties(AuthProperties.class)
+@RequiredArgsConstructor
 public class SaTokenConfig {
+
+    private final AuthProperties authProperties;
+
+    /**
+     * 匿名可访问的公开路径（白名单）。
+     *
+     * <p><b>为什么挪到配置里</b>：白名单是安全边界，却原先硬编码在 Java 里 ——
+     * 「哪些端点匿名可达」这件事没法审计、没法按环境调整，改一条路径要改代码重新发版。
+     *
+     * <p><b>白名单只有一个出处</b>：{@code addExclude}。框架的过滤器内部是
+     * {@code SaRouter.match(includeList).notMatch(excludeList).check(auth)}，
+     * 也就是说 {@code check} 只会作用在「命中 include 且不在 exclude」的路径上。
+     *
+     * <p>回归护栏：{@code AuthPublicPathsTest} —— 配置里的每一条都必须真的被排除，
+     * 且过滤器里不许出现配置之外的路径（防止「代码里偷偷加了白名单」）。
+     */
 
     @Bean
     public BCryptPasswordEncoder passwordEncoder() {
@@ -109,45 +132,22 @@ public class SaTokenConfig {
                         "/auth/register",
                         "/auth/captcha",
                         "/auth/captcha/**",
-                        "/auth/check/**",
-
-                        // 前台博客的公开只读接口。
-                        // 原先的白名单写的是 /content/article/list、/content/article/detail/**
-                        // 这类**并不存在的路由**，而真实存在的 /posts/detail/{id}、
-                        // /posts/related/{postId}/{limit} 反而没被放行 ——
-                        // 结果是公开博客的文章正文匿名访问会 401。
-                        "/posts/front",
-                        "/posts/detail/**",
-                        "/posts/related/**",
-                        "/category/all",
-                        "/category/page",
-                        "/tags/list",
-                        "/tags/hot",
-                        "/tags/page",
-                        "/comment/article/**",
-
-                        // 公开配置（站点名称/logo/展示参数）。
-                        // 登录页在拿不到 token 时也要渲染品牌信息，所以必须匿名可达；
-                        // 只返回 PublicConfigKeys 白名单内的键，AI/安全/存储类配置
-                        // 仍然待在 /sysConfig/** 的管理员权限之后。
-                        "/sysConfig/public",
-
-                        // 公开文件直链。
-                        // 匿名可访问 —— <img src> 带不了 Authorization 头，
-                        // 按 ID 的预览路由每次访问都要 system:file:view 权限 + 请求头，
-                        // 博客正文里的图根本渲染不出来。
-                        // 文件可见性已下线（桶本身就是匿名可读的），这条路由不再做权限判定。
-                        "/files/public/**"
+                        "/auth/check/**"
                 )
+                // 其余公开路径来自配置（blog.auth.public-paths）——
+                // 「哪些端点匿名可达」是安全边界，必须能被审计、被按环境调整。
+                .addExclude(authProperties.getPublicPaths().toArray(new String[0]))
                 // 鉴权方法：每次访问进入
-                // 白名单已经由上面的 addExclude 决定 —— 过滤器内部是
+                // 白名单由两次 addExclude 拼成（基础设施路径 + 配置里的公开路径）——
+                // 过滤器内部是
                 //   SaRouter.match(includeList).notMatch(excludeList).check(auth)
                 // 也就是说 check 只会作用在「命中 include 且不在 exclude」的路径上。
                 // 原先这里还套了一层 SaRouter.match("/**").notMatch(...)，
                 // 里面列的 /content/article/list、/user/login、/ip/info ……
                 // 全是**并不存在的路由**，而真实存在的公开路由已经在 addExclude 里。
                 // 那层嵌套除了重复之外，还会让人误以为改那一处就能改白名单。
-                // 现在白名单只有一个出处：addExclude。
+                // 公开路径的<b>唯一</b>出处是配置 blog.auth.public-paths，
+                // 基础设施路径（静态资源/文档/健康检查/认证接口）写死在这里。
                 .setAuth(obj -> {
                     try {
                         StpUtil.checkLogin();
@@ -166,7 +166,17 @@ public class SaTokenConfig {
                 .setError(e -> {
                     // 必须把异常对象本身传进去：只打 getMessage() 会把异常类型和堆栈全部丢掉，
                     // 线上看到「token无效」根本分不清是过期、伪造还是签名不匹配。
-                    log.error("Sa-Token鉴权异常: {}", e.getMessage(), e);
+                    //
+                    // 但<b>级别要分</b>：未登录（token 过期 / 匿名扫描）是常态，
+                    // 一律 ERROR 会把真正的异常淹没 —— 而 401 恰恰是最不需要告警的一类。
+                    Level level = resolveAuthLogLevel(e);
+                    if (level == Level.ERROR) {
+                        log.error("Sa-Token鉴权异常: {}", e.getMessage(), e);
+                    } else if (level == Level.INFO) {
+                        log.info("Sa-Token鉴权失败: {}", e.getMessage());
+                    } else {
+                        log.debug("Sa-Token鉴权失败: {}", e.getMessage());
+                    }
                     return renderAuthError(e);
                 });
     }
@@ -198,6 +208,26 @@ public class SaTokenConfig {
         Result<?> result = resolveAuthResult(e, status);
         applyAuthErrorResponse(status);
         return JsonUtils.toJsonString(result);
+    }
+
+    /**
+     * 判定鉴权异常对应的<b>日志级别</b>。
+     *
+     * <p>未登录是常态（token 过期、匿名扫描、爬虫），一律 ERROR 会把真正的异常淹没；
+     * 权限不足是业务性的（用户点了没权限的按钮），INFO 就够；
+     * 只有「说不清为什么失败」的才配得上 ERROR。
+     *
+     * @param e 鉴权异常
+     * @return 日志级别
+     */
+    static Level resolveAuthLogLevel(Throwable e) {
+        if (e instanceof NotLoginException) {
+            return Level.DEBUG;
+        }
+        if (e instanceof NotPermissionException || e instanceof NotRoleException) {
+            return Level.INFO;
+        }
+        return Level.ERROR;
     }
 
     /**

@@ -45,6 +45,11 @@ public class PermissionSnapshotStore {
      */
     public static final String KEY_PREFIX = "perm:snap:";
 
+    /**
+     * 权限版本号（epoch）的 key 前缀。每个用户一个。
+     */
+    public static final String EPOCH_KEY_PREFIX = "perm:epoch:";
+
     private final ReactiveRedisTemplate<String, String> redis;
 
     private final Duration ttl;
@@ -79,12 +84,49 @@ public class PermissionSnapshotStore {
      * @return 写完后 complete
      */
     public Mono<Void> save(Long userId, PermissionSnapshot snapshot) {
+        // <b>不吞异常</b>：写不进去意味着别的实例读到的还是旧版权限。
+        // 吞掉它 = 静默地让已撤销的权限继续生效。错误必须冒到调用方，
+        // 由它决定这次变更算不算成功（并且要留日志）。
         return redis.opsForValue().set(key(userId), JsonUtils.toJsonString(snapshot), ttl)
-                .then()
+                .then();
+    }
+
+    /**
+     * 读当前用户的权限版本号。
+     *
+     * @param userId 用户ID
+     * @return 版本号；没有记录时是 0
+     */
+    public Mono<Long> currentEpoch(Long userId) {
+        return redis.opsForValue().get(epochKey(userId))
+                .map(this::parseEpoch)
+                .defaultIfEmpty(0L)
                 .onErrorResume(e -> {
-                    // 写不进去不算致命：本地 L1 已经有这份快照了，只是其它实例看不到。
-                    log.warn("写入权限快照到 Redis 失败: userId={}, 原因: {}", userId, e.getMessage(), e);
-                    return Mono.empty();
+                    // 读不到版本号 = 当作 0。配合快照里的 epoch 比较：
+                    // 快照的 epoch 会大于 0，于是会被判为「旧版」→ 回库重取（fail-closed）。
+                    log.warn("读取权限版本号失败，当作 0: userId={}, 原因: {}", userId, e.getMessage(), e);
+                    return Mono.just(0L);
+                });
+    }
+
+    /**
+     * 权限版本号自增 —— <b>权限变更的第一步</b>。
+     *
+     * <p>自增之后，所有已存在的旧快照（它们带的 epoch 更小）都会被判定为过期，
+     * 各实例读的时候会回库重取。这样即使「写新快照到 Redis」这一步失败了，
+     * 也能自愈：旧快照不会被继续信任。
+     *
+     * @param userId 用户ID
+     * @return 自增后的版本号
+     */
+    public Mono<Long> bumpEpoch(Long userId) {
+        return redis.opsForValue().increment(epochKey(userId))
+                .onErrorResume(e -> {
+                    // 版本号自增失败 = 这次变更<b>无法</b>被别的实例感知到。
+                    // 必须冒出去：调用方要看到「变更没有生效到共享层」。
+                    log.error("权限版本号自增失败，本次权限变更未能生效到共享层: userId={}, 原因: {}",
+                            userId, e.getMessage(), e);
+                    return Mono.error(e);
                 });
     }
 
@@ -95,12 +137,11 @@ public class PermissionSnapshotStore {
      * @return 删完后 complete
      */
     public Mono<Void> delete(Long userId) {
+        // <b>不吞异常</b>：删不掉意味着别的实例还能从共享层读到已失效的权限。
+        // 冒出去，让调用方知道这次失效没有生效到共享层。
         return redis.delete(key(userId))
-                .then()
-                .onErrorResume(e -> {
-                    log.warn("删除权限快照失败: userId={}, 原因: {}", userId, e.getMessage(), e);
-                    return Mono.empty();
-                });
+                .then(redis.delete(epochKey(userId)))
+                .then();
     }
 
     /**
@@ -108,6 +149,21 @@ public class PermissionSnapshotStore {
      */
     public String key(Long userId) {
         return KEY_PREFIX + userId;
+    }
+
+    /**
+     * 权限版本号的 key。
+     */
+    public String epochKey(Long userId) {
+        return EPOCH_KEY_PREFIX + userId;
+    }
+
+    private long parseEpoch(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
     }
 
     /**

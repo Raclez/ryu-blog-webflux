@@ -202,7 +202,11 @@ class FilePublicUrlContractTest {
     @Test
     @DisplayName("公开路由必须在 Sa-Token 白名单里（<img src> 带不了 Authorization 头）")
     void publicRoute_isAnonymous() {
-        SaReactorFilter filter = new SaTokenConfig().saReactorFilter();
+        // 公开路径现在来自配置（blog.auth.public-paths），白名单只有一个出处 ——
+        // 这里手工把这条路径喂进去，等价于配置文件里写了它。
+        com.ryu.blog.config.AuthProperties properties = new com.ryu.blog.config.AuthProperties();
+        properties.setPublicPaths(java.util.List.of("/files/public/**"));
+        SaReactorFilter filter = new SaTokenConfig(properties).saReactorFilter();
 
         assertTrue(filter.excludeList.contains("/files/public/**"),
                 "公开文件直链必须匿名可访问，否则 <img src> 取不到图，实际白名单: " + filter.excludeList);
