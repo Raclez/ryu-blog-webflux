@@ -5,7 +5,6 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.ryu.blog.service.impl.UserPermissionCache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -24,12 +23,24 @@ import reactor.core.publisher.Mono;
  *
  * <p>顺序保证：
  * <pre>
- *   SaReactorFilter            → 建立 Sa-Token 上下文
- *   UserPermissionWarmupFilter → 反应式解析权限 → 写入内存快照
+ *   SaTokenContextFilterForReactor (-104) → 建立 Sa-Token 上下文
+ *   SaTokenCorsFilterForReactor    (-103) → CORS / 预检
+ *   SaFirewallCheckFilterForReactor(-102) → 防火墙
+ *   UserPermissionWarmupFilter     (-101) → 反应式解析权限 → 写入内存快照
+ *   SaTokenAuthFilter              (-100) → 登录校验 → 采集身份
  *   Controller 上的 @SaCheckPermission → StpInterface 读内存快照（零阻塞）
  * </pre>
  *
- * <p>本过滤器只做「快照未就绪时才查库」，命中缓存时直接放行，不产生额外开销。
+ * <p><b>顺序是显式定的，不是碰巧对的。</b>
+ * 早先这个过滤器挂的是 {@code Ordered.HIGHEST_PRECEDENCE}，排在框架的上下文过滤器
+ * （-104）<b>之前</b>，于是它必须自己 {@code SaReactorSyncHolder.setContext(exchange)}
+ * 才能读到 token —— 而那个上下文<b>建完就不管了</b>，在池化线程上留一个 box。
+ * 「当前线程上有没有 box」从此失去意义（上一个请求的 box 也算「有」），
+ * 这正是 {@code SaPermissionAspect} 曾经用错身份的根因。
+ * 现在它排在 -101，落在框架上下文过滤器之后，并且<b>只在用它的那个作用域里存在</b>。
+ *
+ * <p>回归护栏：{@code UserPermissionWarmupFilterNoLeakTest}（不得留下残留上下文）、
+ * {@code UserPermissionWarmupFilterContextTest}（异步刷新后要能继续往下走）。
  *
  * @author ryu
  * @since 1.0.0
@@ -37,7 +48,7 @@ import reactor.core.publisher.Mono;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(-101)
 public class UserPermissionWarmupFilter implements WebFilter {
 
     private final UserPermissionCache permissionCache;
@@ -71,7 +82,10 @@ public class UserPermissionWarmupFilter implements WebFilter {
      *
      * <p>这里要自己建立 Sa-Token 的 Reactor 上下文：本过滤器排在
      * {@code SaReactorFilter} 之前，不能指望上下文已经就绪。
-     * 建立的上下文不清除 —— {@code SaReactorFilter} 会在整条链结束时统一清理。
+     *
+     * <p><b>建立的上下文必须在用完之后清掉</b> —— 线程是池化的，不清就会把这次请求的
+     * exchange 留给下一个跑在这个线程上的请求。回归护栏：
+     * {@code UserPermissionWarmupFilterNoLeakTest}。
      *
      * <p>包级可见（不是 private）：{@code UserPermissionWarmupFilterContextTest} 靠覆写它
      * 跳过「真的登录一个用户」，把用例聚焦在上下文重建上。
@@ -95,6 +109,10 @@ public class UserPermissionWarmupFilter implements WebFilter {
             // 这里只记 debug：匿名访问与过期 token 是常态，不必刷 warn。
             log.debug("解析登录用户失败，按未登录处理: {}", e.getMessage());
             return null;
+        } finally {
+            // 只在解析 token 的那一下需要上下文；用完立刻清掉，
+            // 不给「下一个请求跑在这个线程上」留下歧义。
+            SaReactorSyncHolder.clearContext();
         }
     }
 }

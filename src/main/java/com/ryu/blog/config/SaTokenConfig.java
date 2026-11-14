@@ -13,10 +13,13 @@ import com.ryu.blog.utils.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.server.ServerWebExchange;
+
+
 
 /**
  * Sa-Token配置类
@@ -62,10 +65,23 @@ public class SaTokenConfig {
 
     /**
      * 注册Sa-Token全局过滤器
+     *
+     * <p><b>顺序是显式钉死的</b>：-100，落在框架的三个过滤器之后
+     * （{@code SaTokenContextFilterForReactor} -104 → 上下文，
+     * {@code SaTokenCorsFilterForReactor} -103 → CORS，
+     * {@code SaFirewallCheckFilterForReactor} -102 → 防火墙），
+     * 以及本项目的 {@code UserPermissionWarmupFilter}（-101 → 权限快照预热）之后。
+     *
+     * <p>预热必须排在鉴权<b>之前</b>：{@code SaTokenAuthFilter} 在下游采集操作者身份时
+     * 会读权限快照（{@code canManageOthers}），快照没就绪的话那个标记会恒为 false。
      */
     @Bean
+    @Order(-100)
     public SaReactorFilter saReactorFilter() {
-        return new SaReactorFilter()
+        // 用 SaTokenAuthFilter 而不是官方的 SaReactorFilter：
+        // 1.42 的官方实现鉴权完就不再重建 ThreadLocal 上下文（见 SaTokenAuthFilter 的注释），
+        // 下游 Controller/Service 里的 StpUtil.getLoginIdAsLong() 会直接 500。
+        return new SaTokenAuthFilter()
                 // 拦截地址
                 .addInclude("/**")
                 // 排除地址
@@ -233,7 +249,7 @@ public class SaTokenConfig {
      */
     private ServerWebExchange currentExchange() {
         try {
-            return SaReactorSyncHolder.getContext();
+            return SaReactorSyncHolder.getExchange();
         } catch (Exception e) {
             return null;
         }

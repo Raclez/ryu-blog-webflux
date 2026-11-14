@@ -1,8 +1,13 @@
 package com.ryu.blog.config;
 
+import cn.dev33.satoken.SaManager;
+import cn.dev33.satoken.context.SaTokenContext;
 import cn.dev33.satoken.reactor.context.SaReactorSyncHolder;
+import cn.dev33.satoken.reactor.spring.SaTokenContextForSpringReactor;
+import cn.dev33.satoken.reactor.spring.SaTokenContextRegister;
 import com.ryu.blog.service.impl.UserPermissionCache;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
@@ -37,8 +42,22 @@ import static org.mockito.Mockito.when;
  */
 class UserPermissionWarmupFilterContextTest {
 
+    private SaTokenContext previousContext;
+
+    @BeforeEach
+    void setUp() {
+        previousContext = SaManager.getSaTokenContext();
+        SaManager.setSaTokenContext(new SaTokenContextForSpringReactor());
+        // 1.46 的 SaReactorSyncHolder.setContext 走 SaStrategy 里的 createSaRequest 等策略，
+        // 生产环境由 starter 的 SaTokenContextRegister 构造函数装上。
+        // 单测不启动 Spring，得自己装一次 —— 否则这个用例只能靠「别的 SpringBootTest
+        // 先跑过、把全局策略装上了」才绿，单独跑必红（顺序依赖）。
+        new SaTokenContextRegister();
+    }
+
     @AfterEach
     void clearHolder() {
+        SaManager.setSaTokenContext(previousContext);
         SaReactorSyncHolder.clearContext();
     }
 
@@ -56,9 +75,9 @@ class UserPermissionWarmupFilterContextTest {
         WebFilterChain chain = exchange -> Mono.defer(() -> {
             chainThread.set(Thread.currentThread().getName());
             try {
-                contextVisible.set(SaReactorSyncHolder.getContext() != null);
+                contextVisible.set(SaReactorSyncHolder.getExchange() != null);
             } catch (Exception e) {
-                // 修复前就是这个分支：ThreadLocal 上没有 box，getContext() 直接抛
+                // 修复前就是这个分支：ThreadLocal 上没有 box，getExchange() 直接抛
                 contextVisible.set(false);
             }
             return Mono.empty();
