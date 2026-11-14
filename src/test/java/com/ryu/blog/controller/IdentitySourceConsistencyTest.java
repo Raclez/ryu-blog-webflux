@@ -126,6 +126,10 @@ class IdentitySourceConsistencyTest {
         assertEquals(currentUserId, target.threadLocalUserId,
                 "ThreadLocal 里的身份必须与 Reactor Context 一致 —— "
                         + "否则就是「A 的可见性判定配 B 的缓存 key」");
+
+        assertEquals(currentUserId, target.stpUtilUserId,
+                "Controller 里 StpUtil.getLoginIdAsLong() 读到的必须是本次请求的用户 —— "
+                        + "全项目 30 多处控制器就是这么取身份的");
     }
 
     private ServerWebExchange exchangeWithToken(String token) {
@@ -153,11 +157,14 @@ class IdentitySourceConsistencyTest {
 
         private Long threadLocalUserId;
         private Long reactorContextUserId;
+        private Long stpUtilUserId;
 
         @SaCheckPermission(TEST_PERMISSION)
         public Mono<String> whoami() {
             // ThreadLocal 那条路：缓存 key 的 SpEL 走的就是它
             threadLocalUserId = SaTokenUtils.currentUserIdOrNull();
+            // 控制器里 30 多处用的就是这条：StpUtil.getLoginIdAsLong()
+            stpUtilUserId = StpUtil.getLoginIdAsLong();
             return Mono.deferContextual(cv -> {
                 // Reactor Context 那条路：归属校验走的就是它
                 reactorContextUserId = OperatorContexts.from(cv).userId();
