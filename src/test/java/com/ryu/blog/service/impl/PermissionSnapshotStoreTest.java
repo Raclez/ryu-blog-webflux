@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -71,14 +72,16 @@ class PermissionSnapshotStoreTest {
     }
 
     @Test
-    @DisplayName("Redis 里是坏数据时当作未命中，而不是把鉴权打挂")
+    @DisplayName("Redis 里是坏数据时当作未命中（回库重取），不是「命中了一份空的」")
     void corruptDataIsTreatedAsMiss() {
         when(ops.get("perm:snap:1")).thenReturn(Mono.just("{ 这不是 JSON"));
 
         PermissionSnapshot loaded = store.load(1L).block();
 
-        assertTrue(loaded.roles().isEmpty(), "坏数据应当退化成空快照");
-        assertTrue(loaded.permissions().isEmpty());
+        // 「未命中」= null —— 调用方会回库重取并把这份坏数据覆盖掉。
+        // 若当成「命中了一份空快照」，用户会被当成没有任何权限，
+        // 在整个 Redis TTL 里一直 403，而且那份坏数据还在，每次都读到它。
+        assertNull(loaded, "坏数据必须当作未命中（null），不能当成一份空快照");
     }
 
     @Test

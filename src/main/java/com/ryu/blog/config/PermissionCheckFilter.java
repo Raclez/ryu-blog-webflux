@@ -105,7 +105,9 @@ public class PermissionCheckFilter implements WebFilter {
         return handlerMapping.getHandler(exchange)
                 .ofType(HandlerMethod.class)
                 .onErrorResume(e -> {
-                    log.debug("解析 handler 失败，跳过能力校验: {}", e.getMessage());
+                    // 用 WARN 而不是 DEBUG：解析不出 handler 意味着这个端点<b>没有</b>被
+                    // 能力校验覆盖，只能靠切面兜底 —— 这件事值得被看见。
+                    log.warn("解析 handler 失败，本次跳过能力校验（仅靠切面兜底）: {}", e.getMessage());
                     return Mono.empty();
                 });
     }

@@ -52,7 +52,7 @@ public class RoleController {
     public Mono<Result<String>> saveRole(@Valid @RequestBody RoleDTO roleDTO) {
         log.info("请求保存角色: name={}, code={}", roleDTO.getName(), roleDTO.getCode());
 
-        return roleService.saveRole(OperatorContext.current(), roleDTO)
+        return roleService.saveRole(roleDTO)
                 .thenReturn(Result.success("角色保存成功"))
                 .doOnSuccess(result -> log.info("成功保存角色: {}", roleDTO.getName()));
     }
@@ -74,7 +74,7 @@ public class RoleController {
             Long id) {
         log.info("请求删除角色, ID: {}", id);
 
-        return roleService.removeById(OperatorContext.current(), id)
+        return roleService.removeById(id)
                 .thenReturn(Result.success("角色删除成功"))
                 .doOnSuccess(result -> log.info("成功删除角色, ID: {}", id));
     }
@@ -92,7 +92,7 @@ public class RoleController {
     public Mono<Result<String>> assignPermissions(@Valid @RequestBody PermissionsAssignDTO permissionsAssignDTO) {
         log.info("请求为角色分配权限: roleId={}", permissionsAssignDTO.getRoleId());
 
-        return roleService.assignPermissions(OperatorContext.current(), permissionsAssignDTO)
+        return roleService.assignPermissions(permissionsAssignDTO)
                 .thenReturn(Result.success("角色权限分配成功"))
                 .doOnSuccess(result -> log.info("成功为角色分配权限, roleId: {}", permissionsAssignDTO.getRoleId()));
     }
@@ -156,7 +156,7 @@ public class RoleController {
     public Mono<Result<String>> removePermission(@Valid @RequestBody PermissionsAssignDTO permissionsAssignDTO) {
         log.info("请求删除角色权限: roleId={}", permissionsAssignDTO.getRoleId());
 
-        return roleService.removePermission(OperatorContext.current(), permissionsAssignDTO)
+        return roleService.removePermission(permissionsAssignDTO)
                 .thenReturn(Result.success("角色权限删除成功"))
                 .doOnSuccess(result -> log.info("成功删除角色权限, roleId: {}", permissionsAssignDTO.getRoleId()));
     }
@@ -222,7 +222,7 @@ public class RoleController {
             Long userId) {
         log.info("请求获取用户角色, userId: {}", userId);
 
-        return roleService.getUserRoles(OperatorContext.current(), userId)
+        return roleService.getUserRoles(userId)
                 .collectList()
                 .map(roles -> {
                     log.info("成功获取用户角色, userId: {}, 角色数量: {}", userId, roles.size());
@@ -244,8 +244,7 @@ public class RoleController {
         log.info("请求更改角色状态: roleId={}, isActive={}",
                 roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive());
 
-        return roleService.changeRoleStatus(OperatorContext.current(),
-                        roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive())
+        return roleService.changeRoleStatus(roleStatusDTO.getRoleId(), roleStatusDTO.getIsActive())
                 .thenReturn(Result.success("角色状态更改成功"))
                 .doOnSuccess(result -> log.info("成功更改角色状态, roleId: {}", roleStatusDTO.getRoleId()));
     }
@@ -264,7 +263,6 @@ public class RoleController {
         log.info("请求批量分配用户角色: roleId={}", batchAssignRoleDTO.getRoleId());
 
         return roleService.batchAssignUserRoles(
-                    OperatorContext.current(),
                     batchAssignRoleDTO.getUserIds(),
                     batchAssignRoleDTO.getRoleId()
                 )
@@ -305,7 +303,7 @@ public class RoleController {
     public Mono<Result<Role>> updateRoleWithDTO(@Valid @RequestBody RoleUpdateDTO roleUpdateDTO) {
         log.info("请求更新角色信息, id: {}", roleUpdateDTO.getId());
 
-        return roleService.updateRole(OperatorContext.current(), roleUpdateDTO)
+        return roleService.updateRole(roleUpdateDTO)
                 .map(updatedRole -> {
                     log.info("成功更新角色信息, ID: {}", roleUpdateDTO.getId());
                     return Result.success(updatedRole);

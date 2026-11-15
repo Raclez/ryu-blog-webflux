@@ -39,10 +39,9 @@ public class FileDownloadService {
      * 内容以流的形式返回，文件不会整体驻留内存。
      *
      * @param fileId 文件ID
-     * @param ctx    操作者上下文
      * @return 文件下载结果
      */
-    public Mono<FileDownloadVO> downloadById(Long fileId, OperatorContext ctx) {
+    public Mono<FileDownloadVO> downloadById(Long fileId) {
         log.info("处理文件下载请求: fileId={}", fileId);
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
@@ -146,10 +145,9 @@ public class FileDownloadService {
      * @param fileId        文件ID
      * @param expireSeconds 过期时间（秒）—— 保留入参是为了兼容既有契约，
      *                      应用内路由本身不带过期语义
-     * @param ctx           操作者上下文
      * @return 预览URL
      */
-    public Mono<String> generatePreviewUrl(Long fileId, long expireSeconds, OperatorContext ctx) {
+    public Mono<String> generatePreviewUrl(Long fileId, long expireSeconds) {
         log.info("生成文件预览URL: fileId={}, expireSeconds={}", fileId, expireSeconds);
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
@@ -166,10 +164,9 @@ public class FileDownloadService {
      *
      * @param fileId        文件ID
      * @param expireSeconds 过期时间（秒）
-     * @param ctx           操作者上下文
      * @return 下载URL
      */
-    public Mono<String> generateDownloadUrl(Long fileId, long expireSeconds, OperatorContext ctx) {
+    public Mono<String> generateDownloadUrl(Long fileId, long expireSeconds) {
         log.info("生成文件下载URL: fileId={}, expireSeconds={}", fileId, expireSeconds);
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)

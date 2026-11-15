@@ -58,16 +58,15 @@ public class FileMetadataService {
      * 获取文件详情
      *
      * @param fileId 文件ID
-     * @param ctx    操作者上下文 —— 用于可见性判定
      * @return 文件详情
      */
-    public Mono<FileInfoVO> getFileInfo(Long fileId, OperatorContext ctx) {
+    public Mono<FileInfoVO> getFileInfo(Long fileId) {
         log.info("获取文件详情: fileId={}", fileId);
 
         return fileRepository.findByIdAndIsDeleted(fileId, 0)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException("文件不存在或已删除")))
                 .flatMap(this::buildFileInfoVO)
-                .flatMap(fileInfoVO -> enrichWithCreatorAndUrls(fileInfoVO, fileId, ctx))
+                .flatMap(fileInfoVO -> enrichWithCreatorAndUrls(fileInfoVO, fileId))
                 .doOnSuccess(fileInfo -> log.info("获取文件详情成功: fileId={}", fileId))
                 .doOnError(error -> log.error("获取文件详情失败: fileId={}", fileId, error));
     }
@@ -77,7 +76,6 @@ public class FileMetadataService {
      *
      * @param fileId        文件ID
      * @param fileUpdateDTO 文件信息
-     * @param ctx           操作者上下文 —— 只有创建者与管理员能改
      * @return 更新后的文件信息
      */
     @Transactional
@@ -106,7 +104,7 @@ public class FileMetadataService {
                     // 保存更新后的文件信息
                     return fileRepository.save(file)
                             .flatMap(this::buildFileInfoVO)
-                            .flatMap(fileInfoVO -> enrichWithCreatorAndUrls(fileInfoVO, fileId, ctx));
+                            .flatMap(fileInfoVO -> enrichWithCreatorAndUrls(fileInfoVO, fileId));
                 })
                 .doOnSuccess(fileInfo -> log.info("更新文件信息成功: fileId={}", fileId))
                 .doOnError(error -> log.error("更新文件信息失败: fileId={}", fileId, error));
@@ -120,7 +118,6 @@ public class FileMetadataService {
      * 管理员才可以按 {@code creatorId} 查别人。
      *
      * @param searchDTO 搜索参数
-     * @param ctx       操作者上下文
      * @return 搜索结果
      */
     public Mono<Map<String, Object>> searchFiles(FileSearchDTO searchDTO, OperatorContext ctx) {
@@ -160,9 +157,9 @@ public class FileMetadataService {
                 })
                 // 生成预览和下载链接
                 .flatMap(fileInfoVO ->
-                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600, ctx)
+                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600)
                         .doOnNext(fileInfoVO::setPreviewUrl)
-                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600, ctx))
+                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600))
                         .doOnNext(fileInfoVO::setDownloadUrl)
                         .thenReturn(fileInfoVO)
                 )
@@ -189,10 +186,9 @@ public class FileMetadataService {
      * 批量获取文件详细信息
      *
      * @param fileIds 文件ID列表
-     * @param ctx     操作者上下文 —— 不可见的文件被直接剔除
      * @return 文件ID到文件详情的映射
      */
-    public Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds, OperatorContext ctx) {
+    public Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds) {
         log.info("批量获取文件详细信息: fileIds={}", fileIds);
 
         if (fileIds == null || fileIds.isEmpty()) {
@@ -220,9 +216,9 @@ public class FileMetadataService {
                     for (Long fileId : ids) {
                         FileInfoVO fileInfoVO = result.get(fileId);
                         if (fileInfoVO != null) {
-                            Mono<Void> task = fileDownloadService.generatePreviewUrl(fileId, 3600, ctx)
+                            Mono<Void> task = fileDownloadService.generatePreviewUrl(fileId, 3600)
                                     .doOnNext(fileInfoVO::setPreviewUrl)
-                                    .then(fileDownloadService.generateDownloadUrl(fileId, 3600, ctx))
+                                    .then(fileDownloadService.generateDownloadUrl(fileId, 3600))
                                     .doOnNext(fileInfoVO::setDownloadUrl)
                                     .then();
                             urlGenerationTasks.add(task);
@@ -291,10 +287,9 @@ public class FileMetadataService {
      * 批量获取文件URL
      *
      * @param fileIds 文件ID列表
-     * @param ctx     操作者上下文 —— 不可见的文件被直接剔除
      * @return 文件ID到URL的映射
      */
-    public Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds, OperatorContext ctx) {
+    public Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds) {
         log.info("批量获取文件URL: fileIds={}", fileIds);
 
         if (fileIds == null || fileIds.isEmpty()) {
@@ -307,7 +302,7 @@ public class FileMetadataService {
         return Flux.fromIterable(fileIds)
                 .flatMap(fileId ->
                     fileRepository.findByIdAndIsDeleted(fileId, 0)
-                        .flatMap(file -> fileDownloadService.generateDownloadUrl(fileId, 3600, ctx)
+                        .flatMap(file -> fileDownloadService.generateDownloadUrl(fileId, 3600)
                                 .doOnNext(url -> result.put(fileId, url)))
                         .onErrorResume(e -> {
                             log.warn("获取文件URL失败: fileId={}", fileId, e);
@@ -356,7 +351,7 @@ public class FileMetadataService {
     /**
      * 补齐创建者名称与预览 / 下载链接
      */
-    private Mono<FileInfoVO> enrichWithCreatorAndUrls(FileInfoVO fileInfoVO, Long fileId, OperatorContext ctx) {
+    private Mono<FileInfoVO> enrichWithCreatorAndUrls(FileInfoVO fileInfoVO, Long fileId) {
         Mono<FileInfoVO> userInfoMono;
         if (fileInfoVO.getCreatorId() != null) {
             userInfoMono = userRepository.findById(fileInfoVO.getCreatorId())
@@ -368,9 +363,9 @@ public class FileMetadataService {
         }
 
         return userInfoMono
-                .flatMap(vo -> fileDownloadService.generatePreviewUrl(fileId, 3600, ctx)
+                .flatMap(vo -> fileDownloadService.generatePreviewUrl(fileId, 3600)
                         .doOnNext(vo::setPreviewUrl)
-                        .then(fileDownloadService.generateDownloadUrl(fileId, 3600, ctx))
+                        .then(fileDownloadService.generateDownloadUrl(fileId, 3600))
                         .doOnNext(vo::setDownloadUrl)
                         .thenReturn(vo));
     }

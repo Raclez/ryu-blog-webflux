@@ -133,10 +133,6 @@ public class SaPermissionAspect {
         SaCheckRole checkRole = findAnnotation(method, targetClass, SaCheckRole.class);
         SaCheckPermission checkPermission = findAnnotation(method, targetClass, SaCheckPermission.class);
 
-        if (checkLogin == null && checkRole == null && checkPermission == null) {
-            return joinPoint.proceed();
-        }
-
         Runnable check = () -> {
             if (checkLogin != null) {
                 StpUtil.checkLogin();
@@ -148,6 +144,19 @@ public class SaPermissionAspect {
                 checkPermission(checkPermission);
             }
         };
+
+        // 没有鉴权注解的端点<b>也要</b>恢复上下文：
+        // 控制器里有 30 多处直接 StpUtil.getLoginIdAsLong()（MenusController#getMyMenus、
+        // FavoriteController、UserController#updatePassword …），而这些端点一个鉴权注解都没有 ——
+        // 切面不恢复的话，它们读到的就是「当前线程上恰好残留的那个 box」，
+        // 可能是<b>上一个请求</b>的身份。
+        //
+        // 但非响应式返回值没法用 defer 包装（没有 Reactor Context 可依赖），那类端点维持原样。
+        boolean reactive = Mono.class.isAssignableFrom(signature.getReturnType())
+                || Flux.class.isAssignableFrom(signature.getReturnType());
+        if (checkLogin == null && checkRole == null && checkPermission == null && !reactive) {
+            return joinPoint.proceed();
+        }
 
         // 无条件从 Reactor Context 恢复上下文 —— 不要再用「当前线程上有没有 box」当判据。
         //

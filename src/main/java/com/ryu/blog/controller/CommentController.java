@@ -19,6 +19,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
 import java.util.Map;
+import cn.dev33.satoken.stp.StpUtil;
 
 /**
  * 评论控制器
@@ -51,15 +52,13 @@ public class CommentController {
     @Operation(summary = "创建评论", description = "创建新评论，新评论一律进入待审核状态")
     @PostMapping
     public Mono<Result<Comment>> createComment(@RequestBody @Validated CommentCreateDTO dto) {
-        OperatorContext ctx = OperatorContext.current();
         Comment comment = new Comment();
         comment.setPostId(dto.getPostId());
         comment.setParentCommentId(dto.getParentCommentId());
         comment.setContent(dto.getContent());
-        comment.setUserId(ctx.userId());
-        log.info("创建评论: userId={}, articleId={}", ctx.userId(), dto.getPostId());
+        // 评论归属当前登录用户 —— 由 Service 从 Reactor Context 取身份后写入
 
-        return commentService.createComment(comment, ctx)
+        return commentService.createComment(comment)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("创建评论成功: commentId={}", result.getData().getId()));
     }
@@ -72,7 +71,7 @@ public class CommentController {
         dto.setId(id);
         log.info("更新评论: id={}", id);
 
-        return commentService.updateComment(dto, OperatorContext.current())
+        return commentService.updateComment(dto)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("更新评论成功: id={}", id));
     }
@@ -92,7 +91,7 @@ public class CommentController {
     public Mono<Result<String>> deleteComment(@PathVariable Long id) {
         log.info("删除评论: id={}", id);
 
-        return commentService.deleteComment(id, OperatorContext.current())
+        return commentService.deleteComment(id)
                 .thenReturn(Result.success("删除成功"))
                 .doOnSuccess(result -> log.info("删除评论成功: id={}", id));
     }
@@ -105,9 +104,8 @@ public class CommentController {
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
         log.info("获取文章评论列表: articleId={}, page={}, size={}", articleId, page, size);
 
-        OperatorContext ctx = OperatorContext.current();
         // 先校验文章可见 —— 这个接口是匿名的，不校验就会把草稿文章的评论读出去
-        return commentService.requireArticleVisible(articleId, ctx)
+        return commentService.requireArticleVisible(articleId)
                 .then(commentService.countCommentsByArticleId(articleId))
                 .flatMap(total -> commentService.getCommentsByArticleId(articleId, page, size)
                         .collectList()
@@ -146,7 +144,7 @@ public class CommentController {
     public Mono<Result<Map<String, Object>>> getMyComments(
             @Parameter(description = "页码，从0开始") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
-        Long userId = OperatorContext.current().userId();
+        Long userId = StpUtil.getLoginIdAsLong();
         log.info("获取我的评论列表: userId={}", userId);
         return getCommentsByUserId(userId, page, size);
     }

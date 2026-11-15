@@ -12,8 +12,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  * @author ryu
  */
 @Slf4j
-@Configuration
-@EnableScheduling
+//@Configuration
+//@EnableScheduling
 @RequiredArgsConstructor
 public class ScheduleConfig {
 

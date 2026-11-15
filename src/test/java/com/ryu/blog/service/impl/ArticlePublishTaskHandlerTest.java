@@ -26,6 +26,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import com.ryu.blog.utils.OperatorContexts;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 定时发布任务处理器
@@ -55,6 +57,15 @@ class ArticlePublishTaskHandlerTest {
     @InjectMocks
     private ArticlePublishTaskHandler handler;
 
+    /**
+     * 门面被调用时，从 Reactor Context 里读到的操作者身份。
+     *
+     * <p>身份不再走方法参数 —— handler 把它写进 Reactor Context，
+     * Service 层从 Context 取。所以要断言「以谁的身份发布」，
+     * 只能在门面这一侧把 Context 里的身份读出来。
+     */
+    private final AtomicReference<OperatorContext> seenOperator = new AtomicReference<>();
+
     // =====================================================================
     // 正常路径
     // =====================================================================
@@ -64,7 +75,7 @@ class ArticlePublishTaskHandlerTest {
     void publishesWhenDue() {
         Posts article = pendingArticle();
         when(postsRepository.findById(POST_ID)).thenReturn(Mono.just(article));
-        when(articleService.updateArticleStatus(any(), any()))
+        when(articleService.updateArticleStatus(any()))
                 .thenReturn(Mono.just(published(article)));
 
         StepVerifier.create(handler.execute(request(LocalDateTime.now().minusMinutes(1))))
@@ -82,20 +93,24 @@ class ArticlePublishTaskHandlerTest {
     void callsFacadeWithPublishedStatus() {
         Posts article = pendingArticle();
         when(postsRepository.findById(POST_ID)).thenReturn(Mono.just(article));
-        when(articleService.updateArticleStatus(any(), any()))
-                .thenReturn(Mono.just(published(article)));
+        when(articleService.updateArticleStatus(any()))
+                .thenReturn(Mono.deferContextual(cv -> {
+                    seenOperator.set(OperatorContexts.from(cv));
+                    return Mono.just(published(article));
+                }));
 
         handler.execute(request(LocalDateTime.now().minusMinutes(1))).block();
 
         ArgumentCaptor<PostStatusDTO> statusCaptor = ArgumentCaptor.forClass(PostStatusDTO.class);
-        ArgumentCaptor<OperatorContext> ctxCaptor = ArgumentCaptor.forClass(OperatorContext.class);
-        verify(articleService).updateArticleStatus(statusCaptor.capture(), ctxCaptor.capture());
+        verify(articleService).updateArticleStatus(statusCaptor.capture());
 
         assertThat(statusCaptor.getValue().getId()).isEqualTo(POST_ID);
         assertThat(statusCaptor.getValue().getStatus()).isEqualTo(Posts.Status.PUBLISHED);
-        // 以「作者本人」的身份发布 —— 归属校验靠这个通过，不做提权
-        assertThat(ctxCaptor.getValue().userId()).isEqualTo(AUTHOR_ID);
-        assertThat(ctxCaptor.getValue().canManageOthers()).isFalse();
+        // 以「作者本人」的身份发布 —— 归属校验靠这个通过，不做提权。
+        // 身份不再走参数，而是由 handler 写进 Reactor Context，
+        // Service 层从 Context 取 —— 所以这里看 Service 看到的那个 Context。
+        assertThat(seenOperator.get().userId()).isEqualTo(AUTHOR_ID);
+        assertThat(seenOperator.get().canManageOthers()).isFalse();
     }
 
     // =====================================================================
@@ -192,7 +207,7 @@ class ArticlePublishTaskHandlerTest {
     void propagatesRealFailure() {
         Posts article = pendingArticle();
         when(postsRepository.findById(POST_ID)).thenReturn(Mono.just(article));
-        when(articleService.updateArticleStatus(any(), any()))
+        when(articleService.updateArticleStatus(any()))
                 .thenReturn(Mono.error(new IllegalStateException("数据库挂了")));
 
         StepVerifier.create(handler.execute(request(LocalDateTime.now().minusMinutes(1))))

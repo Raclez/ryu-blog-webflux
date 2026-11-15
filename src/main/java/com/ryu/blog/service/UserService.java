@@ -32,11 +32,10 @@ public interface UserService {
      * <p>指定了角色（即要分配角色）时，操作者必须持有 {@code system:user:assign} ——
      * 否则「能建用户」就等于「能建一个 admin 用户」。
      *
-     * @param ctx 操作者上下文
      * @param userDTO 用户信息
      * @return 创建结果
      */
-    Mono<User> createUserWithRoles(OperatorContext ctx, UserDTO userDTO);
+    Mono<User> createUserWithRoles(UserDTO userDTO);
 
     /**
      * 根据ID查询用户
@@ -57,11 +56,10 @@ public interface UserService {
      *
      * <p>归属校验：只能查自己，或拥有「管理他人」能力的操作者。
      *
-     * @param ctx 操作者上下文
      * @param id 用户ID
      * @return 用户信息视图对象
      */
-    Mono<UserInfoVO> getUserDetailById(OperatorContext ctx, Long id);
+    Mono<UserInfoVO> getUserDetailById(Long id);
 
     /**
      * 根据用户名查询用户
@@ -111,11 +109,10 @@ public interface UserService {
      *   <li>改别人的角色 → 在上面两条之外，还要 {@code system:user:assign}。</li>
      * </ul>
      *
-     * @param ctx 操作者上下文
      * @param userDTO 用户信息
      * @return 更新结果
      */
-    Mono<User> updateUserWithRoles(OperatorContext ctx, UserDTO userDTO);
+    Mono<User> updateUserWithRoles(UserDTO userDTO);
     
     /**
      * 更新用户密码
@@ -127,19 +124,17 @@ public interface UserService {
 
     /**
      * 删除用户
-     * @param ctx 操作者上下文
      * @param id 用户ID
      * @return 删除结果
      */
-    Mono<Void> deleteUser(OperatorContext ctx, Long id);
+    Mono<Void> deleteUser(Long id);
 
     /**
      * 批量删除用户
-     * @param ctx 操作者上下文
      * @param ids 用户ID列表
      * @return 删除结果
      */
-    Mono<Void> batchDeleteUsers(OperatorContext ctx, List<Long> ids);
+    Mono<Void> batchDeleteUsers(List<Long> ids);
 
     /**
      * 分页查询用户列表
@@ -166,11 +161,10 @@ public interface UserService {
      * <p>返回的是新生成的明文密码 —— 调用方必须是有权重置的管理员，
      * 且不得把明文写进日志。
      *
-     * @param ctx 操作者上下文
      * @param id 用户ID
      * @return 新密码
      */
-    Mono<String> resetPassword(OperatorContext ctx, Long id);
+    Mono<String> resetPassword(Long id);
 
     /**
      * 查询用户总数
@@ -209,19 +203,17 @@ public interface UserService {
 
     /**
      * 更新用户状态
-     * @param ctx 操作者上下文
      * @param id 用户ID
      * @param status 状态
      * @return 更新结果
      */
-    Mono<Integer> updateUserStatus(OperatorContext ctx, Long id, Integer status);
+    Mono<Integer> updateUserStatus(Long id, Integer status);
 
     /**
      * 更新用户角色
-     * @param ctx 操作者上下文
      * @param userId 用户ID
      * @param roleIds 角色ID列表
      * @return 更新结果
      */
-    Mono<Void> updateUserRoles(OperatorContext ctx, Long userId, List<Long> roleIds);
+    Mono<Void> updateUserRoles(Long userId, List<Long> roleIds);
 } 

@@ -29,7 +29,7 @@ import java.util.List;
  * <p><b>鉴权模型</b>：能力校验由 {@code @SaCheckPermission} 表达（由
  * {@code SaPermissionAspect} 执行 —— WebFlux 下 Sa-Token 本身不提供注解拦截器）；
  * 归属校验（「能不能改自己以外的人」）由 Service 层的 {@code OwnershipPolicy} 表达。
- * 两者的分工与接缝见 {@code OperatorContext}。
+ * 两者的分工与接缝见 {@code OperatorContext} —— Service 从 Reactor Context 取当前操作者。
  *
  * @author ryu
  */
@@ -86,7 +86,7 @@ public class UserController {
     public Mono<Result<UserInfoVO>> getUserDetail(@PathVariable Long id) {
         log.info("获取用户详情: id={}", id);
 
-        return userService.getUserDetailById(OperatorContext.current(), id)
+        return userService.getUserDetailById(id)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取用户详情成功: id={}", id));
     }
@@ -103,7 +103,7 @@ public class UserController {
     public Mono<Result<String>> createUser(@Validated @RequestBody UserDTO userDTO) {
         log.info("创建新用户: username={}", userDTO.getUsername());
 
-        return userService.createUserWithRoles(OperatorContext.current(), userDTO)
+        return userService.createUserWithRoles(userDTO)
                 .map(u -> Result.success("用户创建成功"))
                 .doOnSuccess(result -> log.info("用户创建成功: username={}", userDTO.getUsername()));
     }
@@ -124,7 +124,7 @@ public class UserController {
         log.info("更新用户信息: id={}", id);
 
         userDTO.setId(id);
-        return userService.updateUserWithRoles(OperatorContext.current(), userDTO)
+        return userService.updateUserWithRoles(userDTO)
                 .map(u -> Result.success("用户信息更新成功"))
                 .doOnSuccess(result -> log.info("用户信息更新成功: id={}", id));
     }
@@ -158,7 +158,7 @@ public class UserController {
     public Mono<Result<String>> deleteUser(@PathVariable Long id) {
         log.info("删除用户: id={}", id);
 
-        return userService.deleteUser(OperatorContext.current(), id)
+        return userService.deleteUser(id)
                 .thenReturn(Result.success("用户删除成功"))
                 .doOnSuccess(result -> log.info("用户删除成功: id={}", id));
     }
@@ -172,7 +172,7 @@ public class UserController {
     public Mono<Result<String>> batchDeleteUsers(@RequestBody List<Long> ids) {
         log.info("批量删除用户: ids={}", ids);
 
-        return userService.batchDeleteUsers(OperatorContext.current(), ids)
+        return userService.batchDeleteUsers(ids)
                 .thenReturn(Result.success("批量删除用户成功"))
                 .doOnSuccess(result -> log.info("批量删除用户成功: 数量={}", ids.size()));
     }
@@ -188,7 +188,7 @@ public class UserController {
     public Mono<Result<String>> resetPassword(@PathVariable Long id) {
         log.info("重置用户密码: id={}", id);
 
-        return userService.resetPassword(OperatorContext.current(), id)
+        return userService.resetPassword(id)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("重置用户密码成功: id={}", id));
     }
@@ -204,7 +204,7 @@ public class UserController {
             @PathVariable Integer status) {
         log.info("更新用户状态: id={}, status={}", id, status);
 
-        return userService.updateUserStatus(OperatorContext.current(), id, status)
+        return userService.updateUserStatus(id, status)
                 .map(i -> Result.success("用户状态更新成功"))
                 .doOnSuccess(result -> log.info("用户状态更新成功: id={}", id));
     }
@@ -220,7 +220,7 @@ public class UserController {
             @RequestBody List<Long> roleIds) {
         log.info("更新用户角色: id={}, roleIds={}", id, roleIds);
 
-        return userService.updateUserRoles(OperatorContext.current(), id, roleIds)
+        return userService.updateUserRoles(id, roleIds)
                 .thenReturn(Result.success("角色更新成功"))
                 .doOnSuccess(result -> log.info("角色更新成功: id={}", id));
     }

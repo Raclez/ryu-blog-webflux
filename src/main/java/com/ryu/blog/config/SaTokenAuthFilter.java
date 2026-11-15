@@ -199,8 +199,14 @@ public class SaTokenAuthFilter implements WebFilter {
      * 会被 Boot 的兜底错误处理器渲染成另一种 body。
      */
     private Mono<Void> deny(ServerWebExchange exchange, Throwable e) {
-        NotLoginException failure = (e instanceof NotLoginException nle) ? nle
-                : new NotLoginException(e.getMessage(), "login", "-1");
+        if (!(e instanceof NotLoginException failure)) {
+            // <b>不是「没登录」就别装成没登录</b>：Redis 挂了、Sa-Token 上下文没建立起来，
+            // 这些都是基础设施故障。报成 401 会让客户端以为 token 过期、丢掉有效登录态，
+            // 监控看到的也是「401 突增」而不是「Redis 挂了」。
+            // 这里让它继续往上抛，由框架的兜底错误处理器渲染成 500。
+            log.error("登录校验失败（不是未登录，属于故障）: {}", e.getMessage(), e);
+            return Mono.error(e);
+        }
         return globalExceptionHandler.handleNotLoginException(failure, exchange)
                 .flatMap(result -> GlobalExceptionHandler.writeAuthFailure(exchange, HttpStatus.UNAUTHORIZED, result))
                 .then();

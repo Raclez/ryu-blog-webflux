@@ -75,7 +75,6 @@ public class FileAdminService {
      * 「看不见的孤儿」远好于「看得见的坏链接」。
      *
      * @param fileId 文件ID
-     * @param ctx    操作者上下文 —— 只有创建者与管理员能删
      */
     @Transactional
     public Mono<Void> deleteFile(Long fileId, OperatorContext ctx) {
@@ -116,7 +115,6 @@ public class FileAdminService {
      * 批量删除文件
      *
      * @param fileIds 文件ID列表
-     * @param ctx     操作者上下文 —— 只有创建者与管理员能删
      * @return 删除结果，key为fileId，value为是否成功
      */
     @Transactional
@@ -153,7 +151,6 @@ public class FileAdminService {
      * 获取用户的文件列表
      *
      * @param userId 用户ID
-     * @param ctx    操作者上下文 —— 非管理员只能查自己
      */
     public Flux<FileInfoVO> getUserFiles(Long userId, OperatorContext ctx) {
         // 非管理员只能看自己的文件：请求里传的用户ID一律按当前登录用户处理
@@ -180,9 +177,9 @@ public class FileAdminService {
                 )
                 // 生成预览和下载链接
                 .flatMap(fileInfoVO ->
-                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600, ctx)
+                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600)
                         .doOnNext(fileInfoVO::setPreviewUrl)
-                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600, ctx))
+                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600))
                         .doOnNext(fileInfoVO::setDownloadUrl)
                         .thenReturn(fileInfoVO)
                 )
@@ -194,7 +191,6 @@ public class FileAdminService {
      * 根据类型获取文件列表
      *
      * @param type 文件类型
-     * @param ctx  操作者上下文 —— 非管理员只能看到自己的文件
      */
     public Flux<FileInfoVO> getFilesByType(String type, OperatorContext ctx) {
         log.info("根据类型获取文件列表: type={}", type);
@@ -222,9 +218,9 @@ public class FileAdminService {
                 })
                 // 生成预览和下载链接
                 .flatMap(fileInfoVO ->
-                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600, ctx)
+                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600)
                         .doOnNext(fileInfoVO::setPreviewUrl)
-                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600, ctx))
+                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600))
                         .doOnNext(fileInfoVO::setDownloadUrl)
                         .thenReturn(fileInfoVO)
                 )
@@ -237,7 +233,6 @@ public class FileAdminService {
      *
      * @param page 页码（从 1 开始）
      * @param size 每页条数
-     * @param ctx  操作者上下文 —— 非管理员只能看到自己的文件
      */
     public Mono<Map<String, Object>> getFileList(int page, int size, OperatorContext ctx) {
         log.info("分页获取文件列表: page={}, size={}", page, size);
@@ -278,9 +273,9 @@ public class FileAdminService {
                 })
                 // 生成预览和下载链接
                 .flatMap(fileInfoVO ->
-                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600, ctx)
+                    fileDownloadService.generatePreviewUrl(fileInfoVO.getId(), 3600)
                         .doOnNext(fileInfoVO::setPreviewUrl)
-                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600, ctx))
+                        .then(fileDownloadService.generateDownloadUrl(fileInfoVO.getId(), 3600))
                         .doOnNext(fileInfoVO::setDownloadUrl)
                         .thenReturn(fileInfoVO)
                 )

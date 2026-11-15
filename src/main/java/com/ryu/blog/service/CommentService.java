@@ -30,10 +30,9 @@ public interface CommentService {
      * 并校验「被评论的文章存在且对评论者可见」。
      *
      * @param comment 评论信息（userId 由调用方填成当前登录用户）
-     * @param ctx     操作者上下文
      * @return 创建结果
      */
-    Mono<Comment> createComment(Comment comment, OperatorContext ctx);
+    Mono<Comment> createComment(Comment comment);
 
     /**
      * 更新评论
@@ -42,10 +41,9 @@ public interface CommentService {
      * 只有评论作者本人（或管理员）能改。
      *
      * @param dto 评论更新数据（id + content）
-     * @param ctx 操作者上下文
      * @return 更新结果
      */
-    Mono<Comment> updateComment(CommentUpdateDTO dto, OperatorContext ctx);
+    Mono<Comment> updateComment(CommentUpdateDTO dto);
 
     /**
      * 根据ID获取评论
@@ -60,9 +58,8 @@ public interface CommentService {
      * <p>只有评论作者本人（或管理员）能删。
      *
      * @param id 评论ID
-     * @param ctx 操作者上下文
      */
-    Mono<Void> deleteComment(Long id, OperatorContext ctx);
+    Mono<Void> deleteComment(Long id);
 
     /**
      * 根据文章ID获取评论列表
@@ -87,10 +84,9 @@ public interface CommentService {
      * 草稿/私密文章的评论列表也会被匿名读到。
      *
      * @param articleId 文章ID
-     * @param ctx       当前访问者上下文（匿名为 {@link OperatorContext#ANONYMOUS}）
      * @return 文章可见时完成；不可见时抛业务异常
      */
-    Mono<Void> requireArticleVisible(Long articleId, OperatorContext ctx);
+    Mono<Void> requireArticleVisible(Long articleId);
 
     /**
      * 根据用户ID获取评论列表

@@ -420,7 +420,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotLoginException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Mono<Result<?>> handleNotLoginException(NotLoginException e, ServerWebExchange exchange) {
-        log.warn("未登录异常: {}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
+        // 未登录是常态（token 过期、匿名扫描、爬虫）—— 用 debug，
+        // 别把 WARN 日志刷爆，真正的异常就淹在里面了。
+        log.debug("未登录异常: {}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
         return Mono.just(Result.error(ErrorCodeConstants.UNAUTHORIZED, MessageConstants.UNAUTHORIZED));
     }
     
@@ -434,7 +436,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotRoleException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<Result<?>> handleNotRoleException(NotRoleException e, ServerWebExchange exchange) {
-        log.warn("角色权限不足异常: {}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
+        // 权限不足是业务性的（用户点了没权限的按钮）—— info 就够。
+        log.info("角色权限不足异常: {}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
         return Mono.just(Result.error(ErrorCodeConstants.FORBIDDEN, "角色权限不足"));
     }
     
@@ -448,7 +451,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotPermissionException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<Result<?>> handleNotPermissionException(NotPermissionException e, ServerWebExchange exchange) {
-        log.warn("权限不足异常: {}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
+        // 权限不足是业务性的（用户点了没权限的按钮）—— info 就够。
+        log.info("权限不足异常: {}, 路径: {}", e.getMessage(), exchange.getRequest().getPath());
         return Mono.just(Result.error(ErrorCodeConstants.FORBIDDEN, "权限不足"));
     }
     

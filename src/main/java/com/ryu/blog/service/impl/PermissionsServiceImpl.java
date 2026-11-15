@@ -10,6 +10,7 @@ import com.ryu.blog.repository.PermissionsRepository;
 import com.ryu.blog.repository.RolePermissionRepository;
 import com.ryu.blog.repository.UserRoleRepository;
 import com.ryu.blog.service.PermissionsService;
+import com.ryu.blog.utils.OperatorContexts;
 import com.ryu.blog.vo.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -59,7 +60,7 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Void> updatePermission(OperatorContext ctx, PermissionsUpdateDTO permissionsUpdateDTO) {
+    public Mono<Void> updatePermission(PermissionsUpdateDTO permissionsUpdateDTO) {
         log.info("更新权限: id={}", permissionsUpdateDTO.getId());
 
         return permissionsRepository.findById(permissionsUpdateDTO.getId())
@@ -184,7 +185,7 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Void> savePermission(OperatorContext ctx, PermissionsAddDTO permissionsAddDTO) {
+    public Mono<Void> savePermission(PermissionsAddDTO permissionsAddDTO) {
         log.info("保存权限: identity={}", permissionsAddDTO.getIdentity());
 
         Permissions permission = new Permissions();
@@ -210,35 +211,50 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Void> removeById(OperatorContext ctx, Long id) {
+    public Mono<Void> removeById(Long id) {
         log.info("删除权限, id: {}", id);
 
         return permissionsRepository.findById(id)
                 .switchIfEmpty(Mono.error(BusinessException.permissionNotExists()))
                 .flatMap(permission -> {
-                    // 逻辑删除
-                    permission.setIsDeleted(true);
-                    permission.setUpdateTime(LocalDateTime.now());
+                    // <b>先记下受影响的角色与用户</b>：下面紧接着就删关联行了，
+                    // 删完再问「谁持有这个权限」只会得到空集 —— 于是没人被刷新、
+                    // 权限版本号不自增，旧快照继续有效到 Redis TTL 结束，
+                    // <b>等于撤销没生效</b>，而调用方照样拿到 200。
+                    return rolePermissionRepository.findRoleIdsByPermissionId(id)
+                            .collectList()
+                            .flatMap(affectedRoleIds -> Flux.fromIterable(affectedRoleIds)
+                                    .concatMap(roleId -> userRoleRepository.findUserIdsByRoleId(roleId))
+                                    .distinct()
+                                    .collectList()
+                                    .flatMap(affectedUserIds -> {
+                                        // 逻辑删除
+                                        permission.setIsDeleted(true);
+                                        permission.setUpdateTime(LocalDateTime.now());
 
-                    return permissionsRepository.save(permission)
-                            // 删除角色权限关联
-                            .thenMany(rolePermissionRepository.findRoleIdsByPermissionId(id))
-                            // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）。
-                            // 本方法带 @Transactional，整条链绑定在同一条 R2DBC 连接上；
-                            // 而 r2dbc-mysql 1.4.0 每条连接只有一个 SPSC 的 RequestQueue，
-                            // 且 submit() 时不加锁 —— 并发提交会误判队满，
-                            // 抛 IllegalStateException: Request queue is full。
-                            .concatMap(roleId -> rolePermissionRepository.deleteByRoleIdAndPermissionIdIn(roleId, List.of(id)))
-                            .then();
-                })
-                .then(refreshCacheOfPermission(id));
+                                        return permissionsRepository.save(permission)
+                                                // 删除角色权限关联
+                                                // ⚠️ 必须用 concatMap（串行），不能用 flatMap（并发）。
+                                                // 本方法带 @Transactional，整条链绑定在同一条 R2DBC 连接上；
+                                                // 而 r2dbc-mysql 1.4.0 每条连接只有一个 SPSC 的 RequestQueue，
+                                                // 且 submit() 时不加锁 —— 并发提交会误判队满，
+                                                // 抛 IllegalStateException: Request queue is full。
+                                                .thenMany(Flux.fromIterable(affectedRoleIds))
+                                                .concatMap(roleId -> rolePermissionRepository
+                                                        .deleteByRoleIdAndPermissionIdIn(roleId, List.of(id)))
+                                                .then(refreshPermissionsOfUsers(affectedUserIds));
+                                    }));
+                });
     }
 
     @Override
-    public Mono<Set<String>> getUserPermissionIdentities(OperatorContext ctx, Long userId) {
-        // 归属校验：只能查自己的权限，或持有 system:user:manage
-        OwnershipPolicy.requireCanActOn(ctx, userId);
-        return permissionResolver.resolvePermissionIdentities(userId);
+    public Mono<Set<String>> getUserPermissionIdentities(Long userId) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            // 归属校验：只能查自己的权限，或持有 system:user:manage
+            OwnershipPolicy.requireCanActOn(ctx, userId);
+            return permissionResolver.resolvePermissionIdentities(userId);
+        });
     }
 
     @Override
@@ -257,10 +273,13 @@ public class PermissionsServiceImpl implements PermissionsService {
     }
 
     @Override
-    public Mono<Boolean> hasPermission(OperatorContext ctx, Long userId, String permissionIdentity) {
-        // 归属校验：只能查自己的权限，或持有 system:user:manage
-        OwnershipPolicy.requireCanActOn(ctx, userId);
-        return permissionResolver.hasPermission(userId, permissionIdentity);
+    public Mono<Boolean> hasPermission(Long userId, String permissionIdentity) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            // 归属校验：只能查自己的权限，或持有 system:user:manage
+            OwnershipPolicy.requireCanActOn(ctx, userId);
+            return permissionResolver.hasPermission(userId, permissionIdentity);
+        });
     }
 
     @Override
@@ -277,7 +296,7 @@ public class PermissionsServiceImpl implements PermissionsService {
 
     @Override
     @Transactional
-    public Mono<Boolean> updatePermissionStatus(OperatorContext ctx, List<Long> ids, Boolean isActive) {
+    public Mono<Boolean> updatePermissionStatus(List<Long> ids, Boolean isActive) {
         log.info("批量更新权限状态, ids: {}, isActive: {}", ids, isActive);
 
         if (ids == null || ids.isEmpty()) {
@@ -309,6 +328,19 @@ public class PermissionsServiceImpl implements PermissionsService {
                 .collectList()
                 .flatMapMany(Flux::fromIterable)
                 .concatMap(roleId -> userRoleRepository.findUserIdsByRoleId(roleId))
+                .distinct()
+                .collectList()
+                .flatMap(affectedUserIds -> refreshPermissionsOfUsers(affectedUserIds));
+    }
+
+    /**
+     * 重建一批用户的权限快照。
+     *
+     * <p><b>用于「关联行已经被删掉」的场景</b>（例如删除权限）：
+     * 那时已经查不出「谁持有这个权限」了，必须在删之前把名单记下来。
+     */
+    private Mono<Void> refreshPermissionsOfUsers(List<Long> userIds) {
+        return Flux.fromIterable(userIds)
                 .distinct()
                 .concatMap(userId -> permissionCache.refresh(userId))
                 .then();

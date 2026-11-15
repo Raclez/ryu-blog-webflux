@@ -17,6 +17,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
 import java.util.Map;
+import cn.dev33.satoken.stp.StpUtil;
 
 /**
  * 文章版本控制器
@@ -48,19 +49,19 @@ public class PostVersionController {
             @Parameter(description = "游标（上一页最后一条记录的ID）") @RequestParam(required = false) Long cursor,
             @Parameter(description = "每页数量") @RequestParam(defaultValue = "10") Integer limit) {
         log.info("获取文章版本列表: 文章ID={}, 游标={}, 每页数量={}", postId, cursor, limit);
-        
+
         return articleVersionService.getVersions(postId, cursor, limit)
                 .collectList()
                 .map(versions -> {
                     Map<String, Object> result = new HashMap<>();
                     result.put("versions", versions);
-                    
+
                     // 设置下一页游标（最后一条记录的ID）
                     Long nextCursor = versions.isEmpty() ? null : 
                             versions.get(versions.size() - 1).getId();
                     result.put("nextCursor", nextCursor);
                     result.put("hasMore", versions.size() == limit);
-                    
+
                     log.info("获取文章版本列表成功: 文章ID={}, 版本数量={}, 下一页游标={}", 
                             postId, versions.size(), nextCursor);
                     return Result.success(result);
@@ -81,7 +82,7 @@ public class PostVersionController {
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
             @Parameter(description = "版本号") @PathVariable("version") Integer version) {
         log.info("获取文章指定版本: 文章ID={}, 版本号={}", postId, version);
-        
+
         return articleVersionService.getVersion(postId, version)
                 .map(postVersion -> {
                     log.info("获取文章指定版本成功: 文章ID={}, 版本号={}", postId, version);
@@ -102,7 +103,7 @@ public class PostVersionController {
     public Mono<Result<PostVersion>> getLatestVersion(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId) {
         log.info("获取文章最新版本: 文章ID={}", postId);
-        
+
         return articleVersionService.getLatestVersion(postId)
                 .map(postVersion -> {
                     log.info("获取文章最新版本成功: 文章ID={}, 版本号={}", postId, postVersion.getVersion());
@@ -124,10 +125,9 @@ public class PostVersionController {
     public Mono<Result<Posts>> rollbackToVersion(
             @Parameter(description = "文章ID") @PathVariable("postId") Long postId,
             @Parameter(description = "版本号") @PathVariable("version") Integer version) {
-        OperatorContext ctx = OperatorContext.current();
-        log.info("回滚文章到指定版本: 文章ID={}, 版本号={}, 操作者={}", postId, version, ctx);
+        log.info("回滚文章到指定版本: 文章ID={}, 版本号={}, 操作者={}", postId, version, StpUtil.getLoginIdAsLong());
 
-        return articleVersionService.rollbackToVersion(postId, version, ctx)
+        return articleVersionService.rollbackToVersion(postId, version)
                 .map(posts -> {
                     log.info("回滚文章到指定版本成功: 文章ID={}, 版本号={}", postId, version);
                     return Result.success(posts);
@@ -145,10 +145,9 @@ public class PostVersionController {
     @SaCheckPermission(PermissionConstants.POST_EDIT)
     public Mono<Result<Boolean>> deleteVersion(
             @Parameter(description = "版本ID") @PathVariable("id") Long id) {
-        OperatorContext ctx = OperatorContext.current();
-        log.info("删除文章版本: 版本ID={}, 操作者={}", id, ctx);
+        log.info("删除文章版本: 版本ID={}, 操作者={}", id, StpUtil.getLoginIdAsLong());
 
-        return articleVersionService.deleteVersion(id, ctx)
+        return articleVersionService.deleteVersion(id)
                 .map(result -> {
                     if (result) {
                         log.info("删除文章版本成功: 版本ID={}", id);
@@ -176,7 +175,7 @@ public class PostVersionController {
             @Parameter(description = "版本1") @PathVariable("version1") Integer version1,
             @Parameter(description = "版本2") @PathVariable("version2") Integer version2) {
         log.info("比较文章版本差异: 文章ID={}, 版本1={}, 版本2={}", postId, version1, version2);
-        
+
         return articleVersionService.compareVersions(postId, version1, version2)
                 .map(diff -> {
                     log.info("比较文章版本差异成功: 文章ID={}, 版本1={}, 版本2={}", postId, version1, version2);

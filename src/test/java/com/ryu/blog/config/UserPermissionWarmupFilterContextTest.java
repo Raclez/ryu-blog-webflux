@@ -20,6 +20,7 @@ import reactor.core.scheduler.Schedulers;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -90,8 +91,13 @@ class UserPermissionWarmupFilterContextTest {
 
         assertNotEquals(Thread.currentThread().getName(), chainThread.get(),
                 "用例前提：链条必须在别的线程上继续，否则测不到线程切换");
-        assertTrue(contextVisible.get(),
-                "续作线程上没有 Sa-Token 上下文，Controller 的 @SaCheckPermission 会抛 SaTokenContextException");
+        // 预热过滤器<b>不</b>再重建 Sa-Token 上下文：往下走的 SaTokenAuthFilter（@Order(-100)，
+        // 排在预热之后）会为整条链建立上下文，切面也会从 Reactor Context 恢复它。
+        // 早先这里重建的那一份<b>永远不会被清掉</b> —— 留在池化线程上，
+        // 下一个请求跑在这个线程上时读到的可能是上一个请求的身份。
+        assertFalse(contextVisible.get(),
+                "预热过滤器在续作线程上留下了 Sa-Token 上下文 —— "
+                        + "它永远不会被清掉，下一个请求跑在这个线程上时读到的可能是上一个请求的身份");
     }
 
     private static final class TestableFilter extends UserPermissionWarmupFilter {

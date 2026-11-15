@@ -68,7 +68,7 @@ public class TagController {
     @SaCheckPermission(PermissionConstants.TAG_ADD)
     public Mono<Result<String>> createTag(@RequestBody @Validated TagCreateDTO tagCreateDTO) {
         log.info("[标签创建] 开始处理创建标签请求 - 标签名称: {}", tagCreateDTO.getName());
-        
+
         return tagService.createTag(tagCreateDTO)
                 .doOnSuccess(success -> log.info("[标签创建] 标签创建成功 - 标签名称: {}", tagCreateDTO.getName()))
                 .map(success -> Result.success(MessageConstants.TAG_CREATE_SUCCESS))
@@ -93,7 +93,7 @@ public class TagController {
     public Mono<Result<String>> updateTag(@RequestBody @Validated TagUpdateDTO tagUpdateDTO) {
         log.info("[标签更新] 开始处理更新标签请求 - 标签ID: {}, 新名称: {}", 
                 tagUpdateDTO.getId(), tagUpdateDTO.getName());
-        
+
         return tagService.updateTag(tagUpdateDTO)
                 .doOnSuccess(success -> log.info("[标签更新] 标签更新成功 - 标签ID: {}", tagUpdateDTO.getId()))
                 .map(success -> Result.success(MessageConstants.TAG_UPDATE_SUCCESS))
@@ -116,7 +116,7 @@ public class TagController {
             @Parameter(description = "标签ID", required = true) 
             @PathVariable @NotNull @Positive Long id) {
         log.info("[标签查询] 查询标签详情 - 标签ID: {}", id);
-        
+
         return tagService.getTagById(id)
                 .doOnSuccess(tag -> log.debug("[标签查询] 标签详情查询成功 - 标签ID: {}, 标签名称: {}", 
                         id, tag.getName()))
@@ -140,7 +140,7 @@ public class TagController {
             @Parameter(description = "标签ID", required = true) 
             @PathVariable @NotNull @Positive Long id) {
         log.info("[标签删除] 开始处理删除标签请求 - 标签ID: {}", id);
-        
+
         return tagService.deleteTag(id)
                 .doOnSuccess(success -> log.info("[标签删除] 标签删除成功 - 标签ID: {}", id))
                 .thenReturn(Result.success(MessageConstants.TAG_DELETE_SUCCESS))
@@ -163,7 +163,7 @@ public class TagController {
             @Parameter(description = "是否包含文章数量统计") 
             @RequestParam(defaultValue = "false") boolean withCount) {
         log.info("[标签列表] 查询所有标签 - 是否包含文章数: {}", withCount);
-        
+
         return tagService.getAllTags(withCount)
                 .collectList()
                 .doOnSuccess(tags -> log.info("[标签列表] 标签列表查询成功 - 标签总数: {}", tags.size()))
@@ -184,7 +184,7 @@ public class TagController {
             @Parameter(description = "文章ID", required = true) 
             @PathVariable @NotNull @Positive Long articleId) {
         log.info("[文章标签] 查询文章标签 - 文章ID: {}", articleId);
-        
+
         return tagService.getTagsByArticleId(articleId)
                 .collectList()
                 .doOnSuccess(tags -> log.info("[文章标签] 文章标签查询成功 - 文章ID: {}, 标签数: {}", 
@@ -212,7 +212,7 @@ public class TagController {
             @RequestBody @NotEmpty List<@NotNull @Positive Long> tagIds) {
         log.info("[文章标签] 为文章添加标签 - 文章ID: {}, 标签IDs: {}", articleId, tagIds);
 
-        return tagService.addTagsToArticle(articleId, tagIds, OperatorContext.current())
+        return tagService.addTagsToArticle(articleId, tagIds)
                 .doOnSuccess(success -> log.info("[文章标签] 文章标签添加成功 - 文章ID: {}, 标签数: {}", 
                         articleId, tagIds.size()))
                 .map(success -> Result.success(MessageConstants.TAG_ASSIGN_SUCCESS))
@@ -236,7 +236,7 @@ public class TagController {
             @PathVariable @NotNull @Positive Long articleId) {
         log.info("[文章标签] 移除文章标签 - 文章ID: {}", articleId);
 
-        return tagService.removeTagsFromArticle(articleId, OperatorContext.current())
+        return tagService.removeTagsFromArticle(articleId)
                 .doOnSuccess(success -> log.info("[文章标签] 文章标签移除成功 - 文章ID: {}", articleId))
                 .map(success -> Result.success(MessageConstants.TAG_REMOVE_SUCCESS))
                 .doOnError(e -> log.error("[文章标签] 文章标签移除失败 - 文章ID: {}, 错误: {}", 
@@ -257,7 +257,7 @@ public class TagController {
             @Parameter(description = "标签名称", required = true) 
             @RequestParam @NotEmpty String name) {
         log.info("[标签校验] 检查标签名称是否存在 - 标签名称: {}", name);
-        
+
         return tagService.checkTagNameExists(name)
                 .doOnSuccess(exists -> log.debug("[标签校验] 标签名称检查完成 - 标签名称: {}, 是否存在: {}", 
                         name, exists))
@@ -278,7 +278,7 @@ public class TagController {
             @Parameter(description = "返回数量限制") 
             @RequestParam(defaultValue = "10") @Positive int limit) {
         log.info("[热门标签] 查询热门标签 - 限制数量: {}", limit);
-        
+
         return tagService.getHotTags(limit)
                 .collectList()
                 .doOnSuccess(tags -> log.info("[热门标签] 热门标签查询成功 - 返回数量: {}", tags.size()))
@@ -303,7 +303,7 @@ public class TagController {
             @ParameterObject @Valid TagListDTO tagListDTO) {
         log.info("[标签分页] 分页查询标签 - 页码: {}, 每页大小: {}, 关键字: {}", 
                 tagListDTO.getCurrentPage(), tagListDTO.getPageSize(), tagListDTO.getKeyword());
-        
+
         return tagService.getTagByPage(tagListDTO)
                 .doOnSuccess(result -> log.info("[标签分页] 分页查询成功 - 总记录数: {}, 总页数: {}, 当前页记录数: {}", 
                         result.getTotal(), result.getPages(), result.getRecords().size()))

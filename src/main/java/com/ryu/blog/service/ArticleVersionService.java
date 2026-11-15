@@ -54,19 +54,17 @@ public interface ArticleVersionService {
      *
      * @param articleId 文章ID
      * @param version   版本号
-     * @param ctx       操作者上下文（用于归属校验：作者本人或「能管理他人」的管理者）
      * @return 回滚后的文章
      */
-    Mono<Posts> rollbackToVersion(Long articleId, Integer version, OperatorContext ctx);
+    Mono<Posts> rollbackToVersion(Long articleId, Integer version);
 
     /**
      * 删除文章版本
      *
      * @param id  版本ID
-     * @param ctx 操作者上下文（用于归属校验：作者本人或「能管理他人」的管理者）
      * @return 是否删除成功
      */
-    Mono<Boolean> deleteVersion(Long id, OperatorContext ctx);
+    Mono<Boolean> deleteVersion(Long id);
 
     /**
      * 比较两个版本的差异

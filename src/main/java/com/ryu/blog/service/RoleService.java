@@ -29,7 +29,7 @@ public interface RoleService {
      * @param roleDTO 角色DTO
      * @return 保存结果
      */
-    Mono<Void> saveRole(OperatorContext ctx, RoleDTO roleDTO);
+    Mono<Void> saveRole(RoleDTO roleDTO);
 
     /**
      * 为角色分配权限
@@ -37,7 +37,7 @@ public interface RoleService {
      * @param permissionsAssignDTO 权限分配DTO
      * @return 分配结果
      */
-    Mono<Void> assignPermissions(OperatorContext ctx, PermissionsAssignDTO permissionsAssignDTO);
+    Mono<Void> assignPermissions(PermissionsAssignDTO permissionsAssignDTO);
 
     /**
      * 根据条件查询角色列表
@@ -61,7 +61,7 @@ public interface RoleService {
      * @param permissionsAssignDTO 权限分配DTO
      * @return 删除结果
      */
-    Mono<Void> removePermission(OperatorContext ctx, PermissionsAssignDTO permissionsAssignDTO);
+    Mono<Void> removePermission(PermissionsAssignDTO permissionsAssignDTO);
 
     /**
      * 获取角色权限
@@ -84,7 +84,7 @@ public interface RoleService {
      * @param userId 用户ID
      * @return 角色列表
      */
-    Flux<Role> getUserRoles(OperatorContext ctx, Long userId);
+    Flux<Role> getUserRoles(Long userId);
 
     /**
      * 变更角色状态
@@ -93,7 +93,7 @@ public interface RoleService {
      * @param isActive 激活状态
      * @return 操作结果
      */
-    Mono<Boolean> changeRoleStatus(OperatorContext ctx, Long roleId, Boolean isActive);
+    Mono<Boolean> changeRoleStatus(Long roleId, Boolean isActive);
 
     /**
      * 批量分配用户角色
@@ -107,7 +107,7 @@ public interface RoleService {
      * @param roleId 角色ID
      * @return 操作结果
      */
-    Mono<Boolean> batchAssignUserRoles(OperatorContext ctx, List<Long> userIds, Long roleId);
+    Mono<Boolean> batchAssignUserRoles(List<Long> userIds, Long roleId);
 
     /**
      * 获取所有角色
@@ -122,7 +122,7 @@ public interface RoleService {
      * @param id 角色ID
      * @return 删除结果
      */
-    Mono<Void> removeById(OperatorContext ctx, Long id);
+    Mono<Void> removeById(Long id);
 
     /**
      * 更新角色信息
@@ -130,5 +130,5 @@ public interface RoleService {
      * @param roleUpdateDTO 角色更新信息
      * @return 更新结果
      */
-    Mono<Role> updateRole(OperatorContext ctx, RoleUpdateDTO roleUpdateDTO);
+    Mono<Role> updateRole(RoleUpdateDTO roleUpdateDTO);
 } 

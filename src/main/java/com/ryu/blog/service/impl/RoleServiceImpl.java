@@ -21,6 +21,7 @@ import com.ryu.blog.repository.RoleRepository;
 import com.ryu.blog.repository.UserRepository;
 import com.ryu.blog.repository.UserRoleRepository;
 import com.ryu.blog.service.RoleService;
+import com.ryu.blog.utils.OperatorContexts;
 import com.ryu.blog.vo.PageResult;
 import com.ryu.blog.vo.RolePermissionsVO;
 import com.ryu.blog.vo.RoleVO;
@@ -62,7 +63,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Void> saveRole(OperatorContext ctx, RoleDTO roleDTO) {
+    public Mono<Void> saveRole(RoleDTO roleDTO) {
         log.info("保存角色: name={}, code={}", roleDTO.getName(), roleDTO.getCode());
 
         // 唯一性校验：t_roles 上有 uk_code，不校验的话会直接撞唯一键报 400
@@ -100,7 +101,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Void> assignPermissions(OperatorContext ctx, PermissionsAssignDTO permissionsAssignDTO) {
+    public Mono<Void> assignPermissions(PermissionsAssignDTO permissionsAssignDTO) {
         log.info("为角色分配权限: roleId={}, permissionIds={}",
                 permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds());
 
@@ -158,7 +159,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Void> removePermission(OperatorContext ctx, PermissionsAssignDTO permissionsAssignDTO) {
+    public Mono<Void> removePermission(PermissionsAssignDTO permissionsAssignDTO) {
         log.info("删除角色权限: roleId={}, permissionIds={}",
                 permissionsAssignDTO.getRoleId(), permissionsAssignDTO.getPermissionIds());
 
@@ -179,7 +180,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Boolean> changeRoleStatus(OperatorContext ctx, Long roleId, Boolean isActive) {
+    public Mono<Boolean> changeRoleStatus(Long roleId, Boolean isActive) {
         log.info("变更角色状态, roleId: {}, isActive: {}", roleId, isActive);
 
         return findExistingRole(roleId)
@@ -195,7 +196,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Boolean> batchAssignUserRoles(OperatorContext ctx, List<Long> userIds, Long roleId) {
+    public Mono<Boolean> batchAssignUserRoles(List<Long> userIds, Long roleId) {
         log.info("批量分配用户角色, userIds: {}, roleId: {}", userIds, roleId);
 
         if (userIds == null || userIds.isEmpty()) {
@@ -225,7 +226,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
-    public Mono<Void> removeById(OperatorContext ctx, Long id) {
+    public Mono<Void> removeById(Long id) {
         log.info("删除角色, id: {}", id);
 
         return findExistingRole(id)
@@ -235,22 +236,30 @@ public class RoleServiceImpl implements RoleService {
                             || Boolean.TRUE.equals(role.getIsDefault())) {
                         return Mono.error(PermissionDeniedException.accessDenied("内置角色不允许删除"));
                     }
-                    // 逻辑删除
-                    role.setIsDeleted(true);
-                    role.setUpdateTime(LocalDateTime.now());
-                    return roleRepository.save(role)
-                            .then(rolePermissionRepository.deleteByRoleId(id))
-                            // 可见性轴：角色没了，它占的菜单名额也要一起收走 ——
-                            // 否则 t_sys_role_menus 里会留下一批永远查不到角色的悬空行
-                            .then(roleMenuRepository.deleteByRoleId(id))
-                            .then(userRoleRepository.deleteByRoleId(id));
-                })
-                .then(refreshPermissionsOfRole(id));
+                    // <b>先记下受影响的用户</b>：下面紧接着就把 user_role 行删掉了，
+                    // 删完再问「这个角色下有哪些用户」只会得到空集 —— 于是
+                    // 没人被刷新、权限版本号不自增，旧快照继续有效到 Redis TTL 结束，
+                    // <b>等于撤销没生效</b>，而调用方照样拿到 200。
+                    return userRoleRepository.findUserIdsByRoleId(id)
+                            .collectList()
+                            .flatMap(affectedUserIds -> {
+                                // 逻辑删除
+                                role.setIsDeleted(true);
+                                role.setUpdateTime(LocalDateTime.now());
+                                return roleRepository.save(role)
+                                        .then(rolePermissionRepository.deleteByRoleId(id))
+                                        // 可见性轴：角色没了，它占的菜单名额也要一起收走 ——
+                                        // 否则 t_sys_role_menus 里会留下一批永远查不到角色的悬空行
+                                        .then(roleMenuRepository.deleteByRoleId(id))
+                                        .then(userRoleRepository.deleteByRoleId(id))
+                                        .then(refreshPermissionsOfUsers(affectedUserIds));
+                            });
+                });
     }
 
     @Override
     @Transactional
-    public Mono<Role> updateRole(OperatorContext ctx, RoleUpdateDTO roleUpdateDTO) {
+    public Mono<Role> updateRole(RoleUpdateDTO roleUpdateDTO) {
         log.info("更新角色信息, id: {}", roleUpdateDTO.getId());
 
         return findExistingRole(roleUpdateDTO.getId())
@@ -382,10 +391,13 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
-    public Flux<Role> getUserRoles(OperatorContext ctx, Long userId) {
-        // 归属校验：只能查自己的角色，或持有 system:user:manage
-        OwnershipPolicy.requireCanActOn(ctx, userId);
-        return roleRepository.findActiveRolesByUserId(userId);
+    public Flux<Role> getUserRoles(Long userId) {
+        return Flux.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            // 归属校验：只能查自己的角色，或持有 system:user:manage
+            OwnershipPolicy.requireCanActOn(ctx, userId);
+            return roleRepository.findActiveRolesByUserId(userId);
+        });
     }
 
     @Override
@@ -425,6 +437,19 @@ public class RoleServiceImpl implements RoleService {
      */
     private Mono<Void> refreshPermissionsOfRole(Long roleId) {
         return userRoleRepository.findUserIdsByRoleId(roleId)
+                .concatMap(userId -> permissionCache.refresh(userId))
+                .then();
+    }
+
+    /**
+     * 重建一批用户的权限快照。
+     *
+     * <p><b>用于「关联行已经被删掉」的场景</b>（例如删除角色）：
+     * 那时已经查不出「这个角色下有哪些用户」了，必须在删之前把名单记下来。
+     */
+    private Mono<Void> refreshPermissionsOfUsers(List<Long> userIds) {
+        return Flux.fromIterable(userIds)
+                .distinct()
                 .concatMap(userId -> permissionCache.refresh(userId))
                 .then();
     }

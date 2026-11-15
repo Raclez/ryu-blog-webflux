@@ -68,12 +68,11 @@ public class UserPermissionWarmupFilter implements WebFilter {
                             userId, e.getMessage(), e);
                     return Mono.empty();
                 })
-                // refresh 走 R2DBC / Redis，续作是在<b>另一个线程</b>上恢复的；
-                // 而 Sa-Token 的响应式上下文是 ThreadLocal（SaReactorSyncHolder），
-                // 不会跟着线程切换走。不在这里重建，进入 Controller 时
-                // @SaCheckPermission 直接抛 SaTokenContextException「未能获取有效的上下文」。
-                // 现象很误导：快照命中时一切正常，快照刚过期（TTL 60 秒）的那次请求必挂。
-                .then(Mono.fromRunnable(() -> SaReactorSyncHolder.setContext(exchange)))
+                // refresh 走 R2DBC / Redis，续作是在<b>另一个线程</b>上恢复的。
+                // 这里<b>刻意不再</b>重建 Sa-Token 的 ThreadLocal 上下文：
+                // 往下走的 SaTokenAuthFilter 会为整条链建立上下文（它在 -100，排在预热之后），
+                // 而在这里重建的那一份<b>永远不会被清掉</b> ——
+                // 留在池化线程上，下一个请求跑在这个线程上时就会读到「上一个请求的 exchange」。
                 .then(Mono.defer(() -> chain.filter(exchange)));
     }
 
@@ -81,11 +80,11 @@ public class UserPermissionWarmupFilter implements WebFilter {
      * 从请求里解析出登录用户ID
      *
      * <p>这里要自己建立 Sa-Token 的 Reactor 上下文：本过滤器排在
-     * {@code SaReactorFilter} 之前，不能指望上下文已经就绪。
+     * {@code SaTokenAuthFilter} 之前，不能指望上下文已经就绪。
      *
      * <p><b>建立的上下文必须在用完之后清掉</b> —— 线程是池化的，不清就会把这次请求的
      * exchange 留给下一个跑在这个线程上的请求。回归护栏：
-     * {@code UserPermissionWarmupFilterNoLeakTest}。
+     * {@code UserPermissionWarmupFilterNoLeakTest}、{@code UserPermissionWarmupFilterContextTest}。
      *
      * <p>包级可见（不是 private）：{@code UserPermissionWarmupFilterContextTest} 靠覆写它
      * 跳过「真的登录一个用户」，把用例聚焦在上下文重建上。

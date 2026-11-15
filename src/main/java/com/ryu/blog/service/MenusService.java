@@ -51,11 +51,10 @@ public interface MenusService {
     /**
      * 为菜单分配角色（决定哪些角色能看到该菜单）
      *
-     * @param ctx    操作者上下文
      * @param roleIds 角色ID列表
      * @param menuId 菜单ID
      */
-    Mono<Void> bindRoles(OperatorContext ctx, List<Long> roleIds, Long menuId);
+    Mono<Void> bindRoles(List<Long> roleIds, Long menuId);
 
     /**
      * 查询某个菜单当前绑定了哪些角色
@@ -77,25 +76,22 @@ public interface MenusService {
      * 前端把这句话当 menuId 传下去，服务端直接
      * {@code Type mismatch: For input string: "菜单创建成功"}。
      *
-     * @param ctx         操作者上下文
      * @param menusSaveDTO 菜单信息
      * @return 新建菜单的 ID
      */
-    Mono<Long> saveMenu(OperatorContext ctx, MenusSaveDTO menusSaveDTO);
+    Mono<Long> saveMenu(MenusSaveDTO menusSaveDTO);
 
     /**
      * 更新菜单
      *
-     * @param ctx            操作者上下文
      * @param menusUpdateDTO 菜单信息
      */
-    Mono<Void> updateMenu(OperatorContext ctx, MenusUpdateDTO menusUpdateDTO);
+    Mono<Void> updateMenu(MenusUpdateDTO menusUpdateDTO);
 
     /**
      * 删除菜单
      *
-     * @param ctx 操作者上下文
      * @param id  菜单ID
      */
-    Mono<Void> deleteMenu(OperatorContext ctx, Long id);
+    Mono<Void> deleteMenu(Long id);
 }

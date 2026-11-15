@@ -69,7 +69,10 @@ public class PermissionSnapshotStore {
      */
     public Mono<PermissionSnapshot> load(Long userId) {
         return redis.opsForValue().get(key(userId))
-                .map(this::parse)
+                // mapNotNull：parse 遇到坏数据返回 null —— 那是「没命中」，不是「命中了一份空的」。
+                // 两者差别很大：当成命中的话，用户会被当成「没有任何权限」，
+                // 在整个 Redis TTL 里一直 403，而且那份坏数据还在，每次都读到它。
+                .mapNotNull(this::parse)
                 .onErrorResume(e -> {
                     log.warn("读取权限快照失败，当作未命中: userId={}, 原因: {}", userId, e.getMessage(), e);
                     return Mono.empty();
@@ -138,8 +141,9 @@ public class PermissionSnapshotStore {
     public Mono<Void> delete(Long userId) {
         // <b>不吞异常</b>：删不掉意味着别的实例还能从共享层读到已失效的权限。
         // 冒出去，让调用方知道这次失效没有生效到共享层。
+        // 只删快照，<b>不删版本号</b>：版本号是单调计数器，删了它就归零，
+        // 之后写进去的快照都盖成 0，「旧版判定」（epoch < current）就失效了。
         return redis.delete(key(userId))
-                .then(redis.delete(epochKey(userId)))
                 .then();
     }
 
@@ -168,13 +172,23 @@ public class PermissionSnapshotStore {
     /**
      * 反序列化。数据损坏（旧版本格式、手工改坏）时当作未命中。
      */
+    /**
+     * 反序列化。<b>坏数据返回 null</b>（= 未命中）—— 调用方会回库重取并覆盖掉这份坏数据。
+     *
+     * <p>不能返回「空快照」：那会被当成命中，用户等于被剥夺了全部权限，
+     * 而且这份坏数据还在 Redis 里，每次 L1 过期都读到它，直到 TTL 结束。
+     */
     private PermissionSnapshot parse(String json) {
         try {
             PermissionSnapshot snapshot = JsonUtils.parseObject(json, PermissionSnapshot.class);
-            return snapshot == null ? PermissionSnapshot.empty() : snapshot;
+            if (snapshot == null) {
+                log.warn("权限快照反序列化结果为 null，当作未命中");
+                return null;
+            }
+            return snapshot;
         } catch (Exception e) {
             log.warn("权限快照反序列化失败，当作未命中: 原因: {}", e.getMessage());
-            return PermissionSnapshot.empty();
+            return null;
         }
     }
 }

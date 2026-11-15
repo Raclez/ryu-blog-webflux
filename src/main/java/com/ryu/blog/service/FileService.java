@@ -90,10 +90,9 @@ public interface FileService {
      * HTTP 响应由 Controller 组装。
      *
      * @param fileId 文件ID
-     * @param ctx   操作者上下文 —— 用于文件可见性 / 归属判定
      * @return 文件下载结果（内容流 + 描述信息）
      */
-    Mono<FileDownloadVO> handleFileDownload(Long fileId, OperatorContext ctx);
+    Mono<FileDownloadVO> handleFileDownload(Long fileId);
 
 
 
@@ -101,60 +100,53 @@ public interface FileService {
      * 处理文件删除的业务逻辑
      *
      * @param fileId 文件的 ID
-     * @param ctx    操作者上下文 —— 只有创建者与管理员能删
      */
-    Mono<Void> handleFileDelete(Long fileId, OperatorContext ctx);
+    Mono<Void> handleFileDelete(Long fileId);
 
     /**
      * 批量删除文件
      * @param fileIds 文件ID列表
-     * @param ctx     操作者上下文 —— 只有创建者与管理员能删
      * @return 删除结果，key为fileId，value为是否成功
      */
-    Mono<Map<Long, Boolean>> batchDeleteFiles(List<Long> fileIds, OperatorContext ctx);
+    Mono<Map<Long, Boolean>> batchDeleteFiles(List<Long> fileIds);
 
     /**
      * 获取文件详细信息
      * @param fileId 文件ID
-     * @param ctx   操作者上下文 —— 用于可见性判定
      * @return 文件详细信息
      */
-    Mono<FileInfoVO> getFileInfo(Long fileId, OperatorContext ctx);
+    Mono<FileInfoVO> getFileInfo(Long fileId);
 
     /**
      * 更新文件信息
      * @param fileId 文件ID
      * @param fileUpdateDTO 文件信息
-     * @param ctx 操作者上下文 —— 只有创建者与管理员能改
      * @return 更新后的文件信息
      */
-    Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO, OperatorContext ctx);
+    Mono<FileInfoVO> updateFileInfo(Long fileId, FileUpdateDTO fileUpdateDTO);
 
     /**
      * 搜索文件
      * @param searchDTO 搜索参数
-     * @param ctx       操作者上下文 —— 非管理员只能搜自己的文件
      * @return 搜索结果
      */
-    Mono<Map<String, Object>> searchFiles(FileSearchDTO searchDTO, OperatorContext ctx);
+    Mono<Map<String, Object>> searchFiles(FileSearchDTO searchDTO);
 
     /**
      * 生成文件预览URL
      * @param fileId 文件ID
      * @param expireSeconds 过期时间(秒)
-     * @param ctx 操作者上下文 —— 用于可见性判定
      * @return 预览URL
      */
-    Mono<String> generatePreviewUrl(Long fileId, long expireSeconds, OperatorContext ctx);
+    Mono<String> generatePreviewUrl(Long fileId, long expireSeconds);
 
     /**
      * 生成文件下载URL
      * @param fileId 文件ID
      * @param expireSeconds 过期时间(秒)
-     * @param ctx 操作者上下文 —— 用于可见性判定
      * @return 下载URL
      */
-    Mono<String> generateDownloadUrl(Long fileId, long expireSeconds, OperatorContext ctx);
+    Mono<String> generateDownloadUrl(Long fileId, long expireSeconds);
 
     /**
      * 批量获取文件详细信息
@@ -162,7 +154,7 @@ public interface FileService {
      * @param fileIds 文件ID列表
      * @return 文件ID到文件详情的映射
      */
-    Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds, OperatorContext ctx);
+    Mono<Map<Long, FileInfoVO>> getBatchFileInfos(List<Long> fileIds);
 
     /**
      * 批量获取文件URL
@@ -170,7 +162,7 @@ public interface FileService {
      * @param fileIds 文件ID列表
      * @return 文件ID到URL的映射
      */
-    Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds, OperatorContext ctx);
+    Mono<Map<Long, String>> getBatchFileUrls(List<Long> fileIds);
     
     /**
      * 获取用户文件列表
@@ -178,7 +170,7 @@ public interface FileService {
      * @param userId 用户ID
      * @return 文件列表
      */
-    Flux<FileInfoVO> getUserFiles(Long userId, OperatorContext ctx);
+    Flux<FileInfoVO> getUserFiles(Long userId);
     
     /**
      * 分页获取文件列表
@@ -187,7 +179,7 @@ public interface FileService {
      * @param size 每页大小
      * @return 文件列表和分页信息
      */
-    Mono<Map<String, Object>> getFileList(int page, int size, OperatorContext ctx);
+    Mono<Map<String, Object>> getFileList(int page, int size);
     
     /**
      * 根据类型获取文件列表
@@ -195,7 +187,7 @@ public interface FileService {
      * @param type 文件类型
      * @return 文件列表
      */
-    Flux<FileInfoVO> getFilesByType(String type, OperatorContext ctx);
+    Flux<FileInfoVO> getFilesByType(String type);
     
     /**
      * 检查文件是否允许上传

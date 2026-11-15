@@ -24,7 +24,7 @@ import java.util.Map;
  *
  * <p><b>{@code @SaIgnore} 不是匿名放行的全部</b>：它只让注解鉴权切面跳过，
  * {@code SaReactorFilter} 仍然要求登录。真正的匿名放行在
- * {@code SaTokenConfig.addExclude("/sysConfig/public")}，两处缺一不可。
+ * {@code blog.auth.public-paths 里的 /sysConfig/public}，两处缺一不可。
  *
  * <p>响应只含 {@code config_key -> config_value}，不带 remark / extra / userId：
  * 那些字段没有展示价值，却有泄露风险。

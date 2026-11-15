@@ -127,7 +127,7 @@ public class MenusServiceImpl implements MenusService {
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
-    public Mono<Void> bindRoles(OperatorContext ctx, List<Long> roleIds, Long menuId) {
+    public Mono<Void> bindRoles(List<Long> roleIds, Long menuId) {
         log.info("为菜单分配角色, menuId: {}, roleIds: {}", menuId, roleIds);
 
         return menusRepository.findById(menuId)
@@ -170,7 +170,7 @@ public class MenusServiceImpl implements MenusService {
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
-    public Mono<Long> saveMenu(OperatorContext ctx, MenusSaveDTO menusSaveDTO) {
+    public Mono<Long> saveMenu(MenusSaveDTO menusSaveDTO) {
         log.info("保存菜单: name={}", menusSaveDTO.getName());
 
         Menus menu = new Menus();
@@ -221,7 +221,7 @@ public class MenusServiceImpl implements MenusService {
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
-    public Mono<Void> updateMenu(OperatorContext ctx, MenusUpdateDTO menusUpdateDTO) {
+    public Mono<Void> updateMenu(MenusUpdateDTO menusUpdateDTO) {
         log.info("更新菜单: id={}", menusUpdateDTO.getId());
 
         return menusRepository.findById(menusUpdateDTO.getId())
@@ -276,7 +276,7 @@ public class MenusServiceImpl implements MenusService {
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.MENUS_CACHE, allEntries = true)
-    public Mono<Void> deleteMenu(OperatorContext ctx, Long id) {
+    public Mono<Void> deleteMenu(Long id) {
         log.info("删除菜单, id: {}", id);
 
         return menusRepository.findById(id)

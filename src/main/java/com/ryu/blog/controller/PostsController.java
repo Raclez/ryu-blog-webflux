@@ -45,7 +45,7 @@ import java.util.List;
  *   <li><b>能力校验</b>（{@code @SaCheckPermission}）—— 「有没有资格管理文章」，
  *       对应 {@code content:post:*}；</li>
  *   <li><b>归属校验</b>（{@code OwnershipPolicy}）—— 「有没有资格改这一篇」，
- *       由 Service 层用 {@link OperatorContext} 判定。</li>
+ *       由 Service 层用 {@code OperatorContext}（从 Reactor Context 取）判定。</li>
  * </ul>
  * 两者是<b>正交</b>的：管理员有能力，但默认也只能改自己的文章（除非持有
  * {@code system:user:manage}）；普通读者有能力也不能改别人的。
@@ -76,7 +76,7 @@ public class PostsController {
         log.info("分页查询文章列表: page={}, size={}, title={}, status={}, categoryId={}",
                 query.getCurrentPage(), query.getPageSize(), query.getTitle(), query.getStatus(),
                 query.getCategoryId());
-        
+
         return articleService.getArticlePageVO(
                 query.getCurrentPage() - 1, // 转为0基页码
                 query.getPageSize(),
@@ -116,7 +116,7 @@ public class PostsController {
             @Pattern(regexp = "^(newer|older|comprehensive)$", message = "加载方向只能为newer、older或comprehensive")
             String direction) {
         log.info("前台游标加载文章列表: cursor={}, limit={}, direction={}", cursor, limit, direction);
-        
+
         return articleService.getFrontArticlesVO(cursor, limit, createTime, direction)
                 .map(voList -> {
                     log.info("前台游标加载文章列表成功: 返回记录数={}", voList.size());
@@ -168,7 +168,7 @@ public class PostsController {
         // publishMode 为 null 表示本次不改状态（普通编辑），不该被拦。
         checkPublishCapability(postUpdateDTO.getPublishMode());
 
-        return articleService.updateArticle(postUpdateDTO, OperatorContext.current())
+        return articleService.updateArticle(postUpdateDTO)
                 .then(Mono.defer(() -> {
                     log.info("文章更新成功: ID={}", postUpdateDTO.getId());
                     return Mono.just(Result.<Void>success());
@@ -192,7 +192,7 @@ public class PostsController {
             Long id) {
         log.info("取消定时发布: ID={}", id);
 
-        return articleService.cancelScheduledPublish(id, OperatorContext.current())
+        return articleService.cancelScheduledPublish(id)
                 .then(Mono.defer(() -> {
                     log.info("取消定时发布成功: ID={}", id);
                     return Mono.just(Result.<Void>success());
@@ -214,7 +214,7 @@ public class PostsController {
     public Mono<Result<Void>> updatePostSticky(@RequestBody @Validated PostStickyDTO stickyDTO) {
         log.info("设置文章置顶: ID={}, 置顶={}", stickyDTO.getId(), stickyDTO.getIsSticky());
 
-        return articleService.updateSticky(stickyDTO, OperatorContext.current())
+        return articleService.updateSticky(stickyDTO)
                 .then(Mono.defer(() -> {
                     log.info("文章置顶状态更新成功: ID={}", stickyDTO.getId());
                     return Mono.just(Result.<Void>success());
@@ -252,7 +252,7 @@ public class PostsController {
             @Positive(message = "文章ID必须为正数") 
             Long id) {
         log.info("获取文章详情: ID={}", id);
-        
+
         return articleService.getArticleDetailVO(id)
                 .map(detailVO -> {
                     // 不把标题（用户创作内容）写进日志
@@ -276,8 +276,8 @@ public class PostsController {
             @Size(max = 100, message = "单次最多删除100篇文章")
             List<String> ids) {
         log.info("批量删除文章: IDs={}", ids);
-        
-        return articleService.batchDeleteArticles(ids, OperatorContext.current())
+
+        return articleService.batchDeleteArticles(ids)
                 .then(Mono.defer(() -> {
                     log.info("批量删除文章成功: IDs={}", ids);
                     return Mono.just(Result.<Void>success());
@@ -302,7 +302,7 @@ public class PostsController {
             @Max(value = 20, message = "推荐数量不能超过20")
             Integer limit) {
         log.info("获取相关博客推荐: 文章ID={}, 限制数量={}", postId, limit);
-        
+
         return articleService.getRelatedArticlesVO(postId, limit)
                 .collectList()
                 .map(articles -> {
@@ -310,7 +310,7 @@ public class PostsController {
                     return Result.success(articles);
                 });
     }
-    
+
     /**
      * 更新文章状态
      * 使用Spring Cache注解自动管理缓存，确保数据一致性和性能最优
@@ -325,7 +325,7 @@ public class PostsController {
     public Mono<Result<Void>> updatePostStatus(@RequestBody @Validated PostStatusDTO statusDTO) {
         log.info("更新文章状态: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
 
-        return articleService.updateArticleStatus(statusDTO, OperatorContext.current())
+        return articleService.updateArticleStatus(statusDTO)
                 .then(Mono.defer(() -> {
                     log.info("更新文章状态成功: ID={}, 状态={}", statusDTO.getId(), statusDTO.getStatus());
                     return Mono.just(Result.<Void>success());
@@ -349,7 +349,7 @@ public class PostsController {
             Long categoryId) {
         Long userId = StpUtil.getLoginIdAsLong();
         log.info("导入Markdown文件: 文件名={}, 分类ID={}, 用户ID={}", file.filename(), categoryId, userId);
-        
+
         return articleService.importMarkdownArticle(file, categoryId, userId)
                 .then(Mono.defer(() -> {
                     log.info("Markdown文件导入成功: 文件名={}, 用户ID={}", file.filename(), userId);
@@ -372,14 +372,14 @@ public class PostsController {
             @Positive(message = "文章ID必须为正数") 
             Long id) {
         log.info("导出文章为Markdown: ID={}", id);
-        
-        return articleService.exportArticleToMarkdown(id, OperatorContext.current())
+
+        return articleService.exportArticleToMarkdown(id)
                 .map(result -> {
                     String filename = result.getFilename();
                     byte[] content = result.getContent().getBytes(StandardCharsets.UTF_8);
-                    
+
                     ByteArrayResource resource = new ByteArrayResource(content);
-                    
+
                     log.info("文章导出为Markdown成功: ID={}, 文件名={}", id, filename);
 
                     // 对文件名进行URL编码，以支持中文文件名

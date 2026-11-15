@@ -6,16 +6,19 @@ import com.ryu.blog.constant.PermissionConstants;
 /**
  * 操作者上下文
  *
- * <p>承载「这次操作是谁在做」以及「他能不能管别人」这两个信息，
- * 由 Controller 装配后<b>显式传给 Service</b>。
+ * <p>承载「这次操作是谁在做」以及「他能不能管别人」这两个信息。
+ *
+ * <p><b>它现在不再作为方法参数传递</b>：由 {@code SaTokenAuthFilter} 在请求线程上
+ * 采集一次，写进 <b>Reactor Context</b>；Service 层用
+ * {@code Mono.deferContextual(...)} 取（见 {@code OperatorContexts}）。
+ *
+ * <p><b>为什么用 Reactor Context 而不是 ThreadLocal：</b>
+ * Sa-Token 的上下文是纯 ThreadLocal，响应式链上一换线程就丢
+ * （{@code SaTokenContextException}）；Reactor Context 随数据流走，跨线程仍在。
  *
  * <p><b>为什么不在 Service 里隐式取 {@code StpUtil.getLoginIdAsLong()}：</b>
- * <ul>
- *   <li>隐式取会把 Service 绑死 Web 安全上下文 —— 单元测试要 mock 全局静态，
- *       非 HTTP 调用（任务处理器、事件监听器）根本拿不到操作者；</li>
- *   <li>显式传参让 Service 保持上下文无关、可直接单测，
- *       也保证「谁在做」这件事在调用链上是可见的。</li>
- * </ul>
+ * 同上 —— 响应式链上换线程就取不到；而且那样会把 Service 绑死 Web 安全上下文，
+ * 非 HTTP 调用（任务处理器、事件监听器）根本拿不到操作者。
  *
  * <p>归属规则本身收敛在 {@code OwnershipPolicy}（纯函数），这里只负责携带数据。
  *
@@ -34,9 +37,8 @@ public record OperatorContext(Long userId, boolean canManageOthers) {
     /**
      * 从当前登录态装配。
      *
-     * <p>必须在 <b>Controller 方法体内</b>调用（与项目里既有的
-     * {@code StpUtil.getLoginIdAsLong()} 用法一致）—— Sa-Token 的 Reactor 上下文
-     * 靠 {@code SaReactorSyncHolder} 随链传播，链内取可能已经拿不到。
+     * <p>必须在 <b>请求线程上、Sa-Token 的上下文还在时</b>调用 ——
+     * 写入点见 {@code SaTokenAuthFilter}。
      *
      * @return 当前操作者上下文；未登录时返回 {@link #ANONYMOUS}
      */

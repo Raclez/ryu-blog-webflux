@@ -141,7 +141,7 @@ class ArticlePublishPermissionTest {
     @Test
     @DisplayName("普通编辑（不传发布方式）→ 不校验发布能力")
     void plainEditDoesNotRequirePublishPermission() {
-        when(articleService.updateArticle(any(), any())).thenReturn(Mono.just(new Posts()));
+        when(articleService.updateArticle(any())).thenReturn(Mono.just(new Posts()));
 
         try (MockedStatic<StpUtil> stpUtil = mockStatic(StpUtil.class)) {
             stpUtil.when(() -> StpUtil.checkPermission(PermissionConstants.POST_PUBLISH))
@@ -160,7 +160,7 @@ class ArticlePublishPermissionTest {
             controller().updatePost(dto).block();
         }
 
-        verify(articleService).updateArticle(any(), any());
+        verify(articleService).updateArticle(any());
     }
 
     @Test

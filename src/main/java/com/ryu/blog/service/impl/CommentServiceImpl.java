@@ -10,6 +10,7 @@ import com.ryu.blog.repository.CommentRepository;
 import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.service.CommentService;
 import com.ryu.blog.service.impl.article.ArticleVisibilityPolicy;
+import com.ryu.blog.utils.OperatorContexts;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -66,56 +67,62 @@ public class CommentServiceImpl implements CommentService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
-    public Mono<Comment> createComment(Comment comment, OperatorContext ctx) {
-        if (comment == null || comment.getPostId() == null) {
-            return Mono.error(BusinessException.commentContentInvalid());
-        }
-        if (ctx == null || !ctx.isAuthenticated()) {
-            return Mono.error(new BusinessException("未登录，无法发表评论"));
-        }
-        if (comment.getContent() == null || comment.getContent().isBlank()) {
-            return Mono.error(BusinessException.commentContentInvalid());
-        }
+    public Mono<Comment> createComment(Comment comment) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            if (comment == null || comment.getPostId() == null) {
+                return Mono.error(BusinessException.commentContentInvalid());
+            }
+            if (ctx == null || !ctx.isAuthenticated()) {
+                return Mono.error(new BusinessException("未登录，无法发表评论"));
+            }
+            if (comment.getContent() == null || comment.getContent().isBlank()) {
+                return Mono.error(BusinessException.commentContentInvalid());
+            }
 
-        // 归属人永远取当前登录用户，不信请求体里的 userId
-        comment.setUserId(ctx.userId());
+            // 归属人永远取当前登录用户，不信请求体里的 userId
+            comment.setUserId(ctx.userId());
 
-        // 审核状态、删除标记、主键 —— 一律由服务端决定
-        comment.setStatus(STATUS_PENDING);
-        comment.setIsDeleted(Boolean.FALSE);
-        comment.setId(null);
-        comment.setLikeCount(0);
-        comment.setIsEdited(Boolean.FALSE);
-        comment.setEditTime(null);
-        comment.setCreateTime(LocalDateTime.now());
-        comment.setUpdateTime(LocalDateTime.now());
+            // 审核状态、删除标记、主键 —— 一律由服务端决定
+            comment.setStatus(STATUS_PENDING);
+            comment.setIsDeleted(Boolean.FALSE);
+            comment.setId(null);
+            comment.setLikeCount(0);
+            comment.setIsEdited(Boolean.FALSE);
+            comment.setEditTime(null);
+            comment.setCreateTime(LocalDateTime.now());
+            comment.setUpdateTime(LocalDateTime.now());
 
-        // 被评论的文章必须存在，且对评论者可见（不能给草稿文章评论）
-        return requireArticleVisible(comment.getPostId(), ctx)
-                .then(commentRepository.save(comment))
-                .doOnSuccess(saved -> log.info("评论创建成功: ID={}, 文章ID={}, 用户ID={}",
-                        saved.getId(), saved.getPostId(), saved.getUserId()));
+            // 被评论的文章必须存在，且对评论者可见（不能给草稿文章评论）
+            return requireArticleVisible(comment.getPostId())
+                    .then(commentRepository.save(comment))
+                    .doOnSuccess(saved -> log.info("评论创建成功: ID={}, 文章ID={}, 用户ID={}",
+                            saved.getId(), saved.getPostId(), saved.getUserId()));
+        });
     }
 
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
-    public Mono<Comment> updateComment(CommentUpdateDTO dto, OperatorContext ctx) {
-        return commentRepository.findById(dto.getId())
-                .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
-                .flatMap(existing -> {
-                    // 归属校验：只有作者本人（或管理员）能改
-                    OwnershipPolicy.requireCanActOn(ctx, existing.getUserId());
+    public Mono<Comment> updateComment(CommentUpdateDTO dto) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return commentRepository.findById(dto.getId())
+                    .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
+                    .flatMap(existing -> {
+                        // 归属校验：只有作者本人（或管理员）能改
+                        OwnershipPolicy.requireCanActOn(ctx, existing.getUserId());
 
-                    // 只改内容 —— 审核状态不在这条路径上
-                    existing.setContent(dto.getContent());
-                    existing.setIsEdited(Boolean.TRUE);
-                    existing.setEditTime(LocalDateTime.now());
-                    existing.setUpdateTime(LocalDateTime.now());
+                        // 只改内容 —— 审核状态不在这条路径上
+                        existing.setContent(dto.getContent());
+                        existing.setIsEdited(Boolean.TRUE);
+                        existing.setEditTime(LocalDateTime.now());
+                        existing.setUpdateTime(LocalDateTime.now());
 
-                    return commentRepository.save(existing);
-                })
-                .doOnSuccess(saved -> log.info("评论更新成功: ID={}", saved.getId()));
+                        return commentRepository.save(existing);
+                    })
+                    .doOnSuccess(saved -> log.info("评论更新成功: ID={}", saved.getId()));
+        });
     }
 
     @Override
@@ -129,18 +136,21 @@ public class CommentServiceImpl implements CommentService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheConstants.COMMENT_CACHE, allEntries = true)
-    public Mono<Void> deleteComment(Long id, OperatorContext ctx) {
-        return commentRepository.findById(id)
-                .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
-                .flatMap(comment -> {
-                    // 归属校验：只有作者本人（或管理员）能删
-                    OwnershipPolicy.requireCanActOn(ctx, comment.getUserId());
+    public Mono<Void> deleteComment(Long id) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return commentRepository.findById(id)
+                    .switchIfEmpty(Mono.error(BusinessException.commentNotFound()))
+                    .flatMap(comment -> {
+                        // 归属校验：只有作者本人（或管理员）能删
+                        OwnershipPolicy.requireCanActOn(ctx, comment.getUserId());
 
-                    comment.setIsDeleted(Boolean.TRUE);
-                    comment.setUpdateTime(LocalDateTime.now());
-                    return commentRepository.save(comment).then();
-                })
-                .doOnSuccess(v -> log.info("评论删除成功: ID={}", id));
+                        comment.setIsDeleted(Boolean.TRUE);
+                        comment.setUpdateTime(LocalDateTime.now());
+                        return commentRepository.save(comment).then();
+                    })
+                    .doOnSuccess(v -> log.info("评论删除成功: ID={}", id));
+        });
     }
 
     @Override
@@ -160,25 +170,28 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
-    public Mono<Void> requireArticleVisible(Long articleId, OperatorContext ctx) {
-        Long viewerId = ctx == null ? null : ctx.userId();
-        return postsRepository.findById(articleId)
-                // 先把「文章不存在」和「文章不可见」都归一成同一个错误 ——
-                // 区别对待等于告诉匿名访客「这篇文章存在，只是你没权限」。
-                .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
-                .flatMap(article -> {
-                    boolean deleted = Boolean.TRUE.equals(article.getIsDeleted());
-                    boolean visible = !deleted
-                            && (ArticleVisibilityPolicy.canView(article, viewerId)
-                            // 作者本人 / 管理员 —— 草稿也能评论、能看评论
-                            || (article.getUserId() != null
-                            && OwnershipPolicy.canActOn(ctx, article.getUserId())));
-                    if (!visible) {
-                        log.warn("文章不可见，拒绝访问其评论: 文章ID={}, 访问者ID={}", articleId, viewerId);
-                        return Mono.error(BusinessException.postNotFound());
-                    }
-                    return Mono.empty();
-                });
+    public Mono<Void> requireArticleVisible(Long articleId) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            Long viewerId = ctx == null ? null : ctx.userId();
+            return postsRepository.findById(articleId)
+                    // 先把「文章不存在」和「文章不可见」都归一成同一个错误 ——
+                    // 区别对待等于告诉匿名访客「这篇文章存在，只是你没权限」。
+                    .switchIfEmpty(Mono.error(BusinessException.postNotFound()))
+                    .flatMap(article -> {
+                        boolean deleted = Boolean.TRUE.equals(article.getIsDeleted());
+                        boolean visible = !deleted
+                                && (ArticleVisibilityPolicy.canView(article, viewerId)
+                                // 作者本人 / 管理员 —— 草稿也能评论、能看评论
+                                || (article.getUserId() != null
+                                && OwnershipPolicy.canActOn(ctx, article.getUserId())));
+                        if (!visible) {
+                            log.warn("文章不可见，拒绝访问其评论: 文章ID={}, 访问者ID={}", articleId, viewerId);
+                            return Mono.error(BusinessException.postNotFound());
+                        }
+                        return Mono.empty();
+                    });
+        });
     }
 
     @Override

@@ -9,6 +9,7 @@ import com.ryu.blog.enums.TaskType;
 import com.ryu.blog.repository.PostsRepository;
 import com.ryu.blog.service.ArticleService;
 import com.ryu.blog.service.TaskHandler;
+import com.ryu.blog.utils.OperatorContexts;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -96,13 +97,16 @@ public class ArticlePublishTaskHandler implements TaskHandler<ArticlePublishRequ
 
                     // --- 真正发布 ---
                     // 以「作者本人」的身份操作：归属校验（作者改自己的文章）天然通过。
-                    OperatorContext authorCtx = new OperatorContext(article.getUserId(), false);
+                    // 这条路径没有 HTTP 请求、没有 Reactor Context 里的身份，
+                    // 所以显式把作者身份写进去 —— Service 层照常从 Context 取。
+                    OperatorContext author = new OperatorContext(article.getUserId(), false);
 
                     PostStatusDTO statusDTO = new PostStatusDTO();
                     statusDTO.setId(postId);
                     statusDTO.setStatus(Posts.Status.PUBLISHED);
 
-                    return articleService.updateArticleStatus(statusDTO, authorCtx)
+                    return articleService.updateArticleStatus(statusDTO)
+                            .contextWrite(context -> context.put(OperatorContexts.KEY, author))
                             .map(published -> {
                                 log.info("文章定时发布成功: postId={}, 标题={}", postId, published.getTitle());
                                 return ArticlePublishResult.published(postId, published.getTitle());

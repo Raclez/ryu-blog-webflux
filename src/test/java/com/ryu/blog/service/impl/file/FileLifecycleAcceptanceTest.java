@@ -244,7 +244,7 @@ class FileLifecycleAcceptanceTest {
 
         // 删除后不可见 → 404
         assertThrows(ResourceNotFoundException.class,
-                () -> downloadService.downloadById(uploaded.getFileId(), OWNER).block());
+                () -> downloadService.downloadById(uploaded.getFileId()).block());
     }
 
     // ==================================================================
@@ -261,8 +261,8 @@ class FileLifecycleAcceptanceTest {
 
         // 读 → 放行：文件可见性已下线（对象存储桶本身匿名可读，
         // 那个字段挡不住直链，只制造「私有文件是安全的」这种错觉）
-        assertNotNull(downloadService.downloadById(fileId, STRANGER).block());
-        assertNotNull(metadataService.getFileInfo(fileId, STRANGER).block());
+        assertNotNull(downloadService.downloadById(fileId).block());
+        assertNotNull(metadataService.getFileInfo(fileId).block());
 
         // 删除 → 403
         assertThrows(PermissionDeniedException.class,

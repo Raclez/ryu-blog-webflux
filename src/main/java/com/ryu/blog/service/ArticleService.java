@@ -50,10 +50,9 @@ public interface ArticleService {
      * 规则见 {@code OwnershipPolicy#requireCanActOn}。
      *
      * @param articleUpdateDTO 文章更新DTO
-     * @param ctx 操作者上下文
      * @return 更新结果
      */
-    Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO, OperatorContext ctx);
+    Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO);
 
     /**
      * 更新文章状态
@@ -67,10 +66,9 @@ public interface ArticleService {
      * <p><b>归属校验</b>：只能改自己的文章（管理员除外）。
      *
      * @param statusDTO 文章状态DTO
-     * @param ctx 操作者上下文
      * @return 更新结果
      */
-    Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO, OperatorContext ctx);
+    Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO);
 
     /**
      * 取消定时发布
@@ -82,10 +80,9 @@ public interface ArticleService {
      * <p><b>归属校验</b>：只能取消自己的文章（管理员除外）。
      *
      * @param postId 文章ID
-     * @param ctx    操作者上下文
      * @return 退回草稿后的文章
      */
-    Mono<Posts> cancelScheduledPublish(Long postId, OperatorContext ctx);
+    Mono<Posts> cancelScheduledPublish(Long postId);
 
     /**
      * 设置/取消文章置顶
@@ -95,10 +92,9 @@ public interface ArticleService {
      * <p><b>归属校验</b>：只能置顶自己的文章（管理员除外）。
      *
      * @param stickyDTO 文章ID与目标置顶状态
-     * @param ctx       操作者上下文
      * @return 设置后的文章
      */
-    Mono<Posts> updateSticky(PostStickyDTO stickyDTO, OperatorContext ctx);
+    Mono<Posts> updateSticky(PostStickyDTO stickyDTO);
 
 
     /**
@@ -115,10 +111,9 @@ public interface ArticleService {
      * <p><b>归属校验</b>：只能删自己的文章（管理员除外）。
      *
      * @param id 文章ID
-     * @param ctx 操作者上下文
      * @return 删除结果
      */
-    Mono<Void> deleteArticle(Long id, OperatorContext ctx);
+    Mono<Void> deleteArticle(Long id);
 
     /**
      * 批量删除文章
@@ -128,10 +123,9 @@ public interface ArticleService {
      * 只要有一篇不是本人的，整批拒绝，不做「删掉能删的、跳过不能删的」。
      *
      * @param ids 文章ID列表
-     * @param ctx 操作者上下文
      * @return 删除结果
      */
-    Mono<Void> batchDeleteArticles(List<String> ids, OperatorContext ctx);
+    Mono<Void> batchDeleteArticles(List<String> ids);
 
     /**
      * 获取已发布的文章列表
@@ -287,8 +281,7 @@ public interface ArticleService {
      * <p><b>归属校验</b>：导出等于拿走全文，只允许作者本人（管理员除外）。
      *
      * @param id 文章ID
-     * @param ctx 操作者上下文
      * @return Markdown内容和文件名
      */
-    Mono<MarkdownExportVO> exportArticleToMarkdown(Long id, OperatorContext ctx);
+    Mono<MarkdownExportVO> exportArticleToMarkdown(Long id);
 } 

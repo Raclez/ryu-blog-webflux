@@ -201,7 +201,7 @@ public class FileController {
     public Mono<Result<Void>> delete(@PathVariable("id") Long id) {
         log.info("删除文件: id={}", id);
 
-        return fileService.handleFileDelete(id, OperatorContext.current())
+        return fileService.handleFileDelete(id)
                 .then(Mono.just(Result.<Void>success()))
                 .doOnSuccess(result -> log.info("文件删除成功: id={}", id));
     }
@@ -217,7 +217,7 @@ public class FileController {
     public Mono<Result<Map<Long, Boolean>>> batchDelete(@RequestBody List<Long> ids) {
         log.info("批量删除文件: ids={}", ids);
 
-        return fileService.batchDeleteFiles(ids, OperatorContext.current())
+        return fileService.batchDeleteFiles(ids)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("批量删除文件成功: 数量={}", ids.size()));
     }
@@ -232,7 +232,7 @@ public class FileController {
     @Operation(summary = "下载文件", description = "根据文件ID下载文件")
     public Mono<ResponseEntity<Flux<DataBuffer>>> download(@PathVariable("id") Long id) {
         log.info("下载文件: id={}", id);
-        return fileService.handleFileDownload(id, OperatorContext.current())
+        return fileService.handleFileDownload(id)
                 .map(download -> ResponseEntity.ok()
                         .contentType(resolveMediaType(download.getContentType()))
                         .header(HttpHeaders.CONTENT_DISPOSITION,
@@ -255,7 +255,7 @@ public class FileController {
     public Mono<ResponseEntity<Flux<DataBuffer>>> preview(@PathVariable("id") Long id) {
         log.info("预览文件: id={}", id);
 
-        return fileService.handleFileDownload(id, OperatorContext.current())
+        return fileService.handleFileDownload(id)
                 .map(download -> ResponseEntity.ok()
                         .contentType(resolveMediaType(download.getContentType()))
                         // 修改Content-Disposition为inline，使浏览器尝试直接预览
@@ -327,7 +327,7 @@ public class FileController {
 
         log.info("获取文件预览URL: id={}, expires={}s", id, expireSeconds);
 
-        return fileService.generatePreviewUrl(id, expireSeconds, OperatorContext.current())
+        return fileService.generatePreviewUrl(id, expireSeconds)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取预览URL成功: id={}", id));
     }
@@ -347,7 +347,7 @@ public class FileController {
 
         log.info("获取文件下载URL: id={}, expires={}s", id, expireSeconds);
 
-        return fileService.generateDownloadUrl(id, expireSeconds, OperatorContext.current())
+        return fileService.generateDownloadUrl(id, expireSeconds)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取下载URL成功: id={}", id));
     }
@@ -363,7 +363,7 @@ public class FileController {
     public Mono<Result<FileInfoVO>> getFileInfo(@PathVariable("id") Long id) {
         log.info("获取文件详情: id={}", id);
 
-        return fileService.getFileInfo(id, OperatorContext.current())
+        return fileService.getFileInfo(id)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("获取文件详情成功: id={}", id));
     }
@@ -383,7 +383,7 @@ public class FileController {
 
         log.info("更新文件信息: id={}, data={}", id, fileUpdateDTO);
 
-        return fileService.updateFileInfo(id, fileUpdateDTO, OperatorContext.current())
+        return fileService.updateFileInfo(id, fileUpdateDTO)
                 .map(Result::success)
                 .doOnSuccess(result -> log.info("更新文件信息成功: id={}", id));
     }
@@ -399,7 +399,7 @@ public class FileController {
     public Mono<Result<Map<String, Object>>> searchFiles(FileSearchDTO searchDTO) {
         log.info("搜索文件: {}", searchDTO);
 
-        return fileService.searchFiles(searchDTO, OperatorContext.current())
+        return fileService.searchFiles(searchDTO)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("搜索文件成功"));
     }
@@ -449,7 +449,7 @@ public class FileController {
     public Mono<Result<Map<Long, String>>> getBatchUrls(@RequestBody List<Long> fileIds) {
         log.info("批量获取文件URL: fileIds={}", fileIds);
 
-        return fileService.getBatchFileUrls(fileIds, OperatorContext.current())
+        return fileService.getBatchFileUrls(fileIds)
                 .map(Result::success)
                 .doOnSuccess(result -> log.debug("批量获取文件URL成功: 数量={}", fileIds.size()));
     }

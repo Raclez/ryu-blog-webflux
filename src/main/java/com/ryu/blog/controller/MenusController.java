@@ -84,7 +84,7 @@ public class MenusController {
             @RequestParam @Parameter(description = "菜单ID") Long menuId) {
         log.info("请求为菜单分配角色, menuId: {}", menuId);
 
-        return menusService.bindRoles(OperatorContext.current(), roleIds, menuId)
+        return menusService.bindRoles(roleIds, menuId)
                 .thenReturn(Result.success("分配角色成功"));
     }
 
@@ -157,7 +157,7 @@ public class MenusController {
     public Mono<Result<String>> saveMenus(@Valid @RequestBody MenusSaveDTO menusSaveDTO) {
         log.info("请求创建菜单: name={}", menusSaveDTO.getName());
 
-        return menusService.saveMenu(OperatorContext.current(), menusSaveDTO)
+        return menusService.saveMenu(menusSaveDTO)
                 .map(id -> Result.success("菜单创建成功", String.valueOf(id)));
     }
 
@@ -174,7 +174,7 @@ public class MenusController {
     public Mono<Result<String>> updateMenus(@Valid @RequestBody MenusUpdateDTO menusUpdateDTO) {
         log.info("请求修改菜单: id={}", menusUpdateDTO.getId());
 
-        return menusService.updateMenu(OperatorContext.current(), menusUpdateDTO)
+        return menusService.updateMenu(menusUpdateDTO)
                 .thenReturn(Result.success("菜单更新成功"));
     }
 
@@ -192,7 +192,7 @@ public class MenusController {
             @PathVariable @Parameter(description = "菜单ID") Long id) {
         log.info("请求删除菜单: id={}", id);
 
-        return menusService.deleteMenu(OperatorContext.current(), id)
+        return menusService.deleteMenu(id)
                 .thenReturn(Result.success("菜单删除成功"));
     }
 }

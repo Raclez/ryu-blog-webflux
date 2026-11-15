@@ -13,6 +13,7 @@ import com.ryu.blog.service.impl.article.ArticleCrudService;
 import com.ryu.blog.service.impl.article.ArticlePublishCoordinator;
 import com.ryu.blog.service.impl.article.ArticleQueryService;
 import com.ryu.blog.service.impl.article.ArticleRelationService;
+import com.ryu.blog.utils.OperatorContexts;
 import com.ryu.blog.vo.MarkdownExportVO;
 import com.ryu.blog.vo.PostAdminListVO;
 import com.ryu.blog.vo.PostDetailVO;
@@ -118,12 +119,15 @@ public class ArticleServiceImpl implements ArticleService {
             @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.POST_CACHE, allEntries = true)
     })
-    public Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO, OperatorContext ctx) {
-        return crudService.updateArticle(articleUpdateDTO, ctx)
-                .flatMap(article -> publishCoordinator.afterWrite(article,
-                        articleUpdateDTO.getPublishMode(),
-                        articleUpdateDTO.getScheduleTime(),
-                        ctx != null ? ctx.userId() : null));
+    public Mono<Posts> updateArticle(PostUpdateDTO articleUpdateDTO) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.updateArticle(articleUpdateDTO, ctx)
+                    .flatMap(article -> publishCoordinator.afterWrite(article,
+                            articleUpdateDTO.getPublishMode(),
+                            articleUpdateDTO.getScheduleTime(),
+                            ctx.userId()));
+        });
     }
 
     /**
@@ -139,10 +143,13 @@ public class ArticleServiceImpl implements ArticleService {
             @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.POST_CACHE, allEntries = true)
     })
-    public Mono<Posts> cancelScheduledPublish(Long postId, OperatorContext ctx) {
-        return crudService.cancelScheduledPublish(postId, ctx)
-                .flatMap(article -> publishCoordinator.cancelPublishTask(article)
-                        .thenReturn(article));
+    public Mono<Posts> cancelScheduledPublish(Long postId) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.cancelScheduledPublish(postId, ctx)
+                    .flatMap(article -> publishCoordinator.cancelPublishTask(article)
+                            .thenReturn(article));
+        });
     }
 
     @Override
@@ -153,8 +160,11 @@ public class ArticleServiceImpl implements ArticleService {
             @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.POST_CACHE, allEntries = true)
     })
-    public Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO, OperatorContext ctx) {
-        return crudService.updateArticleStatus(statusDTO, ctx);
+    public Mono<Posts> updateArticleStatus(PostStatusDTO statusDTO) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.updateArticleStatus(statusDTO, ctx);
+        });
     }
 
     /**
@@ -170,8 +180,11 @@ public class ArticleServiceImpl implements ArticleService {
             @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.POST_CACHE, allEntries = true)
     })
-    public Mono<Posts> updateSticky(PostStickyDTO stickyDTO, OperatorContext ctx) {
-        return crudService.updateSticky(stickyDTO, ctx);
+    public Mono<Posts> updateSticky(PostStickyDTO stickyDTO) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.updateSticky(stickyDTO, ctx);
+        });
     }
 
     @Override
@@ -181,8 +194,11 @@ public class ArticleServiceImpl implements ArticleService {
             @CacheEvict(cacheNames = CacheConstants.POST_HOT_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.POST_CACHE, allEntries = true)
     })
-    public Mono<Void> deleteArticle(Long id, OperatorContext ctx) {
-        return crudService.deleteArticle(id, ctx);
+    public Mono<Void> deleteArticle(Long id) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.deleteArticle(id, ctx);
+        });
     }
 
     @Override
@@ -193,8 +209,11 @@ public class ArticleServiceImpl implements ArticleService {
             CacheConstants.POST_HOT_CACHE,
             CacheConstants.POST_CACHE
     }, allEntries = true)
-    public Mono<Void> batchDeleteArticles(List<String> ids, OperatorContext ctx) {
-        return crudService.batchDeleteArticles(ids, ctx);
+    public Mono<Void> batchDeleteArticles(List<String> ids) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.batchDeleteArticles(ids, ctx);
+        });
     }
 
     @Override
@@ -209,8 +228,11 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @Transactional(readOnly = true)
-    public Mono<MarkdownExportVO> exportArticleToMarkdown(Long id, OperatorContext ctx) {
-        return crudService.exportArticleToMarkdown(id, ctx);
+    public Mono<MarkdownExportVO> exportArticleToMarkdown(Long id) {
+        return Mono.deferContextual(cv -> {
+            OperatorContext ctx = OperatorContexts.from(cv);
+            return crudService.exportArticleToMarkdown(id, ctx);
+        });
     }
 
     // ------------------------------------------------------------------
