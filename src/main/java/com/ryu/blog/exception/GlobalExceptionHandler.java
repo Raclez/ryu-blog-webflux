@@ -5,12 +5,14 @@ import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import com.ryu.blog.constant.ErrorCodeConstants;
 import com.ryu.blog.constant.MessageConstants;
+import com.ryu.blog.utils.JsonUtils;
 import com.ryu.blog.utils.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.r2dbc.BadSqlGrammarException;
 import org.springframework.validation.BindingResult;
@@ -24,6 +26,7 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -378,6 +381,35 @@ public class GlobalExceptionHandler {
         return Mono.just(Result.error(ErrorCodeConstants.THIRD_SERVICE_ERROR, message));
     }
     
+    /**
+     * 把鉴权失败的 {@link Result} 写进响应。
+     *
+     * <p><b>给 WebFilter 用的</b>：过滤器在 {@code DispatcherHandler} 之外，
+     * 它抛出的异常到不了 {@code @RestControllerAdvice} ——
+     * 所以过滤器里的鉴权失败要<b>直接调用</b>本类里的
+     * {@code handleNotLoginException} / {@code handleNotPermissionException}，
+     * 再用这个方法把结果写进响应。
+     *
+     * <p>这样「登录校验失败」「能力校验失败」「Controller 里抛出的鉴权异常」
+     * 出来的是<b>同一种 body</b> —— 都由本类渲染。
+     *
+     * <p>状态码要自己设：{@code @ResponseStatus} 只在 Spring 的异常解析链里生效。
+     *
+     * @param exchange 当前请求
+     * @param status   HTTP 状态码
+     * @param result   响应体
+     * @return 写完响应体的 Mono
+     */
+    public static Mono<Void> writeAuthFailure(ServerWebExchange exchange, HttpStatus status, Result<?> result) {
+        if (!exchange.getResponse().isCommitted()) {
+            exchange.getResponse().setStatusCode(status);
+            exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        }
+        byte[] body = JsonUtils.toJsonString(result).getBytes(StandardCharsets.UTF_8);
+        return exchange.getResponse().writeWith(
+                Mono.just(exchange.getResponse().bufferFactory().wrap(body)));
+    }
+
     /**
      * 处理Sa-Token未登录异常
      * 

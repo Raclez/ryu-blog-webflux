@@ -1,7 +1,6 @@
 package com.ryu.blog.config;
 
 import cn.dev33.satoken.reactor.filter.SaTokenContextFilterForReactor;
-import cn.dev33.satoken.reactor.filter.SaReactorFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.Ordered;
@@ -53,17 +52,22 @@ class AuthFilterOrderTest {
     }
 
     @Test
-    @DisplayName("鉴权过滤器的顺序必须是显式声明的，不能靠继承父类")
-    void authFilterOrderIsDeclaredExplicitly() throws NoSuchMethodException {
-        Order beanOrder = AnnotatedElementUtils.findMergedAnnotation(
-                SaTokenConfig.class.getMethod("saReactorFilter"), Order.class);
-        assertNotNull(beanOrder,
-                "saReactorFilter() 上必须显式写 @Order —— "
-                        + "现在靠的是父类 SaReactorFilter 的 @Order(" + orderOf(SaReactorFilter.class)
-                        + ")，那是框架的实现细节，改了就静默失效");
+    @DisplayName("鉴权过滤器的顺序必须是显式声明的，不能靠继承框架父类")
+    void authFilterOrderIsDeclaredExplicitly() {
+        Order authOrder = AnnotatedElementUtils.findMergedAnnotation(SaTokenAuthFilter.class, Order.class);
+        assertNotNull(authOrder,
+                "SaTokenAuthFilter 上必须显式写 @Order —— 它现在是自己的 WebFilter，"
+                        + "不再继承框架的 SaReactorFilter（那个的 @Order 是框架的实现细节，改了就静默失效）");
         // @Order 值越小越靠前：预热 -101 在前，鉴权 -100 在后
-        assertTrue(beanOrder.value() > orderOf(UserPermissionWarmupFilter.class),
-                "鉴权过滤器(" + beanOrder.value() + ")必须排在预热过滤器之后");
+        assertTrue(authOrder.value() > orderOf(UserPermissionWarmupFilter.class),
+                "鉴权过滤器(" + authOrder.value() + ")必须排在预热过滤器之后");
+    }
+
+    @Test
+    @DisplayName("能力校验过滤器排在鉴权过滤器之后")
+    void capabilityFilterRunsAfterAuthFilter() {
+        assertTrue(orderOf(PermissionCheckFilter.class) > orderOf(SaTokenAuthFilter.class),
+                "能力校验必须在登录校验之后 —— 否则还没确认登录就去判权限了");
     }
 
     /**

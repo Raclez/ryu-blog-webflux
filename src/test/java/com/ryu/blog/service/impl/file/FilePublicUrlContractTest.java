@@ -206,10 +206,11 @@ class FilePublicUrlContractTest {
         // 这里手工把这条路径喂进去，等价于配置文件里写了它。
         com.ryu.blog.config.AuthProperties properties = new com.ryu.blog.config.AuthProperties();
         properties.setPublicPaths(java.util.List.of("/files/public/**"));
-        SaReactorFilter filter = new SaTokenConfig(properties).saReactorFilter();
+        com.ryu.blog.config.SaTokenAuthFilter filter =
+                new com.ryu.blog.config.SaTokenAuthFilter(properties, null);
 
-        assertTrue(filter.excludeList.contains("/files/public/**"),
-                "公开文件直链必须匿名可访问，否则 <img src> 取不到图，实际白名单: " + filter.excludeList);
+        assertTrue(filter.publicPaths().contains("/files/public/**"),
+                "公开文件直链必须匿名可访问，否则 <img src> 取不到图，实际白名单: " + filter.publicPaths());
     }
 
     @Test

@@ -1,6 +1,6 @@
 package com.ryu.blog.config;
 
-import cn.dev33.satoken.reactor.filter.SaReactorFilter;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,7 +42,7 @@ class AuthPublicPathsTest {
             "/auth/captcha", "/auth/check");
 
     @Autowired
-    private SaReactorFilter saReactorFilter;
+    private SaTokenAuthFilter saTokenAuthFilter;
 
     @Autowired
     private Environment environment;
@@ -55,7 +55,7 @@ class AuthPublicPathsTest {
         assertFalse(configured.isEmpty(), "blog.auth.public-paths 不能为空 —— 否则所有接口都要登录");
 
         for (String path : configured) {
-            assertTrue(saReactorFilter.excludeList.contains(path),
+            assertTrue(saTokenAuthFilter.publicPaths().contains(path),
                     "配置里的公开路径必须真的被排除，否则匿名访问会 401: " + path);
         }
     }
@@ -65,7 +65,7 @@ class AuthPublicPathsTest {
     void noSneakyBusinessPathsInExcludeList() {
         List<String> configured = configuredPublicPaths();
 
-        for (String excluded : saReactorFilter.excludeList) {
+        for (String excluded : saTokenAuthFilter.publicPaths()) {
             if (isInfraPath(excluded)) {
                 continue;
             }

@@ -31,19 +31,19 @@ class AuthLogLevelTest {
     @Test
     @DisplayName("未登录是常态，用 DEBUG")
     void notLoginIsDebug() {
-        assertEquals(Level.DEBUG, SaTokenConfig.resolveAuthLogLevel(new NotLoginException("未登录", "login", "1")));
+        assertEquals(Level.DEBUG, SaTokenAuthFilter.resolveAuthLogLevel(new NotLoginException("未登录", "login", "1")));
     }
 
     @Test
     @DisplayName("权限不足是业务性的，用 INFO")
     void permissionDeniedIsInfo() {
-        assertEquals(Level.INFO, SaTokenConfig.resolveAuthLogLevel(new NotPermissionException("权限不足", "system:user:view")));
-        assertEquals(Level.INFO, SaTokenConfig.resolveAuthLogLevel(new NotRoleException("角色不足", "ADMIN")));
+        assertEquals(Level.INFO, SaTokenAuthFilter.resolveAuthLogLevel(new NotPermissionException("权限不足", "system:user:view")));
+        assertEquals(Level.INFO, SaTokenAuthFilter.resolveAuthLogLevel(new NotRoleException("角色不足", "ADMIN")));
     }
 
     @Test
     @DisplayName("说不清为什么失败的才用 ERROR")
     void unknownFailureIsError() {
-        assertEquals(Level.ERROR, SaTokenConfig.resolveAuthLogLevel(new IllegalStateException("???")));
+        assertEquals(Level.ERROR, SaTokenAuthFilter.resolveAuthLogLevel(new IllegalStateException("???")));
     }
 }

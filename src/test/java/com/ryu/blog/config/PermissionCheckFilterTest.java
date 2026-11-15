@@ -2,7 +2,9 @@ package com.ryu.blog.config;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaIgnore;
+import cn.dev33.satoken.exception.NotPermissionException;
 import com.ryu.blog.dto.OperatorContext;
+import com.ryu.blog.exception.GlobalExceptionHandler;
 import com.ryu.blog.service.impl.PermissionSnapshot;
 import com.ryu.blog.service.impl.UserPermissionCache;
 import com.ryu.blog.utils.OperatorContexts;
@@ -10,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.http.server.reactive.MockServerHttpResponse;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerMapping;
@@ -45,13 +48,17 @@ class PermissionCheckFilterTest {
 
     private UserPermissionCache permissionCache;
     private RequestMappingHandlerMapping handlerMapping;
+    private GlobalExceptionHandler globalExceptionHandler;
     private PermissionCheckFilter filter;
 
     @BeforeEach
     void setUp() {
         permissionCache = mock(UserPermissionCache.class);
         handlerMapping = mock(RequestMappingHandlerMapping.class);
-        filter = new PermissionCheckFilter(permissionCache, new AuthErrorRenderer(), handlerMapping);
+        // 真实的全局异常处理器（它没有依赖，可以直接 new）——
+        // 这样断言「body 是它渲染的」才有意义。
+        globalExceptionHandler = new GlobalExceptionHandler();
+        filter = new PermissionCheckFilter(permissionCache, globalExceptionHandler, handlerMapping);
     }
 
     @Test
@@ -94,6 +101,9 @@ class PermissionCheckFilterTest {
 
         assertFalse(chainCalled.get(), "没有权限就不能进 Controller");
         assertEquals(403, exchange.getResponse().getStatusCode().value());
+        // body 必须是由 GlobalExceptionHandler 渲染的 —— 与 Controller 里抛出的异常同一种
+        assertTrue(bodyOf(exchange).contains("权限不足"),
+                "403 的 body 必须由全局异常处理渲染，实际: " + bodyOf(exchange));
     }
 
     @Test
@@ -172,6 +182,13 @@ class PermissionCheckFilterTest {
         filter.filter(exchange, chain).block();
 
         assertTrue(chainCalled.get());
+    }
+
+    /**
+     * 读出已经写进响应的 body。
+     */
+    private String bodyOf(ServerWebExchange exchange) {
+        return ((MockServerHttpResponse) exchange.getResponse()).getBodyAsString().block();
     }
 
     private void givenSnapshot(Set<String> permissions) {

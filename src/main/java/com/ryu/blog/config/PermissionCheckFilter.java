@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaIgnore;
 import cn.dev33.satoken.exception.NotPermissionException;
 import com.ryu.blog.dto.OperatorContext;
+import com.ryu.blog.exception.GlobalExceptionHandler;
 import com.ryu.blog.service.impl.PermissionSnapshot;
 import com.ryu.blog.service.impl.UserPermissionCache;
 import com.ryu.blog.utils.OperatorContexts;
@@ -13,6 +14,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
@@ -56,7 +58,13 @@ public class PermissionCheckFilter implements WebFilter {
 
     private final UserPermissionCache permissionCache;
 
-    private final AuthErrorRenderer errorRenderer;
+    /**
+     * 全局异常处理器。
+     *
+     * <p>鉴权失败<b>交给它渲染</b> —— 与 Controller 里抛出的异常走同一套，
+     * 前端只面对一种 body。
+     */
+    private final GlobalExceptionHandler globalExceptionHandler;
 
     private final RequestMappingHandlerMapping handlerMapping;
 
@@ -65,11 +73,11 @@ public class PermissionCheckFilter implements WebFilter {
      * Lombok 默认不复制它（要 copyableAnnotations 配置），那样注入会找错 bean。
      */
     public PermissionCheckFilter(UserPermissionCache permissionCache,
-                                 AuthErrorRenderer errorRenderer,
+                                 GlobalExceptionHandler globalExceptionHandler,
                                  @Qualifier("requestMappingHandlerMapping")
                                  RequestMappingHandlerMapping handlerMapping) {
         this.permissionCache = permissionCache;
-        this.errorRenderer = errorRenderer;
+        this.globalExceptionHandler = globalExceptionHandler;
         this.handlerMapping = handlerMapping;
     }
 
@@ -140,7 +148,7 @@ public class PermissionCheckFilter implements WebFilter {
             if (operator.userId() == null) {
                 // 没登录 —— 但登录校验在前面的过滤器里已经处理过了，
                 // 走到这里说明是白名单路径，那就按「无权限」处理更安全。
-                return deny(exchange, new NotPermissionException(required[0]));
+                return deny(exchange, handler, required[0]);
             }
             PermissionSnapshot snapshot = permissionCache.getSnapshot(operator.userId());
             Set<String> owned = snapshot == null ? Set.of() : snapshot.permissions();
@@ -148,20 +156,27 @@ public class PermissionCheckFilter implements WebFilter {
                     ? java.util.Arrays.stream(required).allMatch(owned::contains)
                     : java.util.Arrays.stream(required).anyMatch(owned::contains);
             if (!granted) {
-                return deny(exchange, new NotPermissionException(required[0]));
+                return deny(exchange, handler, required[0]);
             }
             return Mono.just(Boolean.TRUE);
         });
     }
 
     /**
-     * 拒绝：把 403 直接写进响应。
+     * 拒绝：<b>委托给全局异常处理</b>渲染。
      *
-     * <p>不能抛异常了事 —— WebFilter 在 {@code DispatcherHandler} 之外，
+     * <p>{@code HandlerExceptionResolver} 就是 {@code DispatcherHandler} 内部用的那一套
+     * —— 里面装着 {@code GlobalExceptionHandler}（{@code @RestControllerAdvice}）。
+     * 所以过滤器里的鉴权失败和 Controller 里抛出的鉴权失败，出来的是<b>同一种 body</b>。
+     *
+     * <p>注意不能直接 {@code throw}：WebFilter 在 {@code DispatcherHandler} 之外，
      * 抛出去的异常到不了 {@code @RestControllerAdvice}，
      * 会被 Boot 的兜底错误处理器渲染成另一种 body。
      */
-    private Mono<Boolean> deny(ServerWebExchange exchange, Throwable e) {
-        return errorRenderer.write(exchange, e).thenReturn(Boolean.FALSE);
+    private Mono<Boolean> deny(ServerWebExchange exchange, HandlerMethod handler, String identity) {
+        return globalExceptionHandler
+                .handleNotPermissionException(new NotPermissionException(identity), exchange)
+                .flatMap(result -> GlobalExceptionHandler.writeAuthFailure(exchange, HttpStatus.FORBIDDEN, result))
+                .thenReturn(Boolean.FALSE);
     }
 }
