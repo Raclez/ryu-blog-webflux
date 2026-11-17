@@ -301,7 +301,11 @@ public class RoleServiceImpl implements RoleService {
         }
 
         role.setUpdateTime(LocalDateTime.now());
-        return roleRepository.save(role);
+        return roleRepository.save(role)
+                // 改 code / isActive 会改变「这个角色能做什么」——
+                // 持有该角色的用户快照必须重建，否则旧角色码与旧权限会一直留到 TTL 结束
+                // （对比 changeRoleStatus：同一个语义变更，那条路径是刷新的）。
+                .flatMap(saved -> refreshPermissionsOfRole(role.getId()).thenReturn(saved));
     }
 
     // =====================================================================

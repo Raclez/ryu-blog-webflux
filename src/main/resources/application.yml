@@ -288,12 +288,11 @@ blog:
       # 博客正文里的图根本渲染不出来。
       # 文件可见性已下线（桶本身就是匿名可读的），这条路由不再做权限判定。
       - /files/public/**
-    # 权限快照的本地缓存（L1，Caffeine）有效期，毫秒。
-    # 它只用来扛住「同一秒的连续请求」—— 跨实例的一致性靠下面的 Redis 共享层。
-    permission-snapshot-local-ttl-ms: 5000
-    # 权限快照的 Redis 共享层（L2）有效期，秒。
-    # 角色/权限变更后，新快照会写进 Redis；其它实例的本地缓存过期后从 Redis 读到新的。
-    permission-snapshot-redis-ttl-seconds: 300
+    # 权限快照的缓存层（进程内 Caffeine）有效期，毫秒。
+    # 默认 60s：所有角色/权限/用户角色变更都会主动 refresh() 让本实例立即生效，
+    # 这个 TTL 只兜住「漏刷路径」和「多实例部署」两种情况。
+    # 调小 → 更频繁查库；调大 → 变更生效窗口更长。
+    permission-snapshot-local-ttl-ms: 60000
     # 快照刷新失败后的退避窗口，毫秒。
     # 数据库抖动时避免「每个请求都重试」把查询量放大成风暴。
     permission-snapshot-backoff-ms: 5000

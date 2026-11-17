@@ -8,24 +8,28 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 用户权限快照缓存（两级：本地 Caffeine + Redis 共享）
+ * 用户权限快照缓存（单级：进程内 Caffeine）
  *
- * <h3>三级读取路径</h3>
+ * <h3>两级读取路径</h3>
  * <pre>
- *   L1  本地 Caffeine（TTL 默认 5 秒）—— 鉴权路径只读它，零 IO
- *   L2  Redis（TTL 默认 5 分钟）        —— 多实例共享，权限撤销靠它收敛
- *   L3  数据库                          —— 权威来源
+ *   L1  本地 Caffeine（TTL 默认 60 秒）—— 鉴权路径只读它，零 IO
+ *   L2  数据库                          —— 权威来源
  * </pre>
  *
- * <p>L1 的 TTL 刻意做得很短：它只用来扛住「同一秒的连续请求」，
- * 真正的一致性交给 L2 —— 权限变更时新快照会写进 Redis，
- * 其它实例的 L1 最多几秒就过期并从 Redis 读到新的。
- * （要「毫秒级」生效还需要 Pub/Sub 广播失效，那一步没做。）
+ * <p><b>为什么只有一层</b>：原先这里还有一层 Redis 共享快照 + 一整套 epoch 版本号机制
+ * （{@code bumpEpoch} / 比对过期 / 写失败自愈）。那一层是为「多实例部署下撤销权限要跨实例收敛」
+ * 服务的，而本项目是<b>单实例部署</b>（{@code docker-compose.yml} 没有 replicas），
+ * 那份能力用不上；代价却实打实：
+ * <ul>
+ *   <li>它不是「加速层」而是<b>前置条件</b> —— 快照「先写 Redis、成功了才写本地」，
+ *       版本号也是「先自增成功才继续」。Redis 一抖就是<b>全站 403</b>；</li>
+ *   <li>它带来了一整套心智负担：序列化契约、脏数据兜底、版本号自愈。</li>
+ * </ul>
+ * 现在去掉它：本地缓存写不进去的唯一原因是数据库读不到，此时本来就该 fail-closed。
  *
  * <p><b>为什么需要它</b>：Sa-Token 的 {@code StpInterface} 是<b>同步</b>接口
  * （{@code List<String> getPermissionList(Object loginId, String loginType)}），
@@ -43,10 +47,9 @@ import java.util.concurrent.TimeUnit;
  * <p>预热时机见 {@code UserPermissionWarmupFilter}：它在所有 WebFilter 阶段、
  * Controller 注解鉴权<b>之前</b>把快照准备好。
  *
- * <p><b>一致性取舍</b>：进程内快照在多实例部署下有最长一个 TTL 的滞后。
- * 本实例内的角色/权限变更会主动 {@link #refresh(Long)} 刷新，
- * 其它实例最多滞后一个 TTL。这是「权限撤销」场景下的已知窗口，
- * 如需更强的一致性应改为 Redis 共享快照。
+ * <p><b>一致性取舍</b>：快照只在本进程内，多实例部署时其它实例最多滞后一个 TTL。
+ * 本实例内的角色/权限/用户角色变更会主动 {@link #refresh(Long)} 刷新，
+ * 所以真正会漏掉的只有「没走 refresh 路径的变更」——那属于 bug，不是设计。
  *
  * <h3>三件必须守住的事</h3>
  * <ol>
@@ -75,11 +78,6 @@ public class UserPermissionCache {
     private final UserPermissionResolver resolver;
 
     /**
-     * L2：Redis 共享快照（多实例共享，权限撤销靠它收敛）。
-     */
-    private final PermissionSnapshotStore store;
-
-    /**
      * 快照本体。{@code expireAfterWrite} 让过期条目被真正淘汰（内存有界），
      * {@code getIfPresent} 是纯内存读，不阻塞。
      */
@@ -101,18 +99,15 @@ public class UserPermissionCache {
      *
      * <p><b>必须与预热分开</b>：共用一张表的话，管理员发起的撤销可能被一个
      * 「读路径的预热」顶掉 —— computeIfAbsent 命中已有条目就直接返回它，
-     * 于是<b>版本号不会自增、新快照不会写入</b>，撤销被整条吞掉，
-     * 而调用方照样拿到 200。
+     * 于是<b>新快照不会写入</b>，撤销被整条吞掉，而调用方照样拿到 200。
      */
     private final Map<Long, Mono<Void>> refreshFlights = new ConcurrentHashMap<>();
 
     public UserPermissionCache(
             UserPermissionResolver resolver,
-            PermissionSnapshotStore store,
-            @Value("${blog.auth.permission-snapshot-local-ttl-ms:5000}") long localTtlMillis,
+            @Value("${blog.auth.permission-snapshot-local-ttl-ms:60000}") long localTtlMillis,
             @Value("${blog.auth.permission-snapshot-backoff-ms:5000}") long failureBackoffMillis) {
         this.resolver = resolver;
-        this.store = store;
         this.snapshots = Caffeine.newBuilder()
                 .expireAfterWrite(localTtlMillis, TimeUnit.MILLISECONDS)
                 .maximumSize(MAX_ENTRIES)
@@ -147,7 +142,7 @@ public class UserPermissionCache {
     }
 
     /**
-     * 确保快照就绪：L1 未命中时依次问 L2（Redis）、L3（库），并把结果填进 L1。
+     * 确保快照就绪：本地未命中时查库，并把结果填进本地缓存。
      *
      * <p>同一用户的并发调用只打一次（single-flight）；
      * 刚失败过的用户处在退避窗口里，期间直接跳过（不再打库）。
@@ -167,7 +162,7 @@ public class UserPermissionCache {
         }
         // computeIfAbsent 保证同一用户同一时刻只有一个刷新在飞；
         // doFinally 在源终止时把飞行中的条目摘掉（.cache() 之后订阅者仍能重放结果）。
-        return warmFlights.computeIfAbsent(userId, id -> loadThroughLayers(id)
+        return warmFlights.computeIfAbsent(userId, id -> loadFromDb(id)
                 .doFinally(signal -> warmFlights.remove(id))
                 .cache());
     }
@@ -185,77 +180,38 @@ public class UserPermissionCache {
         if (userId == null) {
             return Mono.empty();
         }
-        // <b>先自增版本号</b>：这一步是「这次变更能被别的实例感知到」的锚点。
-        // 自增之后所有旧快照都会被判为过期 —— 于是即便后面「写新快照」失败了，
-        // 别的实例读的时候也会发现版本对不上、回库重取（自愈）。
-        //
-        // <b>即使处在失败退避窗口里也必须做</b>：退避只该拦「查库」，
-        // 绝不能把「撤销权限」整条吞掉 —— 之前这里直接 return Mono.empty()，
-        // 结果是「管理员收到 200，但权限没撤销，旧快照继续有效到 TTL 结束」。
-        //
-        // 自增失败则直接冒出去：变更没有生效到共享层，调用方必须知道。
-        return refreshFlights.computeIfAbsent(userId, id -> store.bumpEpoch(id)
-                // 本地快照立即作废：即使下面查库失败，也不能再用旧的那一份。
-                .doOnNext(ignored -> snapshots.invalidate(userId))
-                .then(loadFromDb(id))
+        return refreshFlights.computeIfAbsent(userId, id -> Mono.defer(() -> {
+                    // <b>本地快照立即作废</b>：即使下面查库失败，也不能再用旧的那一份。
+                    //
+                    // 这一步必须在链的<b>最前面</b>、且<b>不依赖任何 IO</b>：
+                    // 挂在某个「可能失败的操作」之后的话，那步失败就等于
+                    // 「撤销权限被整条吞掉」，而调用方照样拿到 200。
+                    snapshots.invalidate(userId);
+                    return loadFromDb(id);
+                })
                 .doFinally(signal -> refreshFlights.remove(id))
                 .cache());
     }
 
     /**
-     * L1 → L2（Redis） → L3（库）的读取路径。
+     * 真正去查库，并写入本地快照。
      *
-     * <p><b>拿到 Redis 里的快照还要比版本号</b>：快照带的 epoch 比当前 epoch 小，
-     * 说明它是旧版权限（多半是上一次写 Redis 失败了）—— 这种快照不能信，回库重取。
-     * 少了这一步，一次写失败就会让别的实例继续按旧权限放行。
-     */
-    private Mono<Void> loadThroughLayers(Long userId) {
-        return store.load(userId)
-                .flatMap(snapshot -> store.currentEpoch(userId)
-                        .defaultIfEmpty(0L)
-                        .flatMap(current -> {
-                            if (snapshot.epoch() < current) {
-                                // 旧版权限，不能信 —— 回库重取。
-                                return Mono.just(Boolean.FALSE);
-                            }
-                            snapshots.put(userId, snapshot);
-                            return Mono.just(Boolean.TRUE);
-                        }))
-                .defaultIfEmpty(Boolean.FALSE)
-                .flatMap(fresh -> fresh ? Mono.empty() : loadFromDb(userId));
-    }
-
-    /**
-     * 真正去查库，并写入 L1 与 L2（Redis）。
-     *
-     * <p><b>先写 Redis，成功了才写 L1</b>：Redis 写不进去就意味着别的实例看不到这份权限，
-     * 这时本实例也不能装作「我有权限」—— 宁可这次 fail-closed（403），
-     * 也不要出现「一个实例有权限、另一个实例没有」的鬼状态。
+     * <p>查库失败时<b>不写快照</b> —— 鉴权侧读到的就是空集合，
+     * 于是 fail-closed（拒绝），而不是「按旧权限继续放行」。
      */
     private Mono<Void> loadFromDb(Long userId) {
         if (isBackingOff(userId)) {
             // 退避窗口内不查库（避免把 DB 抖动放大成查询风暴）。
-            // 注意版本号已经自增过了 —— 别的实例读的时候会发现自己那份是旧版、回库重取，
-            // 所以权限不会被「卡住」，只是这一次没拿到新数据（fail-closed）。
             return Mono.empty();
         }
-        // <b>先读版本号，再读数据</b>：顺序反了的话，并发的一次 bump 会看不见 ——
-        // 「读到旧数据 → 用新的版本号盖章」→ 旧数据被当成最新版，epoch 的自愈能力就没了。
-        return store.currentEpoch(userId)
-                .defaultIfEmpty(0L)
-                // ⚠️ 必须<b>顺序</b>取这两条查询，不能用 zipWith/flatMap 并发：
-                // 本方法会被 @Transactional 的方法调用（角色/权限变更后刷新快照），
-                // 整条链绑定在同一条 R2DBC 连接上，而 r2dbc-mysql 1.4.0 每条连接只有一个
-                // SPSC 的 RequestQueue，且 submit() 时不加锁 —— 并发提交会误判队满，
-                // 抛 IllegalStateException: Request queue is full（见 CLAUDE.md）。
-                .flatMap(epoch -> resolver.resolveRoleCodes(userId)
-                        .flatMap(roles -> resolver.resolvePermissionIdentities(userId)
-                                .map(permissions -> new PermissionSnapshot(roles, permissions, epoch))))
-                .flatMap(snapshot -> {
-                    // 写回 Redis：其它实例的 L1 过期后就能直接拿到这份新快照，
-                    // 不用各自再查一次库。写失败会让异常冒出去（见 save 的注释）。
-                    return store.save(userId, snapshot).thenReturn(snapshot);
-                })
+        // ⚠️ 必须<b>顺序</b>取这两条查询，不能用 zipWith/flatMap 并发：
+        // 本方法会被 @Transactional 的方法调用（角色/权限变更后刷新快照），
+        // 整条链绑定在同一条 R2DBC 连接上，而 r2dbc-mysql 1.4.0 每条连接只有一个
+        // SPSC 的 RequestQueue，且 submit() 时不加锁 —— 并发提交会误判队满，
+        // 抛 IllegalStateException: Request queue is full（见 CLAUDE.md）。
+        return resolver.resolveRoleCodes(userId)
+                .flatMap(roles -> resolver.resolvePermissionIdentities(userId)
+                        .map(permissions -> new PermissionSnapshot(roles, permissions)))
                 .doOnNext(snapshot -> snapshots.put(userId, snapshot))
                 .doOnError(e -> {
                     recentFailures.put(userId, System.currentTimeMillis());
@@ -290,9 +246,6 @@ public class UserPermissionCache {
         if (userId != null) {
             snapshots.invalidate(userId);
             recentFailures.invalidate(userId);
-            // Redis 里的那份也删掉 —— 否则删用户 / 禁用用户之后，
-            // 别的实例还能从共享快照里读到这份已失效的权限。
-            return store.delete(userId);
         }
         return Mono.empty();
     }

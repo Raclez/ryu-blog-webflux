@@ -13,9 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -34,6 +32,10 @@ import static org.mockito.Mockito.when;
  *       （现场看起来像「权限全没了」）。</li>
  * </ol>
  *
+ * <p>缓存是<b>单级</b>的：进程内 Caffeine + 数据库。原先还有一层 Redis 共享快照
+ * 与一整套 epoch 版本号机制，用来在多实例部署下收敛「撤销权限」——
+ * 但本项目是单实例部署，那层能力用不上，代价却是「Redis 一抖 = 全站 403」。
+ *
  * @author ryu
  */
 class UserPermissionCacheTest {
@@ -45,7 +47,6 @@ class UserPermissionCacheTest {
     private static final long BACKOFF_MILLIS = 10_000L;
 
     private UserPermissionResolver resolver;
-    private PermissionSnapshotStore store;
     private UserPermissionCache cache;
 
     @BeforeEach
@@ -55,15 +56,7 @@ class UserPermissionCacheTest {
         when(resolver.resolvePermissionIdentities(anyLong()))
                 .thenReturn(Mono.just(Set.of("system:user:view")));
 
-        // L2（Redis）默认未命中 —— 走 L3（库）。
-        store = mock(PermissionSnapshotStore.class);
-        when(store.load(anyLong())).thenReturn(Mono.empty());
-        when(store.save(anyLong(), any())).thenReturn(Mono.empty());
-        when(store.delete(anyLong())).thenReturn(Mono.empty());
-        when(store.currentEpoch(anyLong())).thenReturn(Mono.just(0L));
-        when(store.bumpEpoch(anyLong())).thenReturn(Mono.just(1L));
-
-        cache = new UserPermissionCache(resolver, store, TTL_MILLIS, BACKOFF_MILLIS);
+        cache = new UserPermissionCache(resolver, TTL_MILLIS, BACKOFF_MILLIS);
     }
 
     @Test
@@ -118,7 +111,7 @@ class UserPermissionCacheTest {
         when(resolver.resolveRoleCodes(anyLong()))
                 .thenReturn(Mono.error(new RuntimeException("数据库连不上")));
 
-        UserPermissionCache shortBackoff = new UserPermissionCache(resolver, store, TTL_MILLIS, 50L);
+        UserPermissionCache shortBackoff = new UserPermissionCache(resolver, TTL_MILLIS, 50L);
         shortBackoff.refresh(1L).block();
         shortBackoff.refresh(1L).block();
         verify(resolver, times(1)).resolveRoleCodes(1L);
@@ -160,67 +153,39 @@ class UserPermissionCacheTest {
     }
 
     @Test
-    @DisplayName("L1 未命中时先问 Redis，命中就不查库")
-    void hitsRedisBeforeDatabase() {
-        PermissionSnapshot shared = new PermissionSnapshot(Set.of("ADMIN"), Set.of("system:user:view"), 0L);
-        when(store.load(1L)).thenReturn(Mono.just(shared));
-        when(store.currentEpoch(1L)).thenReturn(Mono.just(0L));
-
+    @DisplayName("本地未命中时查库，并把结果填进本地")
+    void ensureWarmMissHitsDatabaseAndFillsCache() {
         cache.ensureWarm(1L).block();
 
+        assertTrue(cache.isWarm(1L), "预热之后快照必须就绪");
         assertEquals(Set.of("ADMIN"), cache.getSnapshot(1L).roles());
-        verify(resolver, times(0)).resolveRoleCodes(anyLong());
-    }
-
-    @Test
-    @DisplayName("Redis 也没有才查库，查完写回 Redis")
-    void fallsBackToDatabaseAndWritesBack() {
-        cache.ensureWarm(1L).block();
-
-        verify(resolver, times(1)).resolveRoleCodes(1L);
-        verify(store, times(1)).save(eq(1L), any());
-    }
-
-    @Test
-    @DisplayName("失效快照时 Redis 里的那份也要删掉")
-    void evictAlsoDeletesRedisEntry() {
-        cache.evict(1L).block();
-
-        verify(store, times(1)).delete(1L);
-    }
-
-    @Test
-    @DisplayName("Redis 里的快照版本号比当前版本旧 —— 不能信，要回库重取")
-    void staleEpochSnapshotIsNotTrusted() {
-        // 快照是第 0 版写的，当前版本已经到第 3 版 —— 说明中间有一次写 Redis 失败了，
-        // 这份快照带着的是旧版权限。
-        PermissionSnapshot stale = new PermissionSnapshot(Set.of("ADMIN"), Set.of("system:user:view"), 0L);
-        when(store.load(1L)).thenReturn(Mono.just(stale));
-        when(store.currentEpoch(1L)).thenReturn(Mono.just(3L));
-
-        cache.ensureWarm(1L).block();
-
         verify(resolver, times(1)).resolveRoleCodes(1L);
     }
 
     @Test
-    @DisplayName("写 Redis 失败时本地也不留快照 —— fail-closed，不装作有权限")
-    void failedRedisWriteLeavesNoLocalSnapshot() {
-        when(store.save(anyLong(), any())).thenReturn(Mono.error(new RuntimeException("redis down")));
+    @DisplayName("刷新失败时旧快照必须已经作废 —— 不能继续按旧权限放行")
+    void failedRefreshInvalidatesPreviousSnapshot() {
+        cache.refresh(1L).block();
+        assertTrue(cache.isWarm(1L));
 
-        cache.ensureWarm(1L).block();
+        when(resolver.resolveRoleCodes(anyLong()))
+                .thenReturn(Mono.error(new RuntimeException("数据库连不上")));
 
-        assertFalse(cache.isWarm(1L),
-                "共享层写不进去时，本实例也不能留一份「自己有权限」的快照 —— "
-                        + "否则就出现「一个实例有权限、另一个没有」的鬼状态");
-    }
-
-    @Test
-    @DisplayName("强制刷新必须先自增权限版本号")
-    void forcedRefreshBumpsEpoch() {
         cache.refresh(1L).block();
 
-        verify(store, times(1)).bumpEpoch(1L);
+        assertFalse(cache.isWarm(1L),
+                "查库失败后旧快照必须作废 —— 否则「撤销权限」会被这次失败顶掉，"
+                        + "旧权限继续生效到 TTL 结束");
+        assertNull(cache.getSnapshot(1L));
+    }
+
+    @Test
+    @DisplayName("快照未就绪时取不到 —— 鉴权侧据此 fail-closed")
+    void snapshotNotReadyIsNull() {
+        assertFalse(cache.isWarm(1L));
+        assertNull(cache.getSnapshot(1L),
+                "未就绪必须返回 null —— 返回空集合会被当成「这个人没有任何权限」，"
+                        + "而鉴权侧据此拒绝（fail-closed），不是放行");
     }
 
     @Test
