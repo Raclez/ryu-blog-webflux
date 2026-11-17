@@ -2,7 +2,6 @@ package com.ryu.blog.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -13,9 +12,8 @@ import jakarta.annotation.PostConstruct;
  *
  * <p>Sa-Token 的 JWT 模式下，密钥为空会<b>回退到内置的公开默认密钥</b> ——
  * 那意味着任何人可以签发任意 userId 的合法 token，直接冒充 admin。
- * 而 {@code application.yml} 里写的是 {@code jwt-secret-key: ${JWT_SECRET:}}，
- * 默认值就是空字符串；{@code docker-compose.yml} 里更把一个弱默认值
- * {@code abcdefghijklmnopqrstuvwxyz1234567890} 写进了仓库。
+ * 而 {@code application.yml} 里写的是 {@code jwt-secret-key: ${JWT_SECRET}}，
+ * 没有默认值 —— 缺失时解析成空串，本校验器直接拒绝启动。
  *
  * <p><b>两级策略</b>：
  * <ul>
@@ -27,9 +25,10 @@ import jakarta.annotation.PostConstruct;
  *       只会让人把校验关掉；生产环境才是必须守住的那道。</li>
  * </ul>
  *
- * <p>{@code @DependsOn("dotenvLoader")} 保证在 {@code DotenvLoader} 加载完
- * {@code .env} 之后才校验 —— 否则 {@code ${JWT_SECRET:}} 会在
- * {@code .env} 被读进 System properties 之前就解析成空串，造成误报。
+ * <p>{@code .env} 由 Spring Boot 的 {@code spring.config.import} 在
+ * <b>ConfigData 阶段</b>导入 —— 早于本 bean 的创建，所以这里读到的已经是最终值。
+ * （早先这里靠 {@code @DependsOn("dotenvLoader")} 兜底，那套是
+ * {@code @Component} + {@code @PostConstruct}，注入时机太晚，已随它一并移除。）
  *
  * @author ryu
  * @since 1.0.0
@@ -37,7 +36,6 @@ import jakarta.annotation.PostConstruct;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@DependsOn("dotenvLoader")
 public class JwtSecretValidator {
 
     /** 生产环境要求的最小密钥长度（字节） */

@@ -1,4 +1,19 @@
 # 本地开发环境 - 只覆盖需要自定义的配置
+#
+# 【为什么这个文件里有一堆默认值】
+#   application.yml 里所有占位符都不带默认值 —— 凭据与地址一律由环境变量提供，
+#   配置文件里不写死任何真实主机名与口令。
+#
+#   缺变量时的行为由 profile 决定：
+#     · prod —— application-dev.yml 不加载 → ${DB_URL} 之类解析不到 → 启动失败；
+#     · dev  —— 本文件覆盖同名配置，${DB_URL:默认值} 用本地兜底值。
+#
+#   兜底值里**只有 localhost / 标准端口 / 空口令 / 本地路径**，
+#   没有任何真实地址，也没有任何真实口令。
+#
+#   新增一个环境变量时，application.yml 加 ${XXX}，这里加 ${XXX:本地兜底值}，
+#   .env.example 也要同步 —— 三处缺一不可。
+
 logging:
   level:
     root: debug
@@ -7,8 +22,35 @@ logging:
 app:
   cors:
     allowed-origins: "*"
+  upload:
+    base-path: ${UPLOAD_PATH:./uploads}
 
 springdoc:
   swagger-ui:
     enabled: true
 
+server:
+  port: ${SERVER_PORT:5300}
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+  r2dbc:
+    url: ${DB_URL:r2dbc:mysql://localhost:3306/ryu_blog_webflux?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+
+sa-token:
+  # 空密钥时 Sa-Token 会回退到内置的公开默认密钥 —— 任何人都能签发任意 userId 的
+  # 合法 token 冒充 admin。所以 JWT_SECRET 在**任何** profile 下都必须由外部提供，
+  # 这里不给兜底值：留空 → JwtSecretValidator 直接拒绝启动（中文提示）。
+  jwt-secret-key: ${JWT_SECRET:}
+  alone-redis:
+    database: ${REDIS_DATABASE:0}
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}

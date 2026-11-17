@@ -128,6 +128,18 @@ cp .env.example .env
 
 2. 编辑 `.env` 配置数据库、Redis、AI API Key 等
 
+> **配置文件里不写任何凭据与地址。** `application*.yml` 里的
+> 数据库地址、Redis 主机与口令、JWT 密钥、端口、路径**全部是 `${ENV_VAR}` 占位符，
+> 没有默认值** —— 少配一个就会启动失败（dev profile 有本地兜底值，见 `.env.example` 注释）。
+>
+> `.env` 由 Spring Boot 的 `spring.config.import` 机制读入
+> （`optional:file:.env[.properties]`），**不要提交进仓库**；
+> `.env.example` 是模板，会进版本库，里面只能放占位值。
+>
+> 新增环境变量时三处要同步：`application.yml`（占位符）、
+> `application-dev.yml`（本地兜底值）、`.env.example`（模板）。
+> `ConfigNoPlaintextSecretsTest` 会盯着这三处是否同步。
+
 ### 启动
 
 ```bash
@@ -178,38 +190,29 @@ ryu-blog-monolith/
 
 ### 环境变量 (.env)
 
-```bash
-# 数据库
-DB_URL=r2dbc:mysql://localhost:3306/ryu_blog
-DB_USERNAME=root
-DB_PASSWORD=
+完整的变量清单见仓库根目录的 **`.env.example`**（模板，进版本库）。
+`.env` 是你的本地副本（已 gitignore，**不要提交**）。
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
+优先级：**真实 OS 环境变量 > `.env` 文件 > `application*.yml`**。
 
-# JWT
-JWT_SECRET=
+### 缺失变量时的行为
 
-# 文件上传
-UPLOAD_PATH=./uploads
-SERVER_PORT=5300
-```
+| profile | 行为 |
+|---|---|
+| `prod` | 缺任何一个必需变量 → **启动失败**（Spring 报 `Could not resolve placeholder 'DB_URL'`） |
+| 其它 | 用 `application-dev.yml` 里的**本地兜底值**顶上（只有 localhost / 标准端口 / 空口令） |
+
+> dev 下用兜底值是**静默**的 —— 占位符代换不会告诉你它用了默认值。
+> 想知道实际生效的是哪个值，看 `application-dev.yml` 里的注释，或直接看启动日志里的连接信息。
+
+`JWT_SECRET` 在**任何** profile 下都没有兜底值：为空时 Sa-Token 会回退到内置的公开默认密钥，
+任何人都能签发任意 userId 的合法 token 冒充 admin —— `JwtSecretValidator` 会直接拒绝启动。
 
 ### AI 配置
 
-```yaml
-ai:
-  openai:
-    api-key: sk-xxx
-    base-url: https://api.openai.com
-  deepseek:
-    api-key: xxx
-    base-url: https://api.deepseek.com
-  anthropic:
-    api-key: sk-ant-xxx
-```
+真实配置存在数据库 `t_sys_config`（键形如 `ai.provider.openai`）。
+`application-ai.yml` 里的 `api-key` 只是给 Spring AI 自动配置占位的假值，
+也支持用环境变量覆盖（`OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）。
 
 ### 存储配置
 

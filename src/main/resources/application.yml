@@ -1,5 +1,5 @@
 server:
-  port: 5300
+  port: ${SERVER_PORT}
   shutdown: graceful
   compression:
     enabled: true
@@ -15,7 +15,25 @@ server:
 spring:
   application:
     name: ryu-blog
+  config:
+    # 把 .env 当作 Spring 的一个配置来源导入（properties 格式）。
+    # 用的是 Spring Boot 官方的 config.import 机制，没有自定义代码。
+    #
+    # 为什么不用 @Component + @PostConstruct 读 .env：那种方式在**bean 实例化阶段**
+    # 才把值塞进去，而 spring.profiles.active（ConfigData 阶段）、
+    # blog.ai.enabled（@ConditionalOnProperty 求值阶段）、logback 的 logging.*
+    # 都读得更早 —— .env 对它们完全无效。
+    #
+    # 注意：import 的文档优先级**低于**导入它的 application.yml，
+    # 但占位符 ${VAR} 的取值会在整个 Environment 里找，所以 .env 里的值依然生效。
+    # 相对路径以**启动时的工作目录**为准；文件不存在时 optional: 前缀保证不报错。
+    import: "optional:file:.env[.properties]"
   profiles:
+    # 全部环境变量都没有默认值 —— 缺了就由 application-dev.yml 提供本地兜底值，
+    # 或者在 prod 下直接启动失败。
+    # 这里保留 dev 默认值是** bootstrapping 的必要条件**：profile 决定了
+    # application-dev.yml 会不会被加载，没有它就形成循环依赖。
+    # 生产部署必须显式设 SPRING_PROFILES_ACTIVE=prod（compose 与 Dockerfile 都已设）。
     active: ${SPRING_PROFILES_ACTIVE:dev}
     # include 里的 profile 恒生效，与 SPRING_PROFILES_ACTIVE 无关。
     # ai 必须在这里：application-ai.yml 里定义了 blog.ai.enabled（AI 总开关）、
@@ -44,17 +62,19 @@ spring:
     default-property-inclusion: non_null
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      database: 0
+      # 主机、口令一律由环境变量提供，配置文件里不写默认值 ——
+      # 缺了要么拒启动（prod），要么用本地兜底值（dev），都不会悄悄连到某台机器。
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE}
     r2dbc:
       repositories:
         enabled: true
   r2dbc:
-    url: ${DB_URL:r2dbc:mysql://localhost:3306/ryu_blog_webflux?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai}
-    username: ${DB_USERNAME:}
-    password: ${DB_PASSWORD:}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     pool:
       enabled: true
       initial-size: 10
@@ -85,17 +105,20 @@ sa-token:
   # 是否尝试从 cookie 里读取 Token
   is-read-cookie: false
   # jwt秘钥
-  jwt-secret-key: ${JWT_SECRET:}
+  jwt-secret-key: ${JWT_SECRET}
   # 配置 Sa-Token 单独使用的 Redis 连接
+  # 注意：这里与上面的 spring.data.redis 用的是**同一组**环境变量 ——
+  # 两边各写一份默认值会让「Spring Redis 正常、Sa-Token 那条连不上」，
+  # 而且连的是两台不同的机器。
   alone-redis:
     # Redis数据库索引
-    database: ${REDIS_DATABASE:0}
+    database: ${REDIS_DATABASE}
     # Redis服务器地址
-    host: ${REDIS_HOST:localhost}
+    host: ${REDIS_HOST}
     # Redis服务器连接端口
-    port: ${REDIS_PORT:6379}
-    # Redis服务器连接密码（默认为空）
-    password: ${REDIS_PASSWORD:}
+    port: ${REDIS_PORT}
+    # Redis服务器连接密码
+    password: ${REDIS_PASSWORD}
     # 连接超时时间
     timeout: 10s
     lettuce:
@@ -147,7 +170,7 @@ management:
 app:
   # 文件上传配置
   upload:
-    base-path: ${UPLOAD_PATH:./uploads}
+    base-path: ${UPLOAD_PATH}
     max-size: 10MB
     allowed-types: jpg,jpeg,png,gif,webp,mp4,mp3,pdf,doc,docx,xls,xlsx,ppt,pptx,zip,rar,7z
   # 缓存配置

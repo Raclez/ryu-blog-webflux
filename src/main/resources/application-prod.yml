@@ -1,6 +1,6 @@
 # 生产环境配置 - 只覆盖需要自定义的配置
 server:
-  port: ${SERVER_PORT:5300}
+  port: ${SERVER_PORT}
 
 logging:
   level:
@@ -28,4 +28,4 @@ sa-token:
 
 app:
   upload:
-    base-path: ${UPLOAD_PATH:/data/uploads}
+    base-path: ${UPLOAD_PATH}

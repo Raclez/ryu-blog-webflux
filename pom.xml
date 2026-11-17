@@ -106,13 +106,6 @@
 
     <dependencies>
 
-        <!-- Dotenv for environment variables -->
-        <dependency>
-            <groupId>io.github.cdimascio</groupId>
-            <artifactId>java-dotenv</artifactId>
-            <version>5.2.2</version>
-        </dependency>
-
         <!-- Spring AI - 使用核心库而非 starter，避免自动配置 -->
         <!-- 这样可以完全控制 AI 客户端的创建，实现真正的可插拔设计 -->
         <dependency>
@@ -188,6 +181,10 @@
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-redis-jackson</artifactId>
             <version>1.42.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
         </dependency>
         <!-- Actuator -->
         <dependency>

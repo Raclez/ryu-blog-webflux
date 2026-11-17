@@ -10,14 +10,14 @@
 spring:
   ai:
     openai:
-      api-key: placeholder
-      base-url: https://api.openai.com
+      api-key: ${OPENAI_API_KEY:placeholder}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
     azure:
       openai:
-        api-key: placeholder
-        endpoint: https://placeholder.openai.azure.com
+        api-key: ${AZURE_OPENAI_API_KEY:placeholder}
+        endpoint: ${AZURE_OPENAI_ENDPOINT:https://placeholder.openai.azure.com}
     anthropic:
-      api-key: placeholder
+      api-key: ${ANTHROPIC_API_KEY:placeholder}
 
 # ============================================
 # AI功能总开关（可插拔设计）

@@ -79,18 +79,25 @@ services:
       - mysql
       - redis
     environment:
+      # 变量名与 .env、application*.yml 里的占位符**完全同名** ——
+      # 一套名字走本地 .env / 容器 env / compose 自身替换三处，
+      # 不会再出现「compose 传 SPRING_R2DBC_URL、yml 却找 DB_URL」这种对不上的情况。
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
-      - SPRING_R2DBC_URL=r2dbc:mysql://mysql:3306/${MYSQL_DATABASE:-ryu_blog}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
-      - SPRING_R2DBC_USERNAME=root
-      - SPRING_R2DBC_PASSWORD=${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - SERVER_PORT=${API_PORT:-5300}
       - UPLOAD_PATH=/data/uploads
+      - DB_URL=r2dbc:mysql://mysql:3306/${MYSQL_DATABASE:-ryu_blog}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      - DB_USERNAME=${MYSQL_USERNAME:-root}
+      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DATABASE=${REDIS_DATABASE:-0}
+      # AI 总开关与并发闸门（application-ai.yml 里有默认值，这里显式传一遍便于按环境调整）
+      - BLOG_AI_ENABLED=${BLOG_AI_ENABLED:-true}
+      - BLOG_AI_MAX_CONCURRENT=${BLOG_AI_MAX_CONCURRENT:-8}
       # 必须显式提供，且 >= 32 字节：留默认值等于公开了签名密钥，
       # 任何人都能签发任意 userId 的合法 JWT（prod 下 JwtSecretValidator 也会拒绝启动）
-      - SA_TOKEN_JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to a random string of at least 32 bytes}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to a random string of at least 32 bytes}
       - JAVA_OPTS=-Xms256m -Xmx512m -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/heapdump.hprof
       - REACTOR_DEBUGAGENT_ENABLED=false
       - SPRING_MAIN_ALLOW_BEAN_DEFINITION_OVERRIDING=true
