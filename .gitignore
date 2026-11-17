@@ -36,3 +36,13 @@ Thumbs.db
 
 # Playwright MCP 本地产物（截图/trace，不进仓库）
 /.playwright-mcp/
+
+# 内部文档：公开仓库只保留 README，其余留在本地磁盘
+/REVIEW.md
+/API.md
+/RBAC.md
+/CLAUDE.md
+/docs/
+
+# 一次性本地脚本
+/tools/
