@@ -173,28 +173,22 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
-        <!-- Sa-Token
-             三个模块（starter / jwt / redis-jackson）统一到 1.38.0：
-             之前 starter 停在 1.37.0、jwt 在 1.38.0，core 与 jwt 版本不一致
-             是个隐患（jwt 1.38 跑在 core 1.37 上）。
-             现已确认 starter 1.38.0 也在本地仓库里，离线构建不受影响。
-             版本号请三个一起改，不要只改一个。 -->
+        <!-- Sa-Token -->
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-reactor-spring-boot3-starter</artifactId>
-            <version>1.38.0</version>
+            <version>1.42.0</version>
         </dependency>
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-jwt</artifactId>
-            <version>1.38.0</version>
+            <version>1.42.0</version>
         </dependency>
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-redis-jackson</artifactId>
-            <version>1.38.0</version>
+            <version>1.42.0</version>
         </dependency>
-        
         <!-- Actuator -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
